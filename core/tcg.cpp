@@ -143,12 +143,12 @@ static const uint8_t starter_bin_bytes[] = {
 };
 
 tiny_code_generator_t::tiny_code_generator_t() {
-  temp_executable temp_exe(&starter_bin_bytes[0],
-                           sizeof(starter_bin_bytes),
-                           "qemu-starter-" TARGET_ARCH_NAME);
-  temp_exe.store();
+  temp_exe the_exe(&starter_bin_bytes[0],
+                   sizeof(starter_bin_bytes),
+                   "qemu-starter-" TARGET_ARCH_NAME);
+  the_exe.store();
 
-  jv_init_libqemu(temp_exe.path().c_str());
+  jv_init_libqemu(the_exe.path().c_str());
 }
 
 tiny_code_generator_t::~tiny_code_generator_t() {}

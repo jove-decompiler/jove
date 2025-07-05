@@ -11,51 +11,62 @@
 
 namespace jove {
 
-temp_executable::temp_executable(const void *contents, size_t size,
-                                 const std::string &temp_prefix,
-                                 bool close_on_exec)
-    : contents(contents), size(size) {
-  int fd = -1;
+temp_file::temp_file(const void *contents, size_t N,
+                     const std::string &temp_prefix, bool close_on_exec)
+    : contents(contents), N(N), fd(({
+        int fd_ = -1;
 
 #ifdef JOVE_HAVE_MEMFD
-  unsigned flags = 0;
-  if (close_on_exec)
-    flags |= MFD_CLOEXEC;
-  fd = ::memfd_create(temp_prefix.c_str(), flags);
-  if (fd < 0)
-    throw std::runtime_error(std::string("memfd_create failed: ") + strerror(errno));
-
-  _path = "/proc/self/fd/" + std::to_string(fd);
+        unsigned flags = 0;
+        if (close_on_exec)
+          flags |= MFD_CLOEXEC;
+        fd_ = ::memfd_create(temp_prefix.c_str(), flags);
+        if (fd_ < 0)
+          throw std::runtime_error(std::string("memfd_create failed: ") +
+                                   strerror(errno));
 #else
-  _path = "/tmp/" + temp_prefix + ".XXXXXX";
+	std::string path = "/tmp/" + temp_prefix + ".XXXXXX";
 
-  fd = mkostemp(&_path[0], O_CLOEXEC);
-  if (fd < 0)
-    throw std::runtime_error(std::string("mkstemp failed: ") + strerror(errno));
+	fd_ = mkostemp(&path[0], O_CLOEXEC);
+	if (fd_ < 0)
+          throw std::runtime_error(std::string("mkstemp failed: ") +
+                                   strerror(errno));
 #endif
+        fd_;
+      })),
 
-  _fd = std::make_unique<scoped_fd>(fd);
+      path_(
+#ifdef JOVE_HAVE_MEMFD
+          "/proc/self/fd/" + std::to_string(fd.get())
+#else
+          fd.readlink_path()
+#endif
+      ) {
 }
 
-void temp_executable::store(void) {
-  if (::fchmod(_fd->get(), 0777) < 0)
-    throw std::runtime_error(std::string("temp_executable: fchmod failed: ") +
-                             strerror(errno));
-
-  long ret = robust_write(_fd->get(), contents, size);
-  if (ret != size)
-    throw std::runtime_error("temp_executable: robust_write gave " +
+void temp_file::store(void) noexcept(false) {
+  ssize_t ret = robust_write(fd.get(), contents, this->N);
+  if (ret != this->N)
+    throw std::runtime_error("temp_file: robust_write gave " +
                              std::to_string(ret));
 
 #ifndef JOVE_HAVE_MEMFD
-  _fd.reset();
+  fd.close();
 #endif
 }
 
-temp_executable::~temp_executable() {
+temp_file::~temp_file() {
 #ifndef JOVE_HAVE_MEMFD
-  ::unlink(_path.c_str());
+  ::unlink(readlink_path());
 #endif
+}
+
+void temp_exe::store(void) noexcept(false) {
+  if (::fchmod(fd.get(), 0777) < 0)
+    throw std::runtime_error(std::string("temp_exe: fchmod failed: ") +
+                             strerror(errno));
+
+  temp_file::store();
 }
 
 }

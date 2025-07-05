@@ -2,8 +2,8 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
-template <typename Alloc>
-struct objdump_output_t : public ip_mt_base_rw_accessible_nospin {
+template <typename Alloc, bool MT>
+struct objdump_thinks_t : public ip_base_rw_accessible_nospin<MT> {
   using allocator_type = Alloc;
 
   using type = boost::dynamic_bitset<unsigned long /* FIXME */, Alloc>;
@@ -12,39 +12,47 @@ private:
   taddr_t begin = ~0UL;
   type good;
 
-  template <typename Alloc2> friend struct objdump_output_t;
+  template <typename, bool> friend struct objdump_thinks_t;
 
 public:
   template <typename... Args>
-  objdump_output_t(Args &&...args) : good(std::forward<Args>(args)...) {}
+  objdump_thinks_t(Args &&...args) : good(std::forward<Args>(args)...) {}
 
-  objdump_output_t(const objdump_output_t<Alloc> &other) noexcept
+  template <bool MT2>
+  objdump_thinks_t(const objdump_thinks_t<Alloc, MT2> &other) noexcept
       : begin(other.begin), good(other.good) {}
 
-  objdump_output_t(objdump_output_t<Alloc> &&other) noexcept
+  template <bool MT2>
+  objdump_thinks_t(objdump_thinks_t<Alloc, MT2> &&other) noexcept
       : begin(other.begin), good(std::move(other.good)) {}
 
-  objdump_output_t &operator=(objdump_output_t<Alloc> &&other) noexcept {
-    if (this == &other)
-      return *this;
+  template <bool MT2>
+  objdump_thinks_t &operator=(objdump_thinks_t<Alloc, MT2> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+	return *this;
+    }
 
     begin = std::move(other.begin);
     good = std::move(other.good);
     return *this;
   }
 
-  objdump_output_t &operator=(const objdump_output_t<Alloc> &other) noexcept {
-    if (this == &other)
-      return *this;
+  template <bool MT2>
+  objdump_thinks_t &
+  operator=(const objdump_thinks_t<Alloc, MT2> &other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+	return *this;
+    }
 
     begin = other.begin;
     good = other.good;
     return *this;
   }
 
-  template <bool MT>
   bool empty(void) const {
-    auto s_lck = this->shared_access<MT>();
+    auto s_lck = this->shared_access();
 
     return empty_unlocked();
   }
@@ -53,9 +61,8 @@ public:
     return good.empty();
   }
 
-  template <bool MT>
-  bool is_addr_good(taddr_t addr) const {
-    auto s_lck = this->shared_access<MT>();
+  bool is_addr_good(taddr_t addr) const noexcept {
+    auto s_lck = this->shared_access();
 
     if (unlikely(empty_unlocked()))
       return true; /* who knows */
@@ -68,14 +75,14 @@ public:
     return good.test(idx);
   }
 
-  template <bool MT>
-  bool is_addr_bad(taddr_t addr) const { return !is_addr_good<MT>(addr); }
+  bool is_addr_bad(taddr_t addr) const noexcept {
+    return !is_addr_good(addr);
+  }
 
   // given address is less than the minimum address reported by objdump, or
   // is greater than the biggest address
-  template <bool MT>
   bool is_addr_really_bad(taddr_t addr) const {
-    auto s_lck = this->shared_access<MT>();
+    auto s_lck = this->shared_access();
 
     if (unlikely(empty_unlocked()))
       return false; /* who knows */
@@ -89,6 +96,5 @@ public:
     return false;
   }
 
-  static int generate(objdump_output_t &out, const char *filename,
-                      llvm::object::Binary &Bin);
+  int run(const char *filename, llvm::object::Binary &Bin);
 };

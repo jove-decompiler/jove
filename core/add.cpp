@@ -37,7 +37,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
     if (!Entrypoint)
       return invalid_basic_block_index;
 
-    if (Options.Objdump && b.Analysis.objdump.template is_addr_bad<false>(Entrypoint)) {
+    if (Options.Objdump && b.Analysis.objdump_thinks.is_addr_bad(Entrypoint)) {
       if (Options.IsVeryVerbose())
         llvm::errs() << llvm::formatv("objdump rejects {0}:{1:x}\n",
                                       b.Name.c_str(), Entrypoint);

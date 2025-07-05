@@ -421,16 +421,15 @@ protected:
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
 
-    binary_state_t(const auto &b) {
+    binary_state_t(const binary_t &b) {
       Bin = B::Create(b.data());
 
       if constexpr (Objdump) {
-        if (b.Analysis.objdump.template empty<MT>()) {
-          auto e_lck = b.Analysis.objdump.template exclusive_access<MT>();
+        if (b.Analysis.objdump_thinks.empty()) {
+          auto e_lck = b.Analysis.objdump_thinks.exclusive_access();
 
-          if (b.Analysis.objdump.empty_unlocked())
-            binary_analysis_t<MT, MinSize>::objdump_output_type::generate(
-                const_cast<binary_t &>(b).Analysis.objdump,
+          if (b.Analysis.objdump_thinks.empty_unlocked())
+            const_cast<binary_t *>(&b)->Analysis.objdump_thinks.run(
                 b.is_file() ? b.Name.c_str() : nullptr, *Bin);
         }
       }
@@ -1360,7 +1359,7 @@ protected:
 
     if constexpr (Objdump) {
       if (!b.bbbmap.contains(Addr)) {
-        const bool bad = b.Analysis.objdump.template is_addr_bad<MT>(Addr);
+        const bool bad = b.Analysis.objdump_thinks.is_addr_bad(Addr);
 
         if (unlikely(bad)) {
           if constexpr (IsVerbose())

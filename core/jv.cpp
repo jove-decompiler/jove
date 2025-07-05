@@ -333,8 +333,8 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     if (Options.Objdump) {
       std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
 
-      binary_analysis_t<MT, MinSize>::objdump_output_type::generate(
-          b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
+      b.Analysis.objdump_thinks.run(b.is_file() ? b.Name.c_str() : nullptr,
+                                    *Bin);
     }
 
     on_newbin(b);

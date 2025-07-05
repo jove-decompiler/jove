@@ -7,20 +7,36 @@ namespace jove {
 
 // this class creates an executable with known contents at an accessible path
 // (suitable for execve) and removes it on destruction
-struct temp_executable {
+class temp_file {
   const void *const contents;
-  const size_t size;
+  const size_t N;
 
-  std::unique_ptr<scoped_fd> _fd;
-  std::string _path;
+protected:
+  scoped_fd fd;
 
-  temp_executable(const void *contents, size_t size,
-                  const std::string &temp_prefix, bool close_on_exec = true);
-  ~temp_executable();
+private:
+  const std::string path_;
 
-  void store(void);
+public:
+  temp_file(const void *contents, size_t N,
+	    const std::string &temp_prefix,
+            bool close_on_exec = true);
+  virtual ~temp_file(); /* removes from filesystem */
 
-  const std::string &path(void) { return _path; }
+  virtual void store(void) noexcept(false);
+
+  //
+  // if JOVE_HAVE_MEMFD, path will be of the form: /proc/self/fd/n
+  // otherwise:                                    /tmp/temp_prefix.XXXXXX
+  //
+  const std::string &path(void) const noexcept { return path_; }
+};
+
+struct temp_exe : public temp_file {
+  template <typename... Args>
+  temp_exe(Args &&...args) : temp_file(std::forward<Args>(args)...) {}
+
+  void store(void) noexcept(false) override;
 };
 
 }

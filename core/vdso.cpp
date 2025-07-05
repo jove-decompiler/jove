@@ -60,10 +60,10 @@ static const uint8_t dumper_bin_bytes[] = {
 
 template <typename StringTy>
 bool capture_vdso(StringTy &out) {
-  temp_executable temp_exe(&dumper_bin_bytes[0],
-                           sizeof(dumper_bin_bytes),
-                           "dump-vdso-" TARGET_ARCH_NAME, false);
-  temp_exe.store();
+  temp_exe the_exe(&dumper_bin_bytes[0],
+                   sizeof(dumper_bin_bytes),
+                   "dump-vdso-" TARGET_ARCH_NAME, false);
+  the_exe.store();
 
   int pipefd[2];
   if (::pipe(pipefd) < 0)
@@ -73,7 +73,7 @@ bool capture_vdso(StringTy &out) {
   auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
 
   pid_t pid = RunExecutable(
-      temp_exe.path().c_str(),
+      the_exe.path().c_str(),
       process::no_args,
       process::no_envs, "", "",
       [&](const char **argv, const char **envp) {

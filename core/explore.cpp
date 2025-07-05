@@ -17,6 +17,8 @@
 
 namespace obj = llvm::object;
 
+using llvm::WithColor;
+
 namespace jove {
 
 typedef boost::format fmt;
@@ -426,10 +428,9 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
   unsigned Size = 0;
   jove::terminator_info_t T;
 
-  if (IsVeryVerbose() &&
-      unlikely(b.Analysis.objdump.template is_addr_bad<MT>(Addr)))
-    llvm::errs() << llvm::formatv("objdump says {0}:{1:x} is BAD\n",
-                                  b.Name.c_str(), Addr);
+  if (IsVeryVerbose() && unlikely(b.Analysis.objdump_thinks.is_addr_bad(Addr)))
+    WithColor::note() << llvm::formatv("objdump says {0}:{1:x} is BAD\n",
+                                       b.Name.c_str(), Addr);
 
   do {
     try {
@@ -512,7 +513,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     }
 
     if (T.Type == TERMINATOR::NONE) {
-      if (b.Analysis.objdump.template is_addr_really_bad<MT>(T._none.NextPC)) {
+      if (b.Analysis.objdump_thinks.is_addr_really_bad(T._none.NextPC)) {
         //
         // it's possible that something prevents the code from going further so,
         // have the block finish with an unreachable terminator.
@@ -526,8 +527,8 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
               b.Name.c_str(), T._none.NextPC);
 #if 0
           llvm::errs() << llvm::formatv(
-              "objdump is [{0:x}, {1:x})\n", b.Analysis.objdump.begin,
-              b.Analysis.objdump.begin + b.Analysis.objdump.good.size());
+              "objdump is [{0:x}, {1:x})\n", b.Analysis.objdump_thinks.begin,
+              b.Analysis.objdump_thinks.begin + b.Analysis.objdump_thinks.good.size());
 #endif
         }
 

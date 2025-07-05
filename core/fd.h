@@ -62,6 +62,8 @@ public:
       fd = -1;
     }
   }
+
+  std::string readlink_path(void) const noexcept(false);
 };
 
 }

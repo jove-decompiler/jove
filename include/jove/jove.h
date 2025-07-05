@@ -785,7 +785,7 @@ struct binary_analysis_t {
       : sm_(jv_file.get_segment_manager()),
         Functions(jv_file),
         ICFG(jv_file),
-        objdump(jv_file.get_segment_manager()) {
+        objdump_thinks(jv_file.get_segment_manager()) {
     hack_interprocess_graph(ICFG);
   }
 
@@ -795,7 +795,7 @@ struct binary_analysis_t {
         EntryFunction(std::move(other.EntryFunction)),
         Functions(std::move(other.Functions)),
         ICFG(std::move(other.ICFG)),
-        objdump(std::move(other.objdump)) {
+        objdump_thinks(std::move(other.objdump_thinks)) {
     hack_interprocess_graph(ICFG);
 
     if constexpr (MT != MT2)
@@ -814,7 +814,7 @@ struct binary_analysis_t {
     EntryFunction = other.EntryFunction;
     Functions = std::move(other.Functions);
     ICFG = std::move(other.ICFG);
-    objdump = std::move(other.objdump);
+    objdump_thinks = std::move(other.objdump_thinks);
 
     if constexpr (MT != MT2)
       move_stuff();
@@ -828,11 +828,10 @@ struct binary_analysis_t {
   void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
 #endif
 
-  typedef objdump_output_t<boost::interprocess::allocator<
-      unsigned long /* FIXME */, segment_manager_t>>
-      objdump_output_type;
-
-  objdump_output_type objdump;
+  objdump_thinks_t<boost::interprocess::allocator<unsigned long /* FIXME */,
+                                                  segment_manager_t>,
+                   MT>
+      objdump_thinks;
 
   segment_manager_t *get_segment_manager(void) const {
     segment_manager_t *const sm = sm_.get();

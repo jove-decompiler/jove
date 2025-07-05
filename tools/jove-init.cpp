@@ -311,9 +311,9 @@ int InitTool::Run(void) {
 
         if (AddOptions.Objdump) {
           if (catch_exception([&]() {
-                binary_analysis_t<false, IsToolMinSize>::objdump_output_type::
-                    generate(b.Analysis.objdump,
-                             b.is_file() ? b.Name.c_str() : nullptr, *Bin);
+                // TODO verbose print command
+                b.Analysis.objdump_thinks.run(
+                    b.is_file() ? b.Name.c_str() : nullptr, *Bin);
               })) {
             if (IsVerbose()) {
               WithColor::warning() << llvm::formatv(

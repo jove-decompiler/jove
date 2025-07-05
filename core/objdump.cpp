@@ -12,18 +12,17 @@
 
 namespace jove {
 
-template <typename Alloc>
-int objdump_output_t<Alloc>::generate(objdump_output_t<Alloc> &out,
-                                      const char *filename,
-                                      llvm::object::Binary &Bin) {
-  std::unique_ptr<temp_executable> temp_exe;
+template <typename Alloc, bool MT>
+int objdump_thinks_t<Alloc, MT>::run(const char *filename,
+                                     llvm::object::Binary &Bin) {
+  std::unique_ptr<temp_exe> the_exe;
   if (!filename) {
-    temp_exe = std::make_unique<temp_executable>(
+    the_exe = std::make_unique<temp_exe>(
         Bin.getMemoryBufferRef().getBufferStart(),
         Bin.getMemoryBufferRef().getBufferSize(),
         "objdump-" TARGET_ARCH_NAME, false);
-    temp_exe->store();
-    filename = temp_exe->path().c_str();
+    the_exe->store();
+    filename = the_exe->path().c_str();
   }
 
   std::string path_to_objdump = locator_t::objdump(B::is_coff(Bin));
@@ -143,10 +142,10 @@ int objdump_output_t<Alloc>::generate(objdump_output_t<Alloc> &out,
       fprintf(stderr, "good: %" PRIx64 " in %s\n", (uint64_t)addr, filename);
 #endif
 
-      if (unlikely(idx >= out.good.size()))
-        out.good.resize(idx + 1, false);
+      if (unlikely(idx >= this->good.size()))
+        this->good.resize(idx + 1, false);
 
-      out.good.set(idx);
+      this->good.set(idx);
     }
 
 #undef ret_if_end
@@ -162,10 +161,10 @@ int objdump_output_t<Alloc>::generate(objdump_output_t<Alloc> &out,
   int rc = WaitForProcessToExit(pid);
 
   if (rc) {
-    out.begin = ~0UL;
-    out.good.clear();
+    this->begin = ~0UL;
+    this->good.clear();
   } else {
-    out.begin = minaddr;
+    this->begin = minaddr;
   }
 
   return rc;
@@ -174,15 +173,18 @@ int objdump_output_t<Alloc>::generate(objdump_output_t<Alloc> &out,
 typedef boost::interprocess::allocator<unsigned long, segment_manager_t>
     alloc_t;
 
-#define VALUES_TO_INSTANTIATE_WITH ((alloc_t))
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((alloc_t))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template int objdump_output_t<GET_VALUE(elem)>::generate(                    \
-      objdump_output_t<GET_VALUE(elem)> &out, const char *filename,            \
-      llvm::object::Binary &Bin);
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct objdump_thinks_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),   \
+                                   GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
 
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }
