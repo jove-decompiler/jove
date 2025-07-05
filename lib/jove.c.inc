@@ -510,7 +510,7 @@ void WINAPI JoveWinMain(void) {
 static _UNUSED uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
   char *m;
   unsigned n;
-  LOAD_PROC_SELF_MAPS(m, n);
+  ___proc_self_maps___(m, n);
 
   if (unlikely(__jove_opts.Debug.Stack)) {
     char *s;
@@ -976,7 +976,7 @@ void _jove_install_foreign_function_tables(void) {
    * parsing /proc/self/maps */
   char *maps;
   unsigned n;
-  LOAD_PROC_SELF_MAPS(maps, n);
+  ___proc_self_maps___(maps, n);
 
   uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n); /* cannot fail */
   uintptr_t vdso_load_bias = _parse_vdso_load_bias(maps, n); /* cannot fail */
@@ -1123,7 +1123,7 @@ matched:
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
   char *maps;
   unsigned n;
-  LOAD_PROC_SELF_MAPS(maps, n);
+  ___proc_self_maps___(maps, n);
 
   {
     char *s;
@@ -1175,7 +1175,7 @@ _NORET void _jove_fail2(uintptr_t a0,
                         uintptr_t a1) {
   char *maps;
   unsigned n;
-  LOAD_PROC_SELF_MAPS(maps, n);
+  ___proc_self_maps___(maps, n);
 
   {
     char *s;
@@ -1335,7 +1335,7 @@ jove_thunk_return_t _jove_call(
     if (unlikely(__jove_opts.Debug.Detailed)) {
       char *maps;
       unsigned n;
-      LOAD_PROC_SELF_MAPS(maps, n);
+      ___proc_self_maps___(maps, n);
 
       {
         char *buff;
@@ -1448,7 +1448,7 @@ jove_thunk_return_t _jove_call(
   if (!FoundAll) {
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -1564,7 +1564,7 @@ matched:
     //
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];

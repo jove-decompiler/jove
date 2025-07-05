@@ -120,7 +120,7 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
   if (!FoundAll) {
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -212,7 +212,7 @@ matched:
     //
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -525,7 +525,7 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
   if (!FoundAll) {
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -617,7 +617,7 @@ matched:
     //
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -1094,7 +1094,7 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
   if (!FoundAll) {
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -1186,7 +1186,7 @@ matched:
     //
     char *maps;
     unsigned n;
-    LOAD_PROC_SELF_MAPS(maps, n);
+    ___proc_self_maps___(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];

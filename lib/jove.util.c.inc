@@ -568,7 +568,7 @@ static void _jove_restore_char(const jove_saved_char_t *sav) {
 //
 // /proc/self/maps
 //
-#define LOAD_PROC_SELF_MAPS(var, len)                                          \
+#define ___proc_self_maps___(var, len)                                          \
   ___buff___(var, JOVE_MAX_PROC_MAPS);                                   \
   len = _jove_read_pseudo_file("/proc/self/maps", var, JOVE_MAX_PROC_MAPS)
 

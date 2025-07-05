@@ -1192,7 +1192,7 @@ on_crash:
 void dump_detailed_ucontext(ucontext_t *uctx, siginfo_t *si) {
   char *maps;
   unsigned maps_n;
-  LOAD_PROC_SELF_MAPS(maps, maps_n);
+  ___proc_self_maps___(maps, maps_n);
 
   char *s;
   ___buff___(s, JOVE_LARGE_BUFF_SIZE);
