@@ -7,6 +7,7 @@ set(JOVE_TOOL_FLAGS
   "-D_FILE_OFFSET_BITS=64"
 
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
+  "-DBOOST_UNORDERED_DISABLE_REENTRANCY_CHECK"
 
   # opiniated stuff...
   "-Werror=format"
@@ -192,6 +193,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
 
   if(JOVE_SANITIZE_THREAD)
     add_definitions(-DJOVE_TSAN)
+    add_definitions(-DBOOST_UNORDERED_THREAD_SANITIZER)
   endif()
 
   if(JOVE_STATIC_BUILD)
