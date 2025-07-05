@@ -77,8 +77,8 @@ class JoveTester:
     self.serv_process = None
 
   def find_things(self):
-    self.jove_server_path = '%s/../llvm-project/build/llvm/bin/jove-%s' % (self.tests_dir, self.arch)
-    assert Path(self.jove_server_path).is_file(), "missing host jove binary"
+    self.jove_bin_path = '%s/../llvm-project/build/llvm/bin/jove-%s' % (self.tests_dir, self.arch)
+    assert Path(self.jove_bin_path).is_file(), "missing host jove binary"
 
     self.jove_client_path = '%s/../llvm-project/%s_build/llvm/bin/jove-%s' % (self.tests_dir, self.arch, self.arch)
     assert Path(self.jove_client_path).is_file(), "missing guest jove binary"
@@ -174,7 +174,7 @@ class JoveTester:
   def start_server(self):
     print("starting jove server...")
 
-    server_cmd = [self.jove_server_path, 'server', '-v', '--port=%d' % self.jove_server_port]
+    server_cmd = [self.jove_bin_path, 'server', '-v', '--port=%d' % self.jove_server_port]
     server_cmd += self.extra_server_args
 
     if self.unattended:
@@ -373,18 +373,18 @@ class JoveTester:
         subprocess.run(["rm", "-rf", os.path.expanduser("~/.jv.*"), os.path.expanduser("~/.jove"), os.path.expanduser("~/.wine*")], check=True)
 
         # initialize jv
-        subprocess.run([f'jove-{self.arch}', "init", "-v", str(testbin_path)], check=True)
+        subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], check=True)
 
         # bootstrap each input
         for input_args in inputs:
-          subprocess.run([f'jove-{self.arch}', "bootstrap", "-v", str(testbin_path)] + input_args)
+          subprocess.run([f'{self.jove_bin_path}', "bootstrap", "-v", str(testbin_path)] + input_args)
 
         path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
         path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
 
         # prepare loop command (no --connect for local)
         jove_loop_base = [
-          f'jove-{self.arch}', "loop", "-v",
+          f'{self.jove_bin_path}', "loop", "-v",
           f'--rtmt={int(multi_threaded)}',
           f'--stdout={path_to_stdout}',
           f'--stderr={path_to_stderr}'
