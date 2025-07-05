@@ -492,7 +492,8 @@ private:
   const std::string &temporary_dir(void) const { return opts.temp_dir; }
   locator_t &locator(void) { return locator_; }
 
-  void curiosity(const std::string &message);
+  void CURIOSITY(const std::string &message);
+
   void warning(const char *file, int line);
   [[noreturn]] void die(const std::string &reason);
 

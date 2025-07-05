@@ -104,7 +104,7 @@ typedef boost::format fmt;
   } while (false)
 
 template <bool MT, bool MinSize>
-void llvm_t<MT, MinSize>::curiosity(const std::string &message) {
+void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {
   if (!IsVerbose())
     return;
 
@@ -9456,7 +9456,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     if (IsEnv) {
       if (off < 0) {
         if (IsVeryVerbose())
-          curiosity("negative access into env (" + std::to_string(off) + ")");
+          CURIOSITY("negative access into env (" + std::to_string(off) + ")");
         return;
       }
 
@@ -9499,7 +9499,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
         default:
           if (IsVeryVerbose())
-            curiosity("load(env+" + std::to_string(off) + ") @ " +
+            CURIOSITY("load(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
         }
@@ -9536,7 +9536,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
         default:
           if (IsVeryVerbose())
-            curiosity("store(env+" + std::to_string(off) + ") @ " +
+            CURIOSITY("store(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
         }

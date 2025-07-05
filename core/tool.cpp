@@ -295,7 +295,7 @@ void Tool::HumanOutToFile(const std::string &path) {
   throw std::runtime_error(reason); /* we like destructors */
 }
 
-void Tool::curiosity(const std::string &message) {
+void Tool::CURIOSITY(const std::string &message) {
   if (!IsVerbose())
     return;
 
