@@ -5,8 +5,10 @@
 
 namespace jove {
 
-// this class creates an executable with known contents at an accessible path
-// (suitable for execve) and removes it on destruction
+//
+// this class creates a file with known contents at an accessible path and
+// removes it on destruction
+//
 class temp_file {
   const void *const contents;
   const size_t N;
@@ -32,6 +34,11 @@ public:
   const std::string &path(void) const noexcept { return path_; }
 };
 
+
+//
+// this class creates an executable with known contents at an accessible path,
+// suitable for use with execve(2)
+//
 struct temp_exe : public temp_file {
   template <typename... Args>
   temp_exe(Args &&...args) : temp_file(std::forward<Args>(args)...) {}
