@@ -6,6 +6,14 @@
 
 namespace jove {
 
+static constexpr bool IsTSAN =
+#ifdef JOVE_TSAN
+    true
+#else
+    false
+#endif
+    ;
+
 template <bool MT, bool MinSize>
 function_t::function_t(binary_base_t<MT, MinSize> &b,
                        function_index_t Idx) noexcept
@@ -18,7 +26,8 @@ template <bool MT, bool MinSize>
 bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   using OurCallers_t = Callers_t<MT, MinSize>;
 
-  if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+  if (void *const p = pCallers.Load(IsTSAN && MT ? std::memory_order_acquire
+                                                 : std::memory_order_relaxed)) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     bool The_MT      = !!(addr & 1u);
     bool The_MinSize = !!(addr & 2u);
@@ -37,9 +46,13 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   assert(sm);
 
   static_assert(alignof(OurCallers_t) >= 4);
-  void *mem = sm->allocate_aligned(sizeof(OurCallers_t), alignof(OurCallers_t));
-  assert(mem);
+  unsigned align = alignof(OurCallers_t);
+  if (!MinSize)
+    align = std::max<unsigned>(align,
+                               boost::unordered::detail::foa::cacheline_size);
 
+  void *mem = sm->allocate_aligned(sizeof(OurCallers_t), align);
+  assert(mem);
   OurCallers_t *const pTheCallers = new (mem) OurCallers_t(sm);
 
   uintptr_t addr = reinterpret_cast<uintptr_t>(pTheCallers);
@@ -49,9 +62,10 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   if constexpr (MT) {
     void *expected = nullptr;
     void *desired = reinterpret_cast<void *>(addr);
-    if (pCallers.CompareExchangeStrong(expected, desired,
-                                       std::memory_order_relaxed,
-                                       std::memory_order_relaxed)) {
+    if (pCallers.CompareExchangeStrong(
+            expected, desired,
+            IsTSAN ? std::memory_order_release : std::memory_order_relaxed,
+            IsTSAN ? std::memory_order_acquire : std::memory_order_relaxed)) {
       pTheCallers->Insert(caller);
       return true; /* it was empty before */
     }
@@ -76,7 +90,8 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
 }
 
 function_analysis_t::~function_analysis_t() noexcept {
-  if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+  if (void *const p = pCallers.Load(IsTSAN && AreWeMT ? std::memory_order_acquire
+                                                      : std::memory_order_relaxed)) {
     pCallers.Store(nullptr, std::memory_order_relaxed);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
