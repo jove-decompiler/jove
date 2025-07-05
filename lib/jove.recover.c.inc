@@ -1028,8 +1028,7 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char *buff;
-    ___buff___(buff, 2*PATH_MAX);
-    buff[0] = '\0';
+    ___str___(buff, 2*PATH_MAX);
 
     _strcat(buff, "recover \"--foreign-binary=");
     _strcat(buff, path);
@@ -1394,8 +1393,7 @@ void _jove_recover_anonymous_foreign_function(uint32_t BBIdx, uintptr_t pc) {
         if (Changed) {
           if (unlikely(__jove_opts.Debug.Verbose)) {
             char *s;
-            ___buff___(s, 2 * PATH_MAX);
-            s[0] = '\0';
+            ___str___(s, 2 * PATH_MAX);
 
             _strcat(s, "[found \"");
             _strcat(s, foreign_dso_path_beg);

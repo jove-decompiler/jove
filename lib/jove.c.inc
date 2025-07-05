@@ -186,8 +186,7 @@ void _jove_check_sections_laid_out(void) {
       _ASSERT(expect_addr_before + expect_size_before == expect_addr);
 
       char *s;
-      ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-      s[0] = '\0';
+      ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
       _strcat(s, "(FATAL) _jove_check_sections_laid_out: [");
       {
@@ -378,8 +377,7 @@ void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
     // resolve a symbol, which can be caused by a mismatch of wine versions
     if (unlikely(!poss)) {
       char *s;
-      ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-      s[0] = '\0';
+      ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
       _strcat(s, "_jove_identify_trampolines: NULL @ 0x");
       {
@@ -414,8 +412,7 @@ void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
 
         if (unlikely(__jove_opts.Debug.Tramps)) {
           char *s;
-          ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-          s[0] = '\0';
+          ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
           _strcat(s, "_jove_identify_trampolines: 0x");
           {
@@ -546,8 +543,7 @@ static _UNUSED uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
   uintptr_t stack_end = _end_of_mapping_at_address(init_sp, m, n);
   if (unlikely(!stack_end)) {
     char *s;
-    ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-    s[0] = '\0';
+    ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
     _strcat(s, "could not locate stack pointer (0x");
 
@@ -1127,8 +1123,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   {
     char *s;
-    ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-    s[0] = '\0';
+    ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
     _strcat(s, "_jove_fail1: ");
     _strcat(s, reason);
@@ -1141,8 +1136,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     }
     {
       char *buff;
-      ___buff___(buff, 2*PATH_MAX);
-      buff[0] = '\0';
+      ___str___(buff, 2*PATH_MAX);
 
       if (_description_of_address_for_maps(buff, a0, maps, n)) {
         _strcat(s, " <");
@@ -1179,8 +1173,7 @@ _NORET void _jove_fail2(uintptr_t a0,
 
   {
     char *s;
-    ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-    s[0] = '\0';
+    ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
     _strcat(s, "_jove_fail2: 0x");
     {
@@ -1191,8 +1184,7 @@ _NORET void _jove_fail2(uintptr_t a0,
     }
     {
       char *buff;
-      ___buff___(buff, 2*PATH_MAX);
-      buff[0] = '\0';
+      ___str___(buff, 2*PATH_MAX);
 
       if (_description_of_address_for_maps(buff, a0, maps, n)) {
         _strcat(s, " <");
@@ -1209,8 +1201,7 @@ _NORET void _jove_fail2(uintptr_t a0,
     }
     {
       char *buff;
-      ___buff___(buff, 2*PATH_MAX);
-      buff[0] = '\0';
+      ___str___(buff, 2*PATH_MAX);
 
       if (_description_of_address_for_maps(buff, a1, maps, n)) {
         _strcat(s, " <");
@@ -1241,8 +1232,7 @@ _NORET void _jove_fail2(uintptr_t a0,
 void _jove_log1(const char *msg,
                 uintptr_t x) {
   char *s;
-  ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-  s[0] = '\0';
+  ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
   _strcat(s, msg);
 
@@ -1262,8 +1252,7 @@ void _jove_log2(const char *msg,
                 uintptr_t x,
                 uintptr_t y) {
   char *s;
-  ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-  s[0] = '\0';
+  ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
   _strcat(s, msg);
 
@@ -1339,8 +1328,7 @@ jove_thunk_return_t _jove_call(
 
       {
         char *buff;
-        ___buff___(buff, 2 * PATH_MAX);
-        buff[0] = '\0';
+        ___str___(buff, 2 * PATH_MAX);
 
         if (_description_of_address_for_maps(buff, pc, maps, n)) {
           _strcat(s, " <");
@@ -1530,8 +1518,7 @@ jove_thunk_return_t _jove_call(
             //
 	    {
               char *s;
-              ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-	      s[0] = '\0';
+              ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
 	      _strcat(s, "_jove_call: DSO reloaded (1): ");
 	      _strcat(s, foreign_dso_path_beg);
@@ -1657,8 +1644,7 @@ matched:
             if (Changed) {
               if (unlikely(__jove_opts.Debug.Verbose)) {
                 char *s;
-                ___buff___(s, 2 * PATH_MAX);
-                s[0] = '\0';
+                ___str___(s, 2 * PATH_MAX);
 
                 _strcat(s, "[found \"");
                 _strcat(s, foreign_dso_path_beg);
@@ -1815,8 +1801,7 @@ matched:
 #if 0
             if (unlikely(__jove_opts.Debug.Verbose)) {
               char *s;
-              ___buff___(s, 2 * PATH_MAX);
-              s[0] = '\0';
+              ___str___(s, 2 * PATH_MAX);
 
               _strcat(s, "anonymous region (WINE): ");
               if (Found)
@@ -1901,8 +1886,7 @@ matched:
                 if (Changed) {
                   if (unlikely(__jove_opts.Debug.Verbose)) {
                     char *s;
-                    ___buff___(s, 2 * PATH_MAX);
-                    s[0] = '\0';
+                    ___str___(s, 2 * PATH_MAX);
 
                     _strcat(s, "[found \"");
                     _strcat(s, foreign_dso_path_beg);
@@ -2338,8 +2322,7 @@ __attribute__((__noreturn__)) void _jove_assert_fail(const char *file,
                                                      unsigned line,
                                                      void *retaddr) {
   char *s;
-  ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-  s[0] = '\0';
+  ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
   _ASSERT(file);
 

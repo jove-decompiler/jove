@@ -262,8 +262,7 @@ void _jove_parse_pause_string(char *const s) {
 
     if (!found_opt) {
       char *s;
-      ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-      s[0] = '\0';
+      ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
       _strcat(s, "invalid JOVEPAUSE environment variable: \"");
       _strcat(s, opt);
@@ -1195,8 +1194,7 @@ void dump_detailed_ucontext(ucontext_t *uctx, siginfo_t *si) {
   ___proc_self_maps___(maps, maps_n);
 
   char *s;
-  ___buff___(s, JOVE_LARGE_BUFF_SIZE);
-  s[0] = '\0';
+  ___str___(s, JOVE_LARGE_BUFF_SIZE);
 
   _strcat(s, "*** crash? *** [");
   {
@@ -1208,8 +1206,7 @@ void dump_detailed_ucontext(ucontext_t *uctx, siginfo_t *si) {
   _strcat(s, "]\n");
 
   char *buff;
-  ___buff___(buff, 2*PATH_MAX);
-  buff[0] = '\0';
+  ___str___(buff, 2*PATH_MAX);
 
 #define _FIELD(name, init)                                                     \
   do {                                                                       \

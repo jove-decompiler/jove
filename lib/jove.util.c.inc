@@ -524,10 +524,14 @@ static void _jove_free_buffer(const jove_buffer_t *buff) {
     _UNREACHABLE("failed to deallocate buffer");
 }
 
-#define ___buff___(var, len)                                             \
+#define ___buff___(var, len)                                                   \
   const jove_buffer_t __##var##_buff _CLEANUP(_jove_free_buffer) =             \
       _jove_alloc_buffer(len);                                                 \
   var = (char *)__##var##_buff.ptr
+
+#define ___str___(var, len)                                                    \
+   ___buff___(var, len);                                                       \
+   var[0] = '\0'
 
 //
 // string management
