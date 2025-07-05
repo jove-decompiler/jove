@@ -473,8 +473,9 @@ void Tool::cleanup_temp_dir(void) {
       fs::exists(_temp_dir) &&
       fs::is_directory(_temp_dir)) {
     if (IsVerbose())
-      HumanOut() << llvm::formatv("removing temporary directory at {0}\n",
-                                  _temp_dir);
+      HumanOut() << llvm::formatv(
+          "removing temporary directory at {0}{1}\n", _temp_dir,
+          IsVeryVerbose() ? " (prevent by passing --no-rm-temp-dir)" : "");
 
     fs::remove_all(_temp_dir);
   }
