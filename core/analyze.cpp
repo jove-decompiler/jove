@@ -183,22 +183,22 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
       [&](function_t &f, binary_t &b) {
         function_state_t &x = state.for_function(f);
 
-        if (f.Analysis.IsSj) {
-          f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
-            block_t caller_block = block_for_caller_in_binary(caller, b, jv);
-            if (caller_block.first != index_of_binary(b))
-              return;
+        assert(f.Analysis.IsSj);
 
-            auto &caller_b = jv.Binaries.at(caller_block.first);
-            bb_t caller_bb = basic_block_of_index(caller_block.second, caller_b);
+        f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
+          block_t caller_block = block_for_caller_in_binary(caller, b, jv);
+          if (caller_block.first != index_of_binary(b))
+            return;
 
-            auto &caller_ICFG = caller_b.Analysis.ICFG;
-            bbprop_t &caller_bbprop = caller_ICFG[caller_bb];
+          auto &caller_b = jv.Binaries.at(caller_block.first);
+          bb_t caller_bb = basic_block_of_index(caller_block.second, caller_b);
 
-            if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP)
-              racy::set(caller_bbprop.Sj);
-          });
-        }
+          auto &caller_ICFG = caller_b.Analysis.ICFG;
+          bbprop_t &caller_bbprop = caller_ICFG[caller_bb];
+
+          if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP)
+            racy::set(caller_bbprop.Sj);
+        });
       });
 }
 
