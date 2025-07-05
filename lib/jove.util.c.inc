@@ -557,13 +557,13 @@ static void _jove_restore_char(const jove_saved_char_t *sav) {
   *sav->p = sav->ch;
 }
 
-#define set_restore_char(p, ch)                                                \
+#define ___set_restore_char___(p, ch)                                          \
   const jove_saved_char_t UNIQUE_VAR_NAME(__set_restore)                       \
       _CLEANUP(_jove_restore_char) = _jove_save_and_set_char(p, ch)
 
-#define set_restore_char_safe(p, ch, expected)                                 \
+#define ___set_restore_char_safe___(p, ch, expected)                           \
   _ASSERT(*((const char *)(p)) == expected);                                   \
-  set_restore_char(p, ch)
+  ___set_restore_char___(p, ch)
 
 //
 // /proc/self/maps
@@ -616,13 +616,13 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
     *out = '\0';
 
     if (fwdslash) { /* e.g. /usr/bin/cat */
-      set_restore_char_safe(eol, '\0', '\n');
+      ___set_restore_char_safe___(eol, '\0', '\n');
       _strcat(out, fwdslash);
     } else if (leftsqbr) { /* e.g. [vdso] */
-      set_restore_char_safe(eol, '\0', '\n');
+      ___set_restore_char_safe___(eol, '\0', '\n');
       _strcat(out, leftsqbr);
     } else { /* anonymous mapping */
-      set_restore_char_safe(dash, '\0', '-');
+      ___set_restore_char_safe___(dash, '\0', '-');
       _strcat(out, line);
 
 #ifdef JOVE_TRACK_ALLOCATIONS

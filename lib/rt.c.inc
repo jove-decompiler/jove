@@ -211,12 +211,12 @@ static const struct debug_option_pair debug_opt_tbl[] = {
 void _jove_parse_debug_string(char *const s) {
   const unsigned n = _strlen(s)+1;
 
-  set_restore_char_safe(&s[n - 1], ',', '\0'); /* comma-terminate */
+  ___set_restore_char_safe___(&s[n - 1], ',', '\0'); /* comma-terminate */
 
   char *opt;
   for_each_str_delim_know_end(opt, ',', s, n) {
     /* null-terminate */
-    set_restore_char_safe(_memchr(opt, ',', n), '\0', ',');
+    ___set_restore_char_safe___(_memchr(opt, ',', n), '\0', ',');
 
     bool found_opt = false;
 
@@ -242,12 +242,12 @@ static const struct debug_option_pair pause_opt_tbl[] = {
 void _jove_parse_pause_string(char *const s) {
   const unsigned n = _strlen(s)+1;
 
-  set_restore_char_safe(&s[n - 1], ',', '\0'); /* comma-terminate */
+  ___set_restore_char_safe___(&s[n - 1], ',', '\0'); /* comma-terminate */
 
   char *opt;
   for_each_str_delim_know_end(opt, ',', s, n) {
     /* null-terminate */
-    set_restore_char_safe(_memchr(opt, ',', n), '\0', ',');
+    ___set_restore_char_safe___(_memchr(opt, ',', n), '\0', ',');
 
     bool found_opt = false;
 
