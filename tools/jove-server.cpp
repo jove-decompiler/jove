@@ -94,6 +94,7 @@ public:
   ServerTool() : opts(JoveCategory) {}
 
   int Run(void) override;
+  int Serve(int connection_socket);
 
   int ConnectionProc(ConnectionProcArgs &&);
 };
@@ -174,13 +175,17 @@ int ServerTool::Run(void) {
   //
   // This is the main loop for handling connections
   //
-  for (;;) {
+  return Serve(connection_socket.get());
+}
+
+int ServerTool::Serve(int connection_socket) {
+  {
     //
     // Wait for incoming connection
     //
     sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int data_socket = ::accept(connection_socket.get(),
+    int data_socket = ::accept(connection_socket,
                                (struct sockaddr *)&addr, &addrlen);
     if (unlikely(data_socket < 0)) {
       int err = errno;
@@ -194,13 +199,11 @@ int ServerTool::Run(void) {
     //
     // Create process to service that connection
     //
-    if (!::fork()) {
-      connection_socket.close();
+    if (!::fork())
       return ConnectionProc(std::move(args));
-    }
   }
 
-  return 0;
+  __attribute__((musttail)) return Serve(connection_socket);
 }
 
 int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
