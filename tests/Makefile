@@ -68,7 +68,8 @@ define template_linux
 SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
 
 # it's tricky to run jove loop on a program which calls `setjmp(3)` without
-# performing some dynamic analysis first, and we can't run jove bootstrap locally.
+# performing some dynamic analysis first, and we can't assume that we can run
+# `jove bootstrap` locally.
 LOCAL_TESTS_TO_SKIP := longjmp
 
 # FIXME
