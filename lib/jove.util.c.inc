@@ -524,7 +524,7 @@ static void _jove_free_buffer(const jove_buffer_t *buff) {
     _UNREACHABLE("failed to deallocate buffer");
 }
 
-#define JOVE_SCOPED_BUFF(var, len)                                             \
+#define ___buff___(var, len)                                             \
   const jove_buffer_t __##var##_buff _CLEANUP(_jove_free_buffer) =             \
       _jove_alloc_buffer(len);                                                 \
   var = (char *)__##var##_buff.ptr
@@ -569,7 +569,7 @@ static void _jove_restore_char(const jove_saved_char_t *sav) {
 // /proc/self/maps
 //
 #define LOAD_PROC_SELF_MAPS(var, len)                                          \
-  JOVE_SCOPED_BUFF(var, JOVE_MAX_PROC_MAPS);                                   \
+  ___buff___(var, JOVE_MAX_PROC_MAPS);                                   \
   len = _jove_read_pseudo_file("/proc/self/maps", var, JOVE_MAX_PROC_MAPS)
 
 static _UNUSED bool _description_of_address_for_maps(char *out,

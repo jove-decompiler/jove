@@ -1028,7 +1028,7 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char *buff;
-    JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
+    ___buff___(buff, 2*PATH_MAX);
     buff[0] = '\0';
 
     _strcat(buff, "recover \"--foreign-binary=");
@@ -1050,7 +1050,7 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
 
       {
 	char *buff;
-        JOVE_SCOPED_BUFF(buff, PATH_MAX + 1);
+        ___buff___(buff, PATH_MAX + 1);
 
         buff[0] = ch;
         _memcpy(&buff[sizeof(char)], &PathLen, sizeof(PathLen));
@@ -1284,7 +1284,7 @@ void _jove_recover_anonymous_foreign_function(uint32_t BBIdx, uintptr_t pc) {
     return;
 
   char *beg;
-  JOVE_SCOPED_BUFF(beg, JOVE_LARGE_BUFF_SIZE);
+  ___buff___(beg, JOVE_LARGE_BUFF_SIZE);
   unsigned n =
       _jove_read_pseudo_file(wine_stderr_path, beg, JOVE_LARGE_BUFF_SIZE);
 
@@ -1394,7 +1394,7 @@ void _jove_recover_anonymous_foreign_function(uint32_t BBIdx, uintptr_t pc) {
         if (Changed) {
           if (unlikely(__jove_opts.Debug.Verbose)) {
             char *s;
-            JOVE_SCOPED_BUFF(s, 2 * PATH_MAX);
+            ___buff___(s, 2 * PATH_MAX);
             s[0] = '\0';
 
             _strcat(s, "[found \"");
@@ -1490,7 +1490,7 @@ void _jove_recover_anonymous_foreign_binary(uintptr_t pc) {
   }
 
   char *beg;
-  JOVE_SCOPED_BUFF(beg, JOVE_LARGE_BUFF_SIZE);
+  ___buff___(beg, JOVE_LARGE_BUFF_SIZE);
   unsigned n =
       _jove_read_pseudo_file(wine_stderr_path, beg, JOVE_LARGE_BUFF_SIZE);
 
