@@ -16,8 +16,8 @@ temp_file::temp_file(const void *contents, size_t N,
     : contents(contents), N(N), fd(({
         int fd_ = -1;
 
-#ifdef JOVE_HAVE_MEMFD
         unsigned flags = 0;
+#ifdef JOVE_HAVE_MEMFD
         if (close_on_exec)
           flags |= MFD_CLOEXEC;
         fd_ = ::memfd_create(temp_prefix.c_str(), flags);
@@ -27,7 +27,9 @@ temp_file::temp_file(const void *contents, size_t N,
 #else
 	std::string path = "/tmp/" + temp_prefix + ".XXXXXX";
 
-	fd_ = mkostemp(&path[0], O_CLOEXEC);
+        if (close_on_exec)
+          flags |= O_CLOEXEC;
+	fd_ = mkostemp(&path[0], flags);
 	if (fd_ < 0)
           throw std::runtime_error(std::string("mkstemp failed: ") +
                                    strerror(errno));
