@@ -6,6 +6,14 @@
 
 namespace jove {
 
+static constexpr bool IsTSAN =
+#ifdef JOVE_TSAN
+    true
+#else
+    false
+#endif
+    ;
+
 static bool copy_and_insert_sort(const ip_func_index_vec &old,
                                  ip_func_index_vec &out,
                                  function_index_t FIdx) {
@@ -38,7 +46,8 @@ static bool copy_and_insert_sort(const ip_func_index_vec &old,
 }
 
 bbprop_t::~bbprop_t() noexcept {
-  if (void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
+  if (void *const p = pDynTargets.Load(IsTSAN && AreWeMT ? std::memory_order_acquire
+                                                         : std::memory_order_relaxed)) {
     pDynTargets.Store(nullptr, std::memory_order_relaxed);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
@@ -94,7 +103,8 @@ template <bool MT, bool MinSize>
 bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   using OurDynTargets_t = DynTargets_t<MT, MinSize>;
 
-  if (void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
+  if (void *const p = pDynTargets.Load(IsTSAN && MT ? std::memory_order_acquire
+                                                    : std::memory_order_relaxed)) {
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool The_MT      = !!(p_addr & 1u);
     bool The_MinSize = !!(p_addr & 2u);
@@ -113,8 +123,12 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   assert(sm);
 
   static_assert(alignof(OurDynTargets_t) >= 4);
-  void *mem =
-      sm->allocate_aligned(sizeof(OurDynTargets_t), alignof(OurDynTargets_t));
+  unsigned align = alignof(OurDynTargets_t);
+  if (!MinSize)
+    align = std::max<unsigned>(align,
+                               boost::unordered::detail::foa::cacheline_size);
+
+  void *mem = sm->allocate_aligned(sizeof(OurDynTargets_t), align);
   assert(mem);
 
   OurDynTargets_t *const pTheDynTargets = new (mem) OurDynTargets_t(sm);
@@ -126,9 +140,10 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   if constexpr (MT) {
     void *expected = nullptr;
     void *desired = reinterpret_cast<void *>(addr);
-    if (pDynTargets.CompareExchangeStrong(expected, desired,
-                                          std::memory_order_relaxed,
-                                          std::memory_order_relaxed)) {
+    if (pDynTargets.CompareExchangeStrong(
+            expected, desired,
+            IsTSAN ? std::memory_order_release : std::memory_order_relaxed,
+            IsTSAN ? std::memory_order_acquire : std::memory_order_relaxed)) {
       pTheDynTargets->Insert(X);
       return true; /* it was empty before */
     }
