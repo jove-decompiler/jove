@@ -299,7 +299,8 @@ void Tool::CURIOSITY(const std::string &message) {
   if (!IsVerbose())
     return;
 
-  HumanOut() << llvm::formatv("CURIOSITY: {0}\n", message);
+  HumanOut() << llvm::formatv(
+      __ANSI_BOLD_YELLOW "CURIOSITY: {0}" __ANSI_NORMAL_COLOR "\n", message);
 }
 
 void Tool::warn(const char *file, int line) {
