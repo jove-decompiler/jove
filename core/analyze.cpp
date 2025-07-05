@@ -132,27 +132,20 @@ void analyzer_t<MT, MinSize>::examine_blocks(void) {
     function_state_t &x = state.for_function(f);
 
     const auto &bbvec = x.bbvec;
+    const auto &exit_bbvec = x.exit_bbvec;
+
+    if (!exit_bbvec.empty())
+      f.Returns = true;
+
+    f.Analysis.IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
+    f.Analysis.IsSj = IsFunctionSetjmp(f, b, bbvec);
+    f.Analysis.IsLj = IsFunctionLongjmp(f, b, bbvec);
+
+    const function_index_t FIdx = index_of_function_in_binary(f, b);
 
     auto &ICFG = b.Analysis.ICFG;
-
-    oneapi::tbb::parallel_invoke(
-        [&](void) -> void {
-          const auto &exit_bbvec = x.exit_bbvec;
-
-          if (!exit_bbvec.empty())
-            f.Returns = true;
-
-          f.Analysis.IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
-          f.Analysis.IsSj = IsFunctionSetjmp(f, b, bbvec);
-          f.Analysis.IsLj = IsFunctionLongjmp(f, b, bbvec);
-        },
-
-        [&](void) -> void {
-          const function_index_t FIdx = index_of_function_in_binary(f, b);
-
-          std::for_each(maybe_par_unseq, bbvec.begin(), bbvec.end(),
-                        [&](bb_t bb) { ICFG[bb].Parents.insert(FIdx, b); });
-        });
+    std::for_each(maybe_par_unseq, bbvec.begin(), bbvec.end(),
+                  [&](bb_t bb) { ICFG[bb].Parents.insert(FIdx, b); });
   });
 }
 
