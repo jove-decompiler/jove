@@ -257,6 +257,14 @@ public:
 
 public:
 
+#ifdef JOVE_TSAN
+#define CREATE_SHARED(...)                                                     \
+  std::make_shared<T>(__VA_ARGS__)
+#else
+#define CREATE_SHARED(...)                                                     \
+  std::allocate_shared<T>(boost::container::adaptive_pool<T>(),__VA_ARGS__)
+#endif
+
 #define FOR_SOMETHING_BODY(thing)                                              \
   if constexpr (LazyInitialization) {                                          \
     StatePtr<T> &x = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
@@ -268,7 +276,7 @@ public:
           return *xp;                                                          \
       }                                                                        \
                                                                                \
-      std::shared_ptr<T> new_x = std::allocate_shared<T>(boost::container::adaptive_pool<T>(), BOOST_PP_CAT(thing,_NEW_ARGS));\
+      std::shared_ptr<T> new_x = CREATE_SHARED(BOOST_PP_CAT(thing,_NEW_ARGS)); \
       std::shared_ptr<T> expected;                                             \
       if (x.compare_exchange_strong(expected, new_x,                           \
                                     std::memory_order_release,                 \
@@ -319,6 +327,7 @@ public:
   }
 
 #undef FOR_SOMETHING_BODY
+#undef CREATE_SHARED
 
 private:
   StatePtrRef<BinaryStateTy> __for_binary(const binary_base_t<MT, MinSize> &b)
