@@ -23,10 +23,7 @@ class scoped_fd {
   int fd = -1;
 
 public:
-  scoped_fd() = delete;
-  scoped_fd(const scoped_fd &) = delete;
-  scoped_fd &operator=(const scoped_fd &) = delete;
-
+  scoped_fd() noexcept = default;
   explicit scoped_fd(int fd) noexcept : fd(fd) {}
   explicit scoped_fd(scoped_fd &&other) noexcept : fd(other.fd) {
     other.fd = -1;
@@ -41,6 +38,15 @@ public:
     }
     return *this;
   }
+
+  scoped_fd &operator=(int fd_) noexcept(false) {
+    close();
+    fd = fd_;
+    return *this;
+  }
+
+  scoped_fd(const scoped_fd &) = delete;
+  scoped_fd &operator=(const scoped_fd &) = delete;
 
   ~scoped_fd() noexcept(false) { /* throws if fails to close valid fd */
     close();

@@ -3261,16 +3261,16 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 int BootstrapTool::ChildProc(int pipefd) {
   scoped_fd pipefd_(pipefd);
 
-  std::unique_ptr<scoped_fd> memfd;
 #ifdef JOVE_HAVE_MEMFD
+  scoped_fd memfd;
   if (!IsCOFF) {
     std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
-    memfd = std::make_unique<scoped_fd>(::memfd_create(name.c_str(), 0));
-    assert(*memfd);
+    memfd = ::memfd_create(name.c_str(), 0);
+    assert(memfd);
 
     const unsigned N = jv.Binaries.at(0).Data.size();
-    if (robust_write(memfd->get(), &jv.Binaries.at(0).Data[0], N) == N)
-      path_to_exe = "/proc/self/fd/" + std::to_string(memfd->get());
+    if (robust_write(memfd.get(), &jv.Binaries.at(0).Data[0], N) == N)
+      path_to_exe = "/proc/self/fd/" + std::to_string(memfd.get());
   }
 #endif
 

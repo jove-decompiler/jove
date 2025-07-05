@@ -507,8 +507,8 @@ int IPTTool::Analyze(void) {
             die("pipe(2) failed: " + std::string(strerror(err)));
           }
 
-          auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
-          auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
+          scoped_fd rfd(pipefd[0]);
+          scoped_fd wfd(pipefd[1]);
 
           fs::path path_to_read_sideband =
               libipt_scripts_dir / "perf-read-sideband.bash";
@@ -521,11 +521,11 @@ int IPTTool::Analyze(void) {
               },
               "", "",
               [&](const char **argv, const char **envp) {
-                rfd.reset();
-                ::dup2(wfd->get(), STDOUT_FILENO);
-                wfd.reset();
+                rfd.close();
+                ::dup2(wfd.get(), STDOUT_FILENO);
+                wfd.close();
               });
-          wfd.reset();
+          wfd.close();
 
           pipe_line_reader pipe;
 
@@ -574,7 +574,7 @@ int IPTTool::Analyze(void) {
           if (IsVerbose())
             llvm::errs() << "writing sideband files...\n";
 
-          while (auto o = pipe.get_line(rfd->get())) {
+          while (auto o = pipe.get_line(rfd.get())) {
             if (unlikely(!process_line(*o))) {
               WeFailed = true;
               return;

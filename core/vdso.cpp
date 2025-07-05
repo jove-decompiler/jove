@@ -69,23 +69,23 @@ bool capture_vdso(StringTy &out) {
   if (::pipe(pipefd) < 0)
     throw std::runtime_error("pipe failed: " + std::string(strerror(errno)));
 
-  auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
-  auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
+  scoped_fd rfd(pipefd[0]);
+  scoped_fd wfd(pipefd[1]);
 
   pid_t pid = RunExecutable(
       the_exe.path().c_str(),
       process::no_args,
       process::no_envs, "", "",
       [&](const char **argv, const char **envp) {
-        rfd.reset();
-        ::dup2(wfd->get(), STDOUT_FILENO);
-        wfd.reset();
+        rfd.close();
+        ::dup2(wfd.get(), STDOUT_FILENO);
+        wfd.close();
 
         int nullfd = ::open("/dev/null", O_WRONLY);
         ::dup2(nullfd, STDERR_FILENO);
         ::close(nullfd);
       });
-  wfd.reset();
+  wfd.close();
 
   out.clear();
 
@@ -94,7 +94,7 @@ bool capture_vdso(StringTy &out) {
   for (;;) {
     ssize_t ret;
     do
-      ret = ::read(rfd->get(), &buff[0], buff.size());
+      ret = ::read(rfd.get(), &buff[0], buff.size());
     while (ret < 0 && errno == EINTR);
 
     if (ret < 0)
@@ -105,7 +105,7 @@ bool capture_vdso(StringTy &out) {
 
     out.append(buff.data(), ret);
   }
-  rfd.reset();
+  rfd.close();
 
   int ret_val = WaitForProcessToExit(pid);
 

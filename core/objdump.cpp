@@ -31,8 +31,8 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename,
   if (::pipe(pipefd) < 0)
     throw std::runtime_error("pipe failed: " + std::string(strerror(errno)));
 
-  auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
-  auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
+  scoped_fd rfd(pipefd[0]);
+  scoped_fd wfd(pipefd[1]);
 
   pid_t pid = RunExecutable(
       path_to_objdump,
@@ -43,11 +43,11 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename,
       },
       "", "",
       [&](const char **argv, const char **envp) {
-        rfd.reset();
-        ::dup2(wfd->get(), STDOUT_FILENO);
-        wfd.reset();
+        rfd.close();
+        ::dup2(wfd.get(), STDOUT_FILENO);
+        wfd.close();
       });
-  wfd.reset();
+  wfd.close();
 
   taddr_t minaddr = ~0UL;
   taddr_t maxaddr = 0UL;
@@ -155,7 +155,7 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename,
 #undef pos
   };
 
-  while (auto o = pipe.get_line(rfd->get()))
+  while (auto o = pipe.get_line(rfd.get()))
     do_parse_line(*o);
 
   int rc = WaitForProcessToExit(pid);
