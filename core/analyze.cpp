@@ -23,6 +23,14 @@ using llvm::WithColor;
 
 namespace jove {
 
+static constexpr bool ReentrancyCheckDisabled =
+#ifdef BOOST_UNORDERED_DISABLE_REENTRANCY_CHECK
+    true
+#else
+    false
+#endif
+    ;
+
 template <bool MT, bool MinSize>
 analyzer_t<MT, MinSize>::analyzer_t(
     const analyzer_options_t &options,
@@ -639,7 +647,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 #endif
         };
 
-      if constexpr (MT) { /* XXX prevent reentrancy */
+      if constexpr (MT && !ReentrancyCheckDisabled) { /* XXX prevent reentrancy */
         DynTargets_t<MT, MinSize> copy(DynTargets);
         DynTargets_t<false, MinSize> DynTargets_(std::move(copy));
 
@@ -837,7 +845,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
         }
       };
 
-      if constexpr (MT) { /* XXX prevent reentrancy */
+      if constexpr (MT && !ReentrancyCheckDisabled) { /* XXX prevent reentrancy */
         DynTargets_t<MT, MinSize> copy(DynTargets);
         DynTargets_t<false, MinSize> DynTargets_(std::move(copy));
 
