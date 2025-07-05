@@ -1126,7 +1126,7 @@ void touch(const fs::path &p) {
 
 void *RunTool::FifoProc(const char *fifo_path) {
   if (IsVeryVerbose())
-    HumanOut() << "FifoProc: opening fifo...\n";
+    HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
 
   int fd = -1;
   int err = 0;
