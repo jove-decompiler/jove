@@ -1,5 +1,5 @@
 #pragma once
-#include "likely.h"
+#include "jove/macros.h"
 
 #ifndef __clang__
 #error
