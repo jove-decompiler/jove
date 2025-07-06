@@ -49,8 +49,8 @@ _NORET
 _HIDDEN
 void _jove_begin(void) {
   char *maps;
-  JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_MAX_PROC_MAPS);
+  unsigned n;
+  ___proc_self_maps___(maps, n);
 
   struct vdso_t vdso = _get_vdso(maps, n);
 
