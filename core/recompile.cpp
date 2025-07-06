@@ -799,8 +799,6 @@ int recompiler_t<MT, MinSize>::go(void) {
     if (!b.is_file())
       continue;
 
-    assert(b.is_file());
-
     binary_state_t &x = state.for_binary(b);
 
     const auto &chrooted_path = x.chrooted_path;
