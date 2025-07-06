@@ -531,7 +531,8 @@ static jove_buffer_t _jove_alloc_buffer(size_t len) {
 }
 
 static void _jove_free_buffer(const jove_buffer_t *buff) {
-  if (_jove_sys_munmap((uintptr_t)buff->ptr, buff->len) < 0)
+  if (_jove_sys_munmap((uintptr_t)buff->ptr - JOVE_PAGE_SIZE,
+                       buff->len + 2 * JOVE_PAGE_SIZE) < 0)
     _UNREACHABLE("failed to deallocate buffer");
 }
 
