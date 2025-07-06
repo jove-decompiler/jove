@@ -22,7 +22,7 @@ struct jove_opts_t {
   } Pause;
 
   bool DumpOpts;
-  char OnCrash; /* a=abort, s=sleep */
+  char OnCrash; /* a=abort,s=sleep,x=exit */
 
   const char *Trace;
   const char *CallS;

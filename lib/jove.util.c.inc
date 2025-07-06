@@ -25,18 +25,17 @@
 _NORET
 static void _jove_on_crash(char mode) {
   switch (mode) {
-  case 's': { /* sleep */
-    for (;;)
-      _jove_sleep();
-    break;
-  }
+  case 's':   /* sleep */
+    for (;;) _jove_sleep();
+    __UNREACHABLE();
 
+  case '\0':
+    /* fallthrough */
   case 'a': /* abort */
     _jove_sys_kill(_jove_sys_getpid(), SIGABRT);
-    /* fallthrough */
-  case '\0':
     _jove_sys_exit_group(0x77);
     __UNREACHABLE();
+
   case 'x':
     _jove_sys_exit_group(1);
     __UNREACHABLE();
