@@ -148,11 +148,9 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     //
     std::mutex m;
     std::condition_variable cv;
-    oneapi::tbb::parallel_invoke(
-        [&](void) -> void {
+    std::thread printer([&](void) -> void {
           unsigned lll = 0;
           std::string msg;
-          std::unique_lock<std::mutex> lk(m);
 
           uint64_t did;
           for (;;) {
@@ -160,9 +158,12 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             if (did >= N)
               break;
 
+            {
+            std::unique_lock<std::mutex> lk(m);
             cv.wait_for(lk, std::chrono::milliseconds(opts.WaitMilli), [&](void) -> bool {
               return done.load(std::memory_order_relaxed) >= N;
             });
+            }
 
             did = done.load(std::memory_order_relaxed);
             if (did >= N)
@@ -293,11 +294,16 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             printf("\r%s\n", msg.c_str());
           }
           fflush(stdout);
-        },
-        [&](void) -> void {
-          go();
-          cv.notify_one();
         });
+
+    go();
+
+    {
+      std::unique_lock<std::mutex> lk(m);
+      cv.notify_one();
+    }
+
+    printer.join();
   } else {
     go();
   }
