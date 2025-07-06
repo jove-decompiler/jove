@@ -541,7 +541,7 @@ static void _jove_free_buffer(const jove_buffer_t *buff) {
       _jove_alloc_buffer(len);                                                 \
   var = (char *)__##var##_buff.ptr
 
-#define ___str___(var, len)                                                    \
+#define ___guarded_str___(var, len)                                                    \
    ___guarded_buff___(var, len);                                                       \
    var[0] = '\0'
 
