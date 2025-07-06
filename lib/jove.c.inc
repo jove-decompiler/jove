@@ -511,7 +511,7 @@ static _UNUSED uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
 
   if (unlikely(__jove_opts.Debug.Stack)) {
     char *s;
-    ___buff___(s, 2*PATH_MAX);
+    ___guarded_buff___(s, 2*PATH_MAX);
 
     _strcpy(s, "initial stack pointer is 0x");
     {
@@ -523,7 +523,7 @@ static _UNUSED uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
 
     {
       char *buff;
-      ___buff___(buff, 2*PATH_MAX);
+      ___guarded_buff___(buff, 2*PATH_MAX);
 
       if (_description_of_address_for_maps(buff, init_sp, m, n)) {
         _strcat(s, " <");
@@ -1736,7 +1736,7 @@ matched:
         const char *const wine_stderr_path = _getenv("WINEDEBUGLOG");
         if (wine_stderr_path) {
           char *beg;
-          ___buff___(beg, JOVE_LARGE_BUFF_SIZE);
+          ___guarded_buff___(beg, JOVE_LARGE_BUFF_SIZE);
           unsigned n = _jove_read_pseudo_file(wine_stderr_path, beg,
                                               JOVE_LARGE_BUFF_SIZE);
 

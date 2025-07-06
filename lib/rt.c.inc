@@ -468,7 +468,7 @@ void _jove_init_cpu_state(void) {
 
 static uintptr_t _jove_alloc_callstack(const char *callstack_path) {
   char *path;
-  ___buff___(path, PATH_MAX);
+  ___guarded_buff___(path, PATH_MAX);
 
   _ASSERT(callstack_path);
 
@@ -587,7 +587,7 @@ void _jove_flush_trace(void) {
     return;
 
   char *path;
-  ___buff___(path, PATH_MAX);
+  ___guarded_buff___(path, PATH_MAX);
 
   char *const trace_path = __jove_opts.Trace;
   _ASSERT(trace_path);
@@ -618,7 +618,7 @@ void _jove_flush_trace(void) {
 
   if (unlikely(__jove_opts.Debug.Verbose)) {
     char *s;
-    ___buff___(s, PATH_MAX);
+    ___guarded_buff___(s, PATH_MAX);
     _strcpy(s, "flushed ");
 
     {
@@ -968,7 +968,7 @@ found:
 #if 0
         {
 	  char *maps;
-          ___buff___(maps, JOVE_MAX_PROC_MAPS);
+          ___guarded_buff___(maps, JOVE_MAX_PROC_MAPS);
           unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
           char buff[256];

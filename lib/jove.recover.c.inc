@@ -1049,7 +1049,7 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
 
       {
 	char *buff;
-        ___buff___(buff, PATH_MAX + 1);
+        ___guarded_buff___(buff, PATH_MAX + 1);
 
         buff[0] = ch;
         _memcpy(&buff[sizeof(char)], &PathLen, sizeof(PathLen));
@@ -1283,7 +1283,7 @@ void _jove_recover_anonymous_foreign_function(uint32_t BBIdx, uintptr_t pc) {
     return;
 
   char *beg;
-  ___buff___(beg, JOVE_LARGE_BUFF_SIZE);
+  ___guarded_buff___(beg, JOVE_LARGE_BUFF_SIZE);
   unsigned n =
       _jove_read_pseudo_file(wine_stderr_path, beg, JOVE_LARGE_BUFF_SIZE);
 
@@ -1488,7 +1488,7 @@ void _jove_recover_anonymous_foreign_binary(uintptr_t pc) {
   }
 
   char *beg;
-  ___buff___(beg, JOVE_LARGE_BUFF_SIZE);
+  ___guarded_buff___(beg, JOVE_LARGE_BUFF_SIZE);
   unsigned n =
       _jove_read_pseudo_file(wine_stderr_path, beg, JOVE_LARGE_BUFF_SIZE);
 
