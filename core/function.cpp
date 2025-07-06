@@ -7,10 +7,14 @@
 namespace jove {
 
 static constexpr bool IsTSAN =
+#if 0
 #ifdef JOVE_TSAN
     true
 #else
     false
+#endif
+#else
+    true /* FIXME */
 #endif
     ;
 
