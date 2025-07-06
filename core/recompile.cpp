@@ -188,7 +188,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   // sanity checks for output path
   //
   if (fs::exists(fs::path(opts.Output))) {
-    if (IsVerbose())
+    if (opts.IsVerbose())
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts.Output);
   } else {
@@ -496,7 +496,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
 
       if (!is_binary_index_valid(ChosenBIdx)) {
-        if (IsVeryVerbose())
+        if (opts.IsVeryVerbose())
         WithColor::warning() << llvm::formatv("unknown \"{0}\" needed by {1}\n",
                                               needed, b.path_str());
         return;
@@ -509,7 +509,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     }
   });
 
-  if (IsVeryVerbose() && fs::exists(locator().graph_easy())) {
+  if (opts.IsVeryVerbose() && fs::exists(locator().graph_easy())) {
     //
     // graphviz
     //
@@ -590,7 +590,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       boost::filtered_graph<dso_graph_t, all_edges_t, vert_exists_in_set_t> fg(
           dso_graph, edge_filter, vertex_filter);
 
-      if (IsVerbose()) {
+      if (opts.IsVerbose()) {
         //
         // write graphviz file
         //
@@ -653,7 +653,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     Q.push_back(dso);
   }
 
-  if (IsVerbose())
+  if (opts.IsVerbose())
     WithColor::note() << llvm::formatv(
         "Recompiling {0} {1}...",
         (opts.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
@@ -677,7 +677,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
   std::chrono::duration<double> s_double = t2 - t1;
 
-  if (IsVerbose())
+  if (opts.IsVerbose())
     llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
@@ -778,7 +778,7 @@ int recompiler_t<MT, MinSize>::go(void) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (IsVeryVerbose()) {
+            if (opts.IsVeryVerbose()) {
               print_command(argv);
             }
           })))
@@ -1004,7 +1004,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg("-lldmingw");
         Arg("/out:" + chrooted_path.string());
 
-        if (IsVeryVerbose()) {
+        if (opts.IsVeryVerbose()) {
           Arg("/verbose");
 
 	  Arg("/map:" + chrooted_path.string() + ".link.map");
@@ -1099,7 +1099,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         std::string(),
         std::string(),
         [&](const char **argv, const char **envp) {
-          if (IsVerbose()) {
+          if (opts.IsVerbose()) {
             print_command(argv);
           }
         });
@@ -1112,7 +1112,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       std::string(),
       std::string(),
       [&](const char **argv, const char **envp) {
-        if (IsVerbose()) {
+        if (opts.IsVerbose()) {
           print_command(argv);
         }
       });
@@ -1176,7 +1176,6 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
 
 #if 0
-  if constexpr (MT == AreWeMT && MinSize == AreWeMinSize) {
   rc = RunExecutableToExit(
       "/proc/self/exe", /* FIXME */
       [&](auto Arg) {
@@ -1250,13 +1249,16 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
       [&](auto Env) {
         InitWithEnviron(Env);
 
-        Env("JVPATH=" + path_to_jv());
+        //Env("JVPATH=" + path_to_jv());
       },
-      path_to_stdout, path_to_stderr);
-  } else {
+      path_to_stdout, path_to_stderr,
+      [&](const char **argv, const char **envp) {
+        if (opts.IsVerbose()) {
+          print_command(argv);
+        }
+      });
 #else
   {
-#endif
     llvm_options_t llvm_opts(llvm_options);
 
     if (B::is_coff(*state.for_binary(b).Bin)) {
@@ -1273,13 +1275,14 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
     llvm_t llvm(jv, llvm_opts, analyzer_options, TCG, Context, locator());
     rc = llvm.go();
   }
+#endif
 
   //
   // check exit code
   //
   if (rc) {
     worker_failed.store(true);
-    if (IsVerbose()) {
+    if (opts.IsVerbose()) {
       WithColor::error() << llvm::formatv("jove llvm failed on {0}!\n",
                                           binary_filename);
       std::string stderr_contents;
@@ -1320,7 +1323,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (IsVerbose()) {
+            if (opts.IsVerbose()) {
               print_command(argv);
             }
           });
@@ -1342,7 +1345,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (IsVerbose()) {
+            if (opts.IsVerbose()) {
               print_command(argv);
             }
           });
@@ -1405,7 +1408,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (IsVerbose()) {
+            if (opts.IsVerbose()) {
               print_command(argv);
             }
           });
