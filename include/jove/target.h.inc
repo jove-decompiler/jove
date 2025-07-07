@@ -56,8 +56,6 @@ constexpr bool IsTargetLittleEndian =
 #endif
     ;
 
-constexpr bool AreWeMinSize = sizeof(void *) == 4;
-
 #if defined(TARGET_X86_64)
 #define TARGET_SHORT_NAME "x64"
 #elif defined(TARGET_I386)

@@ -25,3 +25,5 @@ constexpr bool AreWeMT = true;
 #define __THREAD_IF_WE_ARE_MT                                                  \
   thread_local __attribute__((tls_model("initial-exec")))
 #endif
+
+constexpr bool AreWeMinSize = sizeof(void *) == 4;
