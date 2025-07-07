@@ -141,9 +141,9 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                                          return x + count_stale_functions(b);
                                        });
     if (!smartterm) {
-      printf("Analyzing functions... (%u)\n", static_cast<unsigned>(N));
+      printf("Analyzing functions (%u)...\n", static_cast<unsigned>(N));
       go();
-      printf("Analyzed functions. (%u)\n", static_cast<unsigned>(N));
+      printf("Analyzed functions (%u).\n", static_cast<unsigned>(N));
       return 0;
     }
 
