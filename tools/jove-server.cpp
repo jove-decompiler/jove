@@ -94,7 +94,7 @@ public:
   ServerTool() : opts(JoveCategory) {}
 
   int Run(void) override;
-  int Serve(int connection_socket);
+  int Serve(const int connection_socket);
 
   int ConnectionProc(ConnectionProcArgs &&);
 };
@@ -178,7 +178,7 @@ int ServerTool::Run(void) {
   return Serve(connection_socket.get());
 }
 
-int ServerTool::Serve(int connection_socket) {
+int ServerTool::Serve(const int connection_socket) {
   {
     //
     // Wait for incoming connection
