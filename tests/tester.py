@@ -75,6 +75,7 @@ class JoveTester:
     self.create_serv = None
     self.create_ssh = None
     self.serv_process = None
+    self.sess = None
 
   def find_things(self):
     self.jove_bin_path = '%s/../llvm-project/build/llvm/bin/jove-%s' % (self.tests_dir, self.arch)
@@ -478,4 +479,5 @@ class JoveTester:
           self.serv_process.kill()  # Forcefully kill if it doesn't exit
           print(f"Forced server subprocess termination: {e}")
 
-      self.sess.kill_session()
+      if self.sess is not None:
+        self.sess.kill_session()
