@@ -124,6 +124,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   };
 
   if (IsVerbose()) {
+    const bool smartterm = is_smart_terminal();
+
     auto count_stale_functions = [&](const binary_t &b) -> uint64_t {
       return std::accumulate(
           b.Analysis.Functions.begin(),
@@ -138,8 +140,12 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                                        [&](uint64_t x, const binary_t &b) {
                                          return x + count_stale_functions(b);
                                        });
-
-    const bool smartterm = is_smart_terminal();
+    if (!smartterm) {
+      printf("Analyzing functions... (%u)\n", static_cast<unsigned>(N));
+      go();
+      printf("Analyzed functions. (%u)\n", static_cast<unsigned>(N));
+      return 0;
+    }
 
     auto t1 = std::chrono::high_resolution_clock::now();
 
