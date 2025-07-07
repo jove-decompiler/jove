@@ -367,6 +367,9 @@ void Tool::on_exec_tool(before_exec_t before_exec, const char **argv, const char
 }
 
 void Tool::persist_tool_options(std::function<void(const std::string &)> Arg) {
+  if (opt_DumbTerm)
+    Arg("--dumb-term");
+
   if (IsVeryVerbose())
     Arg("-vv");
   else if (IsVerbose())
