@@ -414,7 +414,7 @@ class JoveTester:
             print("/////////\n///////// %s LOCAL TEST FAILURE %s [%s %s]\n/////////" % \
               ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
                str(testbin_path), self.platform, self.arch))
-            print(jove_loop_args)
+            print(jove_loop_base + [str(testbin_path)] + input_args)
 
             if return_neq:
               print('%d != %d' % (p1.returncode, p2.returncode))
