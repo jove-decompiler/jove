@@ -28,8 +28,6 @@ def parse_arguments():
 def main():
   args = parse_arguments()
 
-  tests_dir = str(Path(__file__).parent.resolve())
-
   unattended = args.unattended
 
   unattended_env = os.getenv("JOVE_TEST_UNATTENDED")
@@ -48,7 +46,7 @@ def main():
   if not (extra_bringup_args_env is None):
     extra_bringup_args = extra_bringup_args_env.split(',')
 
-  tester = JoveTester(tests_dir, arch=args.arch, platform=args.platform, \
+  tester = JoveTester(arch=args.arch, platform=args.platform, \
                       extra_server_args=extra_server_args, \
                       extra_bringup_args=extra_bringup_args, \
                       unattended=unattended)

@@ -6,6 +6,16 @@ import time
 import os
 
 class JoveTester:
+  ARCH_2_BITS = {
+    'i386'    : 32,
+    'mipsel'  : 32,
+    'mips'    : 32,
+
+    'x86_64'  : 64,
+    'aarch64' : 64,
+    'mips64el': 64,
+  }
+
   PLATFORM_AND_ARCH_2PORT = {
     'linux': {
       'i386'    : 10023,
@@ -22,10 +32,11 @@ class JoveTester:
     },
   }
 
-  PLATFORM_AND_ARCH_2LOADER = {
+  # debian bookworm
+  REMOTE_PLATFORM_AND_ARCH_2LOADER = {
     'win': {
-      'i386'   : ['/usr/lib/wine/wine'],
-      'x86_64' : ['/usr/lib/wine/wine64'],
+      'i386'   : '/usr/lib/wine/wine',
+      'x86_64' : '/usr/lib/wine/wine64',
     },
   }
 
@@ -35,19 +46,19 @@ class JoveTester:
     'ssh'
   ]
 
-  def __init__(self, tests_dir, arch, platform, extra_server_args=[], extra_bringup_args=[], unattended=False):
+  def __init__(self, arch, platform, extra_server_args=[], extra_bringup_args=[], unattended=False):
     assert platform in JoveTester.PLATFORM_AND_ARCH_2PORT, "invalid platform"
     assert arch in JoveTester.PLATFORM_AND_ARCH_2PORT[platform], "invalid arch"
 
     self.tmux = libtmux.Server()
-    self.tests_dir = tests_dir
+    self.tests_dir = Path(__file__).resolve().parent
+    self.jove_dir = self.tests_dir.parent
     self.arch = arch
     self.platform = platform
     self.dsoext = "so" if platform == "linux" else "dll"
     self.variants = ["exe", "pic"] if platform == "linux" else ["EXE", "PIC"]
-    self.run = []
-    if platform in JoveTester.PLATFORM_AND_ARCH_2LOADER:
-      self.run = JoveTester.PLATFORM_AND_ARCH_2LOADER[platform][arch]
+    self.is32 = JoveTester.ARCH_2_BITS[arch] == 32
+    self.loader_args = None
 
     self.extra_server_args = extra_server_args
     self.extra_bringup_args = extra_bringup_args
@@ -59,7 +70,7 @@ class JoveTester:
 
     self.iphost = None
 
-    self.find_things()
+    self.locate_things()
 
     self.vm_dir = os.getenv("JOVE_VM_" + platform.upper() + "_" + arch.upper())
     if self.vm_dir is None:
@@ -77,21 +88,18 @@ class JoveTester:
     self.serv_process = None
     self.sess = None
 
-  def find_things(self):
-    self.jove_bin_path = '%s/../llvm-project/build/llvm/bin/jove-%s' % (self.tests_dir, self.arch)
-    assert Path(self.jove_bin_path).is_file(), "missing host jove binary"
+  def locate_things(self):
+    self.jove_bin_path     = self.jove_dir / "llvm-project" / "build" / "llvm" / "bin" / f"jove-{self.arch}"
+    self.jove_client_path  = self.jove_dir / "llvm-project" / f"{self.arch}_build" / "llvm" / "bin" / f"jove-{self.arch}"
+    self.jove_rt_st_path   = self.jove_dir / "bin" / self.arch / f"libjove_rt.st.{self.dsoext}"
+    self.jove_rt_mt_path   = self.jove_dir / "bin" / self.arch / f"libjove_rt.mt.{self.dsoext}"
+    self.bringup_path      = self.jove_dir / "mk-deb-vm" / "bringup.sh"
 
-    self.jove_client_path = '%s/../llvm-project/%s_build/llvm/bin/jove-%s' % (self.tests_dir, self.arch, self.arch)
-    assert Path(self.jove_client_path).is_file(), "missing guest jove binary"
-
-    self.jove_rt_st_path = '%s/../bin/%s/libjove_rt.st.%s' % (self.tests_dir, self.arch, self.dsoext)
-    assert Path(self.jove_rt_st_path).is_file(), "missing single-threaded jove runtime"
-
-    self.jove_rt_mt_path = '%s/../bin/%s/libjove_rt.mt.%s' % (self.tests_dir, self.arch, self.dsoext)
-    assert Path(self.jove_rt_mt_path).is_file(), "missing multi-threaded jove runtime"
-
-    self.bringup_path = '%s/../mk-deb-vm/bringup.sh' % self.tests_dir
-    assert Path(self.bringup_path).is_file(), "missing mk-deb-vm/bringup.sh"
+    assert self.jove_bin_path.is_file(),    f"missing host jove binary at {self.jove_bin_path}"
+    assert self.jove_client_path.is_file(), f"missing guest jove binary at {self.jove_client_path}"
+    assert self.jove_rt_st_path.is_file(),  f"missing single-threaded jove runtime at {self.jove_rt_st_path}"
+    assert self.jove_rt_mt_path.is_file(),  f"missing multi-threaded jove runtime at {self.jove_rt_mt_path}"
+    assert self.bringup_path.is_file(),     f"missing mk-deb-vm/bringup.sh at {self.bringup_path}"
 
   def session_name(self):
     return "jove_" + self.platform + "_" + self.arch
@@ -236,6 +244,9 @@ class JoveTester:
   def scp_from(self, src, dst, check=False):
     return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=check)
 
+  def remote_path_exists(self, remote_path) -> bool:
+    return self.ssh(['/usr/bin/stat', remote_path], check=False).returncode == 0
+
   def update_jove(self):
     self.scp_to(self.jove_client_path, '/usr/local/bin/jove', check=True)
 
@@ -266,6 +277,13 @@ class JoveTester:
   def run_remote_tests(self, tests, multi_threaded):
     assert self.is_ready()
     self.update_libjove_rt(multi_threaded=multi_threaded)
+
+    if self.platform == "win":
+      loader = JoveTester.REMOTE_PLATFORM_AND_ARCH_2LOADER[self.platform][self.arch]
+      assert self.remote_path_exists(loader) # we must find the wine loader
+      self.loader_args = [loader]
+    else:
+      self.loader_args = []
 
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
@@ -318,7 +336,7 @@ class JoveTester:
 
           self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"], check=True)
 
-          p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
+          p1 = self.ssh_command(self.loader_args + [testbin] + input_args, text=True)
           p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
           if self.is_server_down():
@@ -362,6 +380,15 @@ class JoveTester:
     return 0
 
   def run_local_tests(self, tests, multi_threaded):
+    if self.platform == "win":
+      loader = self.jove_dir / "wine" / f"build{'' if self.is32 else '64'}" / "loader" / "wine"
+      if not loader.exists():
+        loader = Path(JoveTester.REMOTE_PLATFORM_AND_ARCH_2LOADER[self.platform][self.arch])
+      assert loader.exists() # we must find the wine loader
+      self.loader_args = [str(loader)]
+    else:
+      self.loader_args = []
+
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
 
@@ -397,7 +424,7 @@ class JoveTester:
 
         # compare result of executing testbin and recompiled testbin
         for input_args in inputs:
-          p1 = subprocess.run(self.run + [str(testbin_path)] + input_args, capture_output=True)
+          p1 = subprocess.run(self.loader_args + [str(testbin_path)] + input_args, capture_output=True)
           p2 = subprocess.run(jove_loop_base + [str(testbin_path)] + input_args)
 
           p2_stdout = open(path_to_stdout, "rb").read()
