@@ -276,8 +276,13 @@ Tool::Tool()
       opt_NoDeleteTemporaryDir(
           "no-rm-temp-dir",
           llvm::cl::desc("Do not remove temporary directory on exit"),
-          llvm::cl::cat(JoveCategory)) {
-}
+          llvm::cl::cat(JoveCategory)),
+
+      opt_DumbTerm("dumb-term",
+                   llvm::cl::desc("Assume smart terminal does not exist"),
+                   llvm::cl::cat(JoveCategory))
+
+{}
 
 Tool::~Tool() {
   cleanup_temp_dir();
@@ -431,6 +436,9 @@ std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
 }
 
 bool Tool::is_smart_terminal(int fd) {
+  if (opt_DumbTerm)
+    return false;
+
   const char *const term = getenv("TERM");
   if (!term)
     return false;

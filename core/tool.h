@@ -37,6 +37,7 @@ private:
   llvm::cl::alias opt_VeryVerboseAlias;
   llvm::cl::opt<std::string> opt_TemporaryDir;
   llvm::cl::opt<bool> opt_NoDeleteTemporaryDir;
+  llvm::cl::opt<bool> opt_DumbTerm;
 
   std::mutex _temp_dir_mtx;
   std::string _temp_dir;
@@ -250,7 +251,7 @@ public:
   static std::string jove_dir(void);
   static std::string get_path_to_jv(void);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
-  static bool is_smart_terminal(int fd = STDOUT_FILENO);
+  bool is_smart_terminal(int fd = STDOUT_FILENO);
 
   const std::string &temporary_dir(void);
 
