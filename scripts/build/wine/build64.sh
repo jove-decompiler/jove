@@ -10,4 +10,4 @@ if [ ! -f Makefile ]; then
 
 fi
 
-make -j$(nproc)
+make --output-sync -j$(nproc)

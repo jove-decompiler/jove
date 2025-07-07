@@ -9,4 +9,4 @@ PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig ../configure --prefix=/usr --w
 
 fi
 
-make -j$(nproc)
+make --output-sync -j$(nproc)
