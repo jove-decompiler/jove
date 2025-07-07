@@ -192,9 +192,9 @@ int recompiler_t<MT, MinSize>::go(void) {
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts.Output);
   } else {
-    if (!fs::create_directory(opts.Output)) {
-      WithColor::error() << "failed to create directory at \"" << opts.Output
-                         << "\"\n";
+    if (!fs::create_directories(opts.Output)) {
+      WithColor::error() << llvm::formatv(
+          "failed to create directory at \"{0}\"", opts.Output);
       return 1;
     }
   }
