@@ -275,7 +275,7 @@ class JoveTester:
       self.run_local_tests(tests, multi_threaded)
 
   def run_remote_tests(self, tests, multi_threaded):
-    assert self.is_ready()
+    assert self.is_remote_ready()
     self.update_libjove_rt(multi_threaded=multi_threaded)
 
     if self.platform == "win":
@@ -457,7 +457,7 @@ class JoveTester:
     return 0
 
 
-  def is_ready(self):
+  def is_remote_ready(self):
     return not (self.iphost is None)
 
   def get_remote_ready(self, update_jove=True):
