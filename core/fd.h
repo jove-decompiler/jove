@@ -48,7 +48,7 @@ public:
   scoped_fd(const scoped_fd &) = delete;
   scoped_fd &operator=(const scoped_fd &) = delete;
 
-  ~scoped_fd() noexcept(false) { /* throws if fails to close valid fd */
+  ~scoped_fd() noexcept(false) {
     close();
   }
 
@@ -59,7 +59,7 @@ public:
     return fd;
   }
 
-  void close(void) noexcept(false) {
+  void close(void) noexcept(false) { /* throws if fails to close valid fd */
     if (*this) {
       if (::close(fd) < 0)
         throw std::runtime_error(
