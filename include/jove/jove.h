@@ -357,7 +357,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
   getDynamicTargets(void) const {
-    if (const void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
+    if (const void *const p = pDynTargets.Load(IsTSAN && MT ? std::memory_order_acquire
+                                                            : std::memory_order_relaxed)) {
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool TheMT      = !!(p_addr & 1u);
     bool TheMinSize = !!(p_addr & 2u);
@@ -619,7 +620,8 @@ struct function_analysis_t {
   unsigned numCallers(void) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+    if (void *const p = pCallers.Load(IsTSAN && MT ? std::memory_order_acquire
+                                                   : std::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
       bool TheMinSize = !!(p_addr & 2u);
@@ -655,7 +657,8 @@ struct function_analysis_t {
                 std::function<void(const caller_t &)> proc) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+    if (void *const p = pCallers.Load(IsTSAN && MT ? std::memory_order_acquire
+                                                   : std::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
       bool TheMinSize = !!(p_addr & 2u);

@@ -2,6 +2,14 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
+static constexpr bool IsTSAN =
+#ifdef JOVE_TSAN
+    true
+#else
+    false
+#endif
+    ;
+
 typedef boost::interprocess::managed_mapped_file jv_file_t;
 typedef jv_file_t::segment_manager segment_manager_t;
 

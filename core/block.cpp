@@ -6,14 +6,6 @@
 
 namespace jove {
 
-static constexpr bool IsTSAN =
-#ifdef JOVE_TSAN
-    true
-#else
-    false
-#endif
-    ;
-
 static bool copy_and_insert_sort(const ip_func_index_vec &old,
                                  ip_func_index_vec &out,
                                  function_index_t FIdx) {

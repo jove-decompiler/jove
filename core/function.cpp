@@ -6,14 +6,6 @@
 
 namespace jove {
 
-static constexpr bool IsTSAN =
-#ifdef JOVE_TSAN
-    true
-#else
-    false
-#endif
-    ;
-
 template <bool MT, bool MinSize>
 function_t::function_t(binary_base_t<MT, MinSize> &b,
                        function_index_t Idx) noexcept
