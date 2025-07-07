@@ -375,10 +375,6 @@ class JoveTester:
         # initialize jv
         subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], check=True)
 
-        # bootstrap each input
-        for input_args in inputs:
-          subprocess.run([f'{self.jove_bin_path}', "bootstrap", "-v", str(testbin_path)] + input_args)
-
         path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
         path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
 
