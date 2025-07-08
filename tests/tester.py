@@ -46,6 +46,15 @@ class JoveTester:
     'ssh'
   ]
 
+  ARCH_2_SHORT_NAME = {
+      'i386'    : 'x86',
+      'x86_64'  : 'x64',
+      'aarch64' : 'arm64',
+      'mipsel'  : 'mipsel',
+      'mips'    : 'mips',
+      'mips64el': 'mips64el',
+  }
+
   def __init__(self, arch, platform, extra_server_args=[], extra_bringup_args=[], unattended=False):
     assert platform in JoveTester.PLATFORM_AND_ARCH_2PORT, "invalid platform"
     assert arch in JoveTester.PLATFORM_AND_ARCH_2PORT[platform], "invalid arch"
@@ -297,7 +306,11 @@ class JoveTester:
         testbin = f"/tmp/{testbin_path.name}"
 
         # establish clean slate
-        self.ssh(["rm", "-rf", "/root/.jv.*", "/root/.jove", "/root/.wine32", "/root/.wine64", "/root/.wine"], check=True)
+        self.ssh([
+          "rm", "-rf", "--verbose",
+          f'/root/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}',
+          f'/root/.wine{JoveTester.ARCH_2_BITS[self.arch]}',
+        ], check=True)
 
         # initialize jv
         self.ssh(["jove", "init", testbin], check=True)
@@ -398,7 +411,11 @@ class JoveTester:
         assert testbin_path.is_file()
 
         # establish clean slate
-        subprocess.run(["rm", "-rf", os.path.expanduser("~/.jv.*"), os.path.expanduser("~/.jove"), os.path.expanduser("~/.wine*")], check=True)
+        subprocess.run([
+          "rm", "-rf", "--verbose",
+          os.path.expanduser(f'~/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}'),
+          os.path.expanduser(f'~/.wine{JoveTester.ARCH_2_BITS[self.arch]}')
+        ], check=True)
 
         # initialize jv
         subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], check=True)
