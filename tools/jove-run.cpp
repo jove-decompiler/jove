@@ -9,6 +9,9 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/scope/defer.hpp>
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/seq/elem.hpp>
+#include <boost/preprocessor/seq/seq.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/MC/MCInstrInfo.h>
@@ -188,17 +191,16 @@ public:
 
   int Run(void) override;
 
-  template <bool WillChroot>
+  template <bool WillChroot, bool LivingDangerously>
   int DoRun(void);
-
-  bool LivingDangerously = false;
 
   static const char exited_char;
 
   std::atomic<char> recovered_ch = '\0';
   std::atomic<bool> FileSystemRestored = false;
 
-  void *FifoProc(const char *fifo_file_path);
+  void *FifoProc(const bool LivingDangerously,
+                 const char *const fifo_file_path);
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -257,10 +259,27 @@ int RunTool::Run(void) {
   }
 
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
-  LivingDangerously = !WillChroot && !opts.ForeignLibs;
+  const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
-  return WillChroot ? DoRun<true>() :
-                      DoRun<false>();
+#define WILL_CHROOT_POSSIBILTIES                                               \
+    ((true))                                                                   \
+    ((false))
+#define LIVING_DANGEROUSLY_POSSIBILTIES                                        \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define RUN_CASE(r, product)                                                   \
+  if (WillChroot        == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&         \
+      LivingDangerously == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)))           \
+    return DoRun<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                     \
+                 GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>();
+
+  BOOST_PP_SEQ_FOR_EACH_PRODUCT(RUN_CASE, (WILL_CHROOT_POSSIBILTIES)(LIVING_DANGEROUSLY_POSSIBILTIES))
+
+  assert(false);
+  return 1;
 }
 
 static void *recover_proc(const char *fifo_path);
@@ -269,7 +288,6 @@ static std::atomic<bool> interrupt_sleep;
 
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
 
-template <bool IsEnabled>
 struct ScopedMount {
   RunTool &tool;
 
@@ -279,7 +297,7 @@ struct ScopedMount {
   const unsigned long mountflags;
   const void *const data;
 
-  bool mounted;
+  bool mounted = false;
 
   ScopedMount() = delete;
 
@@ -294,11 +312,7 @@ struct ScopedMount {
         target(target),
         filesystemtype(filesystemtype),
         mountflags(mountflags),
-        data(data),
-        mounted(false) {
-    if (!IsEnabled)
-      return;
-
+        data(data) {
     if (source && *source == '\0')
       return;
 
@@ -334,9 +348,6 @@ struct ScopedMount {
   }
 
   ~ScopedMount () {
-    if (!IsEnabled)
-      return;
-
     if (!this->mounted)
       return;
 
@@ -385,7 +396,7 @@ static void touch(const fs::path &);
 #define __BEGIN_MOUNTS__ {
 #define __END_MOUNTS__ }
 
-template <bool WillChroot>
+template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
   int pid_fd = -1;
 
@@ -436,10 +447,13 @@ int RunTool::DoRun(void) {
             strerror(errno));
 #endif
 
+  using ScopedMayMount =
+      std::conditional_t<WillChroot, ScopedMount, __do_nothing_t>;
+
   __BEGIN_MOUNTS__
 
   fs::path proc_path = fs::path(opts.sysroot) / "proc";
-  ScopedMount<WillChroot> proc_mnt(*this,
+  ScopedMayMount proc_mnt(*this,
                                    "proc",
                                    proc_path.c_str(),
                                    "proc",
@@ -447,7 +461,7 @@ int RunTool::DoRun(void) {
                                    nullptr);
 
   fs::path sys_path = fs::path(opts.sysroot) / "sys";
-  ScopedMount<WillChroot> sys_mnt(*this,
+  ScopedMayMount sys_mnt(*this,
                                   "sys",
                                   sys_path.c_str(),
                                   "sysfs",
@@ -458,7 +472,7 @@ int RunTool::DoRun(void) {
   // command-line bind mounts
   //
   std::list<fs::path>                CmdLineBindMountChrootedDirs;
-  std::list<ScopedMount<WillChroot>> CmdLineBindMounts;
+  std::list<ScopedMayMount> CmdLineBindMounts;
 
   for (const std::string &Dir : opts.BindMountDirs) {
     fs::path &chrooted_dir =
@@ -478,7 +492,7 @@ int RunTool::DoRun(void) {
   // common bind mounts
   //
   fs::path dev_path = fs::path(opts.sysroot) / "dev";
-  ScopedMount<WillChroot> dev_mnt(*this,
+  ScopedMayMount dev_mnt(*this,
                                   "udev",
                                   dev_path.c_str(),
                                   "devtmpfs",
@@ -486,7 +500,7 @@ int RunTool::DoRun(void) {
                                   "mode=0755");
 
   fs::path dev_pts_path = fs::path(opts.sysroot) / "dev" / "pts";
-  ScopedMount<WillChroot> dev_pts_mnt(*this,
+  ScopedMayMount dev_pts_mnt(*this,
                                       "devpts",
                                       dev_pts_path.c_str(),
                                       "devpts",
@@ -494,7 +508,7 @@ int RunTool::DoRun(void) {
                                       "mode=0620,gid=5");
 
   fs::path dev_shm_path = fs::path(opts.sysroot) / "dev" / "shm";
-  ScopedMount<WillChroot> dev_shm_mnt(*this,
+  ScopedMayMount dev_shm_mnt(*this,
                                       "shm",
                                       dev_shm_path.c_str(),
                                       "tmpfs",
@@ -502,7 +516,7 @@ int RunTool::DoRun(void) {
                                       "mode=1777");
 
   fs::path tmp_path = fs::path(opts.sysroot) / "tmp";
-  ScopedMount<WillChroot> tmp_mnt(*this,
+  ScopedMayMount tmp_mnt(*this,
                                   "tmp",
                                   tmp_path.c_str(),
                                   "tmpfs",
@@ -523,7 +537,7 @@ int RunTool::DoRun(void) {
   if (!_##name##_path.empty())                                                 \
     fs::create_directories(_##chrooted_##name);                                \
                                                                                \
-  ScopedMount<WillChroot> name##_mnt(*this,                                    \
+  ScopedMayMount name##_mnt(*this,                                    \
                                      _##name##_path.c_str(),                   \
                                      _##chrooted_##name.c_str(),               \
                                      "",                                       \
@@ -552,7 +566,7 @@ int RunTool::DoRun(void) {
   if (!_##name##_path.empty())                                                 \
     touch(_##chrooted_##name.c_str());                                         \
                                                                                \
-  ScopedMount<WillChroot> name##_mnt(*this,                                    \
+  ScopedMayMount name##_mnt(*this,                                    \
                                      _##name##_path.c_str(),                   \
                                      _##chrooted_##name.c_str(), "", MS_BIND,  \
                                      nullptr);
@@ -618,7 +632,9 @@ int RunTool::DoRun(void) {
   //
   // create thread reading from fifo
   //
-  std::thread recover_thd(&RunTool::FifoProc, this, fifo_file_path.c_str());
+  std::thread recover_thd(&RunTool::FifoProc, this,
+                          LivingDangerously,
+                          fifo_file_path.c_str());
 
   BOOST_SCOPE_DEFER [&] { recover_thd.join(); };
 
@@ -1124,7 +1140,8 @@ void touch(const fs::path &p) {
     ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666));
 }
 
-void *RunTool::FifoProc(const char *fifo_path) {
+void *RunTool::FifoProc(const bool LivingDangerously,
+                        const char *const fifo_path) {
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
 
@@ -1435,7 +1452,6 @@ void *RunTool::FifoProc(const char *fifo_path) {
 
   }
 
-  __attribute__((musttail)) return FifoProc(fifo_path);
+  __attribute__((musttail)) return FifoProc(LivingDangerously, fifo_path);
 }
-
 }
