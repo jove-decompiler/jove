@@ -289,7 +289,7 @@ Tool::~Tool() {
 }
 
 void Tool::UpdateVerbosity(void) {
-  this->SetVerbosityLevel(opt_Verbose, opt_VeryVerbose);
+  this->SetVerbosity(opt_Verbose, opt_VeryVerbose);
 }
 
 void Tool::HumanOutToFile(const std::string &path) {

@@ -50,7 +50,7 @@ protected:
   locator_t loc;
 
   void ConfigureVerbosity(VerboseThing &Thing) {
-    Thing.SetVerbosityLevel(this->opt_Verbose, this->opt_VeryVerbose);
+    Thing.SetVerbosity(this->opt_Verbose, this->opt_VeryVerbose);
   }
 public:
   const char *_name = nullptr;

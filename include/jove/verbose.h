@@ -10,7 +10,7 @@ namespace jove {
 struct VerboseThing {
   unsigned VerbosityLevel = 0;
 
-  void SetVerbosityLevel(bool V, bool VV) {
+  void SetVerbosity(bool V, bool VV) {
     if (VV)
       this->VerbosityLevel = 2;
     else if (V)
