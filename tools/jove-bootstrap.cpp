@@ -145,8 +145,6 @@ struct proc_map_t {
   }
 };
 
-typedef std::set<struct proc_map_t> proc_map_set_t;
-
 struct indirect_branch_t {
   unsigned long words[2];
 
