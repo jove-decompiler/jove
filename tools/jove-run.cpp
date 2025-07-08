@@ -199,8 +199,8 @@ public:
   std::atomic<char> recovered_ch = '\0';
   std::atomic<bool> FileSystemRestored = false;
 
-  void *FifoProc(const bool LivingDangerously,
-                 const char *const fifo_file_path);
+  template <bool LivingDangerously>
+  void *FifoProc(const char *const fifo_file_path);
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -632,8 +632,7 @@ int RunTool::DoRun(void) {
   //
   // create thread reading from fifo
   //
-  std::thread recover_thd(&RunTool::FifoProc, this,
-                          LivingDangerously,
+  std::thread recover_thd(&RunTool::FifoProc<LivingDangerously>, this,
                           fifo_file_path.c_str());
 
   BOOST_SCOPE_DEFER [&] { recover_thd.join(); };
@@ -1140,8 +1139,8 @@ void touch(const fs::path &p) {
     ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666));
 }
 
-void *RunTool::FifoProc(const bool LivingDangerously,
-                        const char *const fifo_path) {
+template <bool LivingDangerously>
+void *RunTool::FifoProc(const char *const fifo_path) {
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
 
@@ -1452,6 +1451,6 @@ void *RunTool::FifoProc(const bool LivingDangerously,
 
   }
 
-  __attribute__((musttail)) return FifoProc(LivingDangerously, fifo_path);
+  __attribute__((musttail)) return FifoProc<LivingDangerously>(fifo_path);
 }
 }
