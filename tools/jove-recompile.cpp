@@ -154,8 +154,6 @@ public:
   RecompileTool() : opts(JoveCategory) {}
 
   int Run(void) override;
-
-  void worker(dso_t);
 };
 
 JOVE_REGISTER_TOOL("recompile", RecompileTool);
