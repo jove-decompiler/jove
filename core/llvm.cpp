@@ -127,20 +127,6 @@ template <bool MT, bool MinSize>
 
 static unsigned bitsOfTCGType(TCGType ty) { return 8 * tcg_type_size(ty); }
 
-static unsigned BitsOfMemOp(MemOp op) {
-  static_assert(MO_8 == 0);
-  static_assert(MO_16 == 1);
-  static_assert(MO_32 == 2);
-  static_assert(MO_64 == 3);
-  static_assert(MO_128 == 4);
-  static_assert(MO_256 == 5);
-  static_assert(MO_512 == 6);
-  static_assert(MO_1024 == 7);
-  static_assert(MO_SIZE == 0x07);
-
-  return 1u << ((static_cast<unsigned>(op) & MO_SIZE) + 3);
-}
-
 static llvm::IntegerType *TypeOfTCGType(llvm::LLVMContext &Context,
                                         TCGType ty) {
   return llvm::Type::getIntNTy(Context, bitsOfTCGType(ty));
