@@ -686,10 +686,10 @@ int IPTTool::Analyze(void) {
 
   if constexpr (IsToolMT) {
     mt_Explorer = MakeExplorer<true, IsToolMinSize>(jv_file, jv, *Disas, *TCG,
-                                                    GetVerbosity());
+                                                    GetVerbosityLevel());
   } else {
     st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, jv, *Disas, *TCG,
-                                                     GetVerbosity());
+                                                     GetVerbosityLevel());
   }
 
   auto select_explorer = [&](void) -> auto & {
@@ -804,7 +804,7 @@ int IPTTool::Analyze(void) {
   if constexpr (IsToolMT) {
     if (jv2)
       st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, *jv2, *Disas,
-                                                       *TCG, GetVerbosity());
+                                                       *TCG, GetVerbosityLevel());
   }
 
   std::vector<char *> ptdump_argv;
@@ -883,7 +883,7 @@ int IPTTool::Analyze(void) {
           }
         };
 
-        const unsigned VerbLevel = GetVerbosity();
+        const unsigned VerbLevel = GetVerbosityLevel();
 
 #define __opts_Verbosity VerbLevel
 #define __opts_Caching opts.Cache

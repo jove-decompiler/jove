@@ -764,7 +764,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
   tcg = std::make_unique<tiny_code_generator_t>();
   symbolizer = std::make_unique<symbolizer_t>();
   E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *disas, *tcg, GetVerbosity());
+      jv_file, jv, *disas, *tcg, GetVerbosityLevel());
   E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
                               std::placeholders::_1, std::placeholders::_2));
   E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,

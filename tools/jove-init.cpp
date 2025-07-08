@@ -252,7 +252,7 @@ int InitTool::Run(void) {
   tiny_code_generator_t tcg;
   disas_t disas;
   explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
-                                            GetVerbosity());
+                                            GetVerbosityLevel());
 
   std::transform(
       maybe_par_unseq,

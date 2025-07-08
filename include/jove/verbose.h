@@ -20,7 +20,7 @@ struct VerboseThing {
   }
 
 public:
-  [[alwaysinline]] unsigned GetVerbosity(void) const {
+  [[alwaysinline]] unsigned GetVerbosityLevel(void) const {
     return __builtin_expect(this->VerbosityLevel, 0u);
   }
 

@@ -102,7 +102,7 @@ int AnalyzeTool::Run(void) {
     analyzer_opts.PinnedEnvGlbs.set(idx);
   }
 
-  analyzer_opts.VerbosityLevel = GetVerbosity();
+  analyzer_opts.VerbosityLevel = GetVerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
 
   analyzer.examine_blocks();
