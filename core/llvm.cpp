@@ -4634,7 +4634,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     // global variables
     //
     for (const auto &pair : AddrToSymbolMap) {
-      const std::set<std::string> &Syms = pair.second;
+      const auto &Syms = pair.second;
 
       assert(!Syms.empty());
       const std::string &SymName = *Syms.begin();

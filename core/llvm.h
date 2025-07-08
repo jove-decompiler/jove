@@ -95,6 +95,12 @@ struct section_properties_t {
   }
 };
 
+struct section_hasher {
+  std::size_t operator()(const section_properties_t &s) const {
+    return std::hash<std::string>{}(s.name);
+  }
+};
+
 struct section_t {
   std::string Name;
   llvm::ArrayRef<uint8_t> Contents;
@@ -110,8 +116,8 @@ struct section_t {
 
   struct {
     boost::icl::split_interval_set<uint64_t> Intervals;
-    std::map<unsigned, llvm::Constant *> Constants;
-    std::map<unsigned, llvm::Type *> Types;
+    boost::unordered::unordered_flat_map<unsigned, llvm::Constant *> Constants;
+    boost::unordered::unordered_flat_map<unsigned, llvm::Type *> Types;
   } Stuff;
 
   llvm::StructType *T = nullptr;
@@ -140,6 +146,12 @@ class llvm_t {
 
   locator_t &locator_;
 
+  template <typename Key, typename Value>
+  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
+
+  template <typename... Args>
+  using unordered_set = boost::unordered::unordered_flat_set<Args...>;
+
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
     struct {
@@ -155,7 +167,7 @@ class llvm_t {
       elf::DynRegionInfo DynPLTRelRegion;
     } _elf;
     struct {
-      boost::unordered::unordered_flat_map<std::string_view, uint32_t> Name2RVA;
+      unordered_map<std::string_view, uint32_t> Name2RVA;
     } _coff;
     llvm::GlobalVariable *FunctionsTable = nullptr;
     llvm::GlobalVariable *FunctionsTableClunk = nullptr;
@@ -237,13 +249,8 @@ class llvm_t {
              false /* AreWeMT */, true, false, true, true, MT, MinSize>
       state;
 
-  template <typename Key, typename Value>
-  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
-
-  template <typename T>
-  using unordered_set = boost::unordered::unordered_flat_set<T>;
-
-  using section_properties_set_t = std::set<section_properties_t>;
+  using section_properties_set_t =
+      unordered_set<section_properties_t, section_hasher>;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 
@@ -266,7 +273,7 @@ class llvm_t {
   llvm::GlobalVariable *SectsGlobal = nullptr;
   llvm::GlobalVariable *ConstSectsGlobal = nullptr;
 
-  unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
+  unordered_map<std::string, unordered_set<dynamic_target_t>> ExportedFunctions;
 
   struct {
     unordered_map<std::string, binary_index_t> DLL2Binary;
@@ -345,7 +352,7 @@ class llvm_t {
 
   std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
-  std::map<uint64_t, llvm::Constant *> TPOFFHack;
+  unordered_map<uint64_t, llvm::Constant *> TPOFFHack;
 
   llvm::Function *AssertNonZeroU32 = nullptr;
   llvm::Function *AssertNonZeroU64 = nullptr;
@@ -388,12 +395,12 @@ class llvm_t {
 
   unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
-  unordered_map<uint64_t, std::set<llvm::StringRef>> TLSValueToSymbolMap;
+  unordered_map<uint64_t, unordered_set<llvm::StringRef>> TLSValueToSymbolMap;
   unordered_map<uint64_t, unsigned> TLSValueToSizeMap;
 
   boost::icl::split_interval_set<uint64_t> AddressSpaceObjects;
 
-  unordered_map<uint64_t, std::set<std::string>> AddrToSymbolMap;
+  unordered_map<uint64_t, unordered_set<std::string>> AddrToSymbolMap;
   unordered_map<uint64_t, unsigned> AddrToSizeMap;
   unordered_set<uint64_t> TLSObjects; // XXX
 
@@ -408,13 +415,13 @@ class llvm_t {
   } VersionScript;
 
   // set {int}0x08053ebc = 0xf7fa83f0
-  std::map<std::pair<uint64_t, unsigned>,
-           std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>
+  unordered_map<std::pair<uint64_t, unsigned>,
+                std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>
       CopyRelocMap;
 
   std::vector<uint64_t> possible_tramps_vec;
 
-  unordered_map<std::string, std::set<unsigned>> ordinal_imports;
+  unordered_map<std::string, unordered_set<unsigned>> ordinal_imports;
 
   llvm::Constant *__jove_fail_UnknownBranchTarget;
   llvm::Constant *__jove_fail_UnknownCallee;
