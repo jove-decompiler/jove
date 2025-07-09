@@ -201,6 +201,7 @@ public:
 
   template <bool LivingDangerously>
   void *FifoProc(const char *const fifo_file_path);
+  std::atomic_flag FifoProcDone = ATOMIC_FLAG_INIT;
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -1076,7 +1077,7 @@ int RunTool::DoRun(void) {
   //
   // communicate to FifoProc that the app has exited.
   //
-  {
+  for (;;) {
     int fd = -1;
     int err = 0;
     do {
@@ -1087,10 +1088,12 @@ int RunTool::DoRun(void) {
     scoped_fd recover_fd(fd);
     if (!recover_fd) {
       WithColor::error() << llvm::formatv(
-          "failed to open fifo (\"{0}\") to signal app has exited: {1}\n",
+          "failed to open recovery fifo (\"{0}\") to send '!': {1}\n",
           fifo_path, strerror(err));
       return 1;
     }
+
+    if (FifoProcDone.test()) break;
 
     ssize_t ret = -1;
     err = 0;
@@ -1100,11 +1103,13 @@ int RunTool::DoRun(void) {
     } while (ret < 0 && err == EINTR);
 
     if (ret != 1) {
-      WithColor::error() << llvm::formatv(
-          "failed to write to fifo (\"{0}\") to signal app has exited: {1}\n",
-          fifo_path, strerror(err));
-      return 1;
+      if (IsVerbose())
+        WithColor::warning()
+            << llvm::formatv("failed to write to fifo (\"{0}\"): {1}\n",
+                             fifo_path, strerror(err));
     }
+
+    if (FifoProcDone.test()) break;
   }
   }
 
@@ -1137,6 +1142,8 @@ void touch(const fs::path &p) {
 
 template <bool LivingDangerously>
 void *RunTool::FifoProc(const char *const fifo_path) {
+  BOOST_SCOPE_DEFER [&] { FifoProcDone.test_and_set(); };
+
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
 
