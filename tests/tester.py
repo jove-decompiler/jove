@@ -309,7 +309,6 @@ class JoveTester:
         self.ssh([
           "rm", "-rf", "--verbose",
           f'/root/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}',
-          f'/root/.wine{JoveTester.ARCH_2_BITS[self.arch]}',
         ], check=True)
 
         # initialize jv
@@ -414,7 +413,6 @@ class JoveTester:
         subprocess.run([
           "rm", "-rf", "--verbose",
           os.path.expanduser(f'~/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}'),
-          os.path.expanduser(f'~/.wine{JoveTester.ARCH_2_BITS[self.arch]}')
         ], check=True)
 
         # initialize jv
