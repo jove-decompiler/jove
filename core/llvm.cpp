@@ -105,7 +105,7 @@ typedef boost::format fmt;
 
 template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {
-  if (!IsVerbose())
+  if (!opts.IsVerbose())
     return;
 
   WithColor::note() << llvm::formatv("CURIOSITY: {0}\n", message);
@@ -113,7 +113,7 @@ void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {
 
 template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::warning(const char *file, int line) {
-  if (!IsVerbose())
+  if (!opts.IsVerbose())
     return;
 
   WithColor::warning() << llvm::formatv("WARNING @ {0}:{1}\n", file, line);
@@ -800,7 +800,7 @@ int llvm_t<MT, MinSize>::go(void) {
                 GlobalSymbolDefinedSizeMap.emplace(SymName, Sym.st_size);
               } else {
                 if ((*it).second != Sym.st_size) {
-                  if (IsVeryVerbose())
+                  if (opts.IsVeryVerbose())
                     WithColor::warning()
                         << llvm::formatv("global symbol {0} is defined with "
                                          "multiple distinct sizes: {1}, {2}\n",
@@ -1202,7 +1202,7 @@ void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
-  if (IsVeryVerbose())
+  if (opts.IsVeryVerbose())
     for_each_binary(jv, [&](auto &b) {
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          b.Name.c_str(),
@@ -1902,7 +1902,7 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   if (!tlsPhdr) {
     ThreadLocalStorage.Present = false;
 
-    if (IsVeryVerbose())
+    if (opts.IsVeryVerbose())
       WithColor::note() << llvm::formatv("{0}: No thread local storage\n",
                                          __func__);
     return;
@@ -1913,7 +1913,7 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
   ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
 
-  if (IsVeryVerbose())
+  if (opts.IsVeryVerbose())
   WithColor::note() << llvm::formatv("Thread-local storage: [{0:x}, {1:x})\n",
                                      ThreadLocalStorage.Beg,
                                      ThreadLocalStorage.End);
@@ -2209,7 +2209,7 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
           }
         }
 
-        if (IsVeryVerbose())
+        if (opts.IsVeryVerbose())
         llvm::errs() << llvm::formatv("COPY relocation: {0} {1}\n", RelSym.Name, RelSym.Vers);
 
         //
@@ -2244,7 +2244,7 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
           abort();
         }
 
-        if (IsVeryVerbose())
+        if (opts.IsVeryVerbose())
         WithColor::note() << llvm::formatv(
             "copy relocation @ {0:x} specifies symbol {1} with size {2}\n",
             R.Offset, RelSym.Name, RelSym.Sym->st_size);
@@ -2904,7 +2904,7 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
 
       auto it = GlobalSymbolDefinedSizeMap.find(RelSym.Name);
       if (it == GlobalSymbolDefinedSizeMap.end()) {
-        if (IsVeryVerbose())
+        if (opts.IsVeryVerbose())
           WithColor::warning() << llvm::formatv("{0}: unknown size for {1}\n",
                                                 __func__, RelSym.Name);
 
@@ -2958,7 +2958,7 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportFunctionByOrdinal(llvm::StringRef DLL
                                                   uint32_t Ordinal) {
   std::string nm(coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal));
 
-  if (IsVeryVerbose())
+  if (opts.IsVeryVerbose())
     llvm::errs() << "creating " << nm << '\n';
 
   llvm::FunctionType *FTy =
@@ -3011,7 +3011,7 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
       //   Name: DeleteCriticalSection
       //   ForwardedTo: NTDLL.RtlDeleteCriticalSection
       // }
-      if (IsVeryVerbose())
+      if (opts.IsVeryVerbose())
         WithColor::error() << "Name2RVA failed on " << Name << " in " << DLL
                            << '\n';
     } else {
@@ -3475,7 +3475,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         } else {
           assert(contents.size() <= Sect.SizeOfRawData);
 
-          if (IsVeryVerbose())
+          if (opts.IsVeryVerbose())
             llvm::errs() << llvm::formatv(
                 "section {0} is {1} bytes (have {2}) (should have {3})\n",
                 Sect.Name,
@@ -3688,7 +3688,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
 
-      if (IsVeryVerbose())
+      if (opts.IsVeryVerbose())
         llvm::errs() << llvm::formatv(
             "Section: \"{0}\" Size={1} Sect.Contents.size()={2}\n", Sect.Name,
             Sect.Size, Sect.Contents.size());
@@ -3710,7 +3710,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       std::vector<llvm::Constant *> SectFieldInits;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
-        if (IsVeryVerbose())
+        if (opts.IsVeryVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x})\n",
                                         intvl.lower(),
                                         intvl.upper());
@@ -3948,7 +3948,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       // C might be NULL if the global variable needs to be initialized with the
       // address of itself
       if (!T) {
-        if (IsVerbose())
+        if (opts.IsVerbose())
           llvm::errs() << llvm::formatv(
               "!create_global_variable for {0} @ {1:x}\n", SymName,
               Sect.Addr + lower);
@@ -4015,7 +4015,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
   };
 
-  if (IsVeryVerbose()) {
+  if (opts.IsVeryVerbose()) {
 
   B::_elf(*Bin, [&](ELFO &O) {
 
@@ -4744,7 +4744,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         assert(trailingBytes == 0);
       }
 
-      if (IsVeryVerbose())
+      if (opts.IsVeryVerbose())
         llvm::errs() << llvm::formatv("Laying out section {0}\n", Sect.Name);
 
       if (IsCOFF && _coff.rsrcSectIdx >= 0) {
@@ -4779,7 +4779,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       assert(actualSize >= Sect.Size);
       trailingBytes = actualSize - Sect.Size;
 
-      if (IsVerbose() && trailingBytes > 0)
+      if (opts.IsVerbose() && trailingBytes > 0)
         llvm::errs() << llvm::formatv("{0} trailing bytes for {1}\n",
                                       trailingBytes, Sect.Name);
 
@@ -4984,7 +4984,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreatePossibleTramps(void) {
-  if (IsVeryVerbose())
+  if (opts.IsVeryVerbose())
     llvm::errs() << llvm::formatv("# of possible tramps: {0}\n",
                                   possible_tramps_vec.size());
 
@@ -5259,7 +5259,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
 		IRB.getInt32(pair.first.second), true /* Volatile */);
           }
 
-          if (IsVeryVerbose())
+          if (opts.IsVeryVerbose())
             WithColor::note() << llvm::formatv(
                 "COPY RELOC HACK {0} {1} {2} {3}\n", pair.first.first,
                 pair.first.second, pair.second.second.first,
@@ -7652,7 +7652,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       std::string DynTargetDesc = dyn_target_desc({BinaryIndex, FIdx});
 
-      if (IsVeryVerbose())
+      if (opts.IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
@@ -8140,7 +8140,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       const function_t &callee = function_of_target(X, jv);
 
-      if (IsVeryVerbose())
+      if (opts.IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2}) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[bb].Term.Addr,
@@ -9447,7 +9447,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     bool IsEnv = temp_idx(ptr_tmp) == tcg_env_index;
     if (IsEnv) {
       if (off < 0) {
-        if (IsVeryVerbose())
+        if (opts.IsVeryVerbose())
           CURIOSITY("negative access into env (" + std::to_string(off) + ")");
         return;
       }
@@ -9490,7 +9490,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif
 
         default:
-          if (IsVeryVerbose())
+          if (opts.IsVeryVerbose())
             CURIOSITY("load(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
@@ -9527,7 +9527,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif
 
         default:
-          if (IsVeryVerbose())
+          if (opts.IsVeryVerbose())
             CURIOSITY("store(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;

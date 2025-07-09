@@ -82,7 +82,6 @@ class explorer_t : public VerboseThing {
   boost::optional<jv_t &> maybe_jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
-  unsigned VerbosityLevel;
 
   on_newbb_proc_t<MT, MinSize> on_newbb_proc = nop_on_newbb_proc<MT, MinSize>;
   on_newfn_proc_t<MT, MinSize> on_newfn_proc = nop_on_newfn_proc<MT, MinSize>;
@@ -122,22 +121,22 @@ public:
   explicit explorer_t(jv_file_t &jv_file, jv_t &jv, disas_t &disas,
                       tiny_code_generator_t &tcg,
                       unsigned VerbosityLevel = 0) noexcept
-      : jv_file(jv_file), maybe_jv(jv), disas(disas), tcg(tcg),
-        VerbosityLevel(VerbosityLevel) {}
+      : VerboseThing(VerbosityLevel), jv_file(jv_file), maybe_jv(jv),
+        disas(disas), tcg(tcg) {}
 
   explicit explorer_t(jv_file_t &jv_file, disas_t &disas,
                       tiny_code_generator_t &tcg,
                       unsigned VerbosityLevel = 0) noexcept
-      : jv_file(jv_file), maybe_jv(boost::none), disas(disas), tcg(tcg),
-        VerbosityLevel(VerbosityLevel) {}
+      : VerboseThing(VerbosityLevel), jv_file(jv_file), maybe_jv(boost::none),
+        disas(disas), tcg(tcg) {}
 
   template <bool MT2>
   explicit explorer_t(const explorer_t<MT2, MinSize> &other) noexcept
-      : jv_file(other.jv_file),
+      : VerboseThing(VerbosityLevel),
+        jv_file(other.jv_file),
         maybe_jv(boost::none),
         disas(other.disas),
-        tcg(other.tcg),
-        VerbosityLevel(other.VerbosityLevel) {
+        tcg(other.tcg) {
     if constexpr (MT == MT2) {
       on_newbb_proc = other.on_newbb_proc;
       on_newfn_proc = other.on_newfn_proc;

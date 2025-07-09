@@ -19,16 +19,19 @@ struct VerboseThing {
       this->VerbosityLevel = 0;
   }
 
+  VerboseThing() = default;
+  VerboseThing(unsigned Level) : VerbosityLevel(Level) {}
+
 public:
-  [[alwaysinline]] unsigned GetVerbosityLevel(void) const {
+  [[clang::always_inline]] unsigned GetVerbosityLevel(void) const {
     return __builtin_expect(this->VerbosityLevel, 0u);
   }
 
-  [[alwaysinline]] bool IsVerbose(void) const {
+  [[clang::always_inline]] bool IsVerbose(void) const {
     return unlikely(this->VerbosityLevel >= 1);
   }
 
-  [[alwaysinline]] inline bool IsVeryVerbose(void) const {
+  [[clang::always_inline]] inline bool IsVeryVerbose(void) const {
     return unlikely(this->VerbosityLevel >= 2);
   }
 };

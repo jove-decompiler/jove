@@ -22,7 +22,6 @@ typedef dso_graph_t::vertex_descriptor dso_t;
 
 struct recompiler_options_t : public VerboseThing {
   bool ForCBE = false;
-  unsigned VerbosityLevel = 0;
   std::string Output;
   bool ForeignLibs = true;
   bool RuntimeMT = true;

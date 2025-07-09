@@ -489,8 +489,6 @@ private:
   int DoOptimize(void);
   int Debugify(void);
 
-  bool IsVerbose(void) const { return opts.VerbosityLevel >= 1; };
-  bool IsVeryVerbose(void) const { return opts.VerbosityLevel >= 2; };
   const std::string &temporary_dir(void) const { return opts.temp_dir; }
   locator_t &locator(void) { return locator_; }
 
