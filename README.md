@@ -71,6 +71,9 @@ The LLVM bitcode we feed to `llvm-cbe` only amounts to a teeny, tiny subset of t
 
 The C code `jove decompile` produces for non-trivial machine code instructions does **not involve `llvm-cbe`**. It originates from QEMU's sources practically verbatim, by using `clang` to compile QEMU with a [custom plugin](https://github.com/aleden/carbon-copy). Luckily, QEMU is written in C and compiles under `clang`.
 
+### How do I see what `jove` is doing under the covers?
+All tools have a verbosity level that can be controlled on the command-line, via `-v` (verbose) and `-vv` (very verbose). For example: with `jove recompile`, enabling verbose mode will print the command-line arguments for `llc` / `llvm-dis` / `ld.lld` / `lld-link`...
+
 ### How is `jove` tested?
 The application and its recompiled counterpart are run on the same inputs. The standard output, standard error, and exit codes must be identical.
 
