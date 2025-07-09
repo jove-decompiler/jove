@@ -9156,9 +9156,15 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   auto &Binary = jv.Binaries.at(BinaryIndex);
   auto &ICFG = Binary.Analysis.ICFG;
 
-  auto &PCAlloca = TC.PCAlloca;
-  auto &CarryAlloca = TC.CarryAlloca;
-  TCGContext *s = get_tcg_context();
+  llvm::AllocaInst *const PCAlloca = TC.PCAlloca;
+
+  //
+  // this bit is reused across both kinds of ops, for borrow/carry
+  //
+  llvm::AllocaInst *const BorrowAlloca = TC.CarryAlloca;
+  llvm::AllocaInst *const CarryAlloca = BorrowAlloca;
+
+  TCGContext *const s = get_tcg_context();
 
   const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
 
@@ -10221,7 +10227,7 @@ static inline int ctpop64(uint64_t val)
     auto *OverflowOp =
         IRB.CreateBinaryIntrinsic(llvm::Intrinsic::usub_with_overflow,
                                   get(input_arg(0)), get(input_arg(1)));
-    IRB.CreateStore(IRB.CreateExtractValue(OverflowOp, 1), CarryAlloca);
+    IRB.CreateStore(IRB.CreateExtractValue(OverflowOp, 1), BorrowAlloca);
     set(IRB.CreateExtractValue(OverflowOp, 0), output_arg(0));
     BREAK();
   }
@@ -10232,7 +10238,7 @@ static inline int ctpop64(uint64_t val)
   CASE(subbi):
     set(IRB.CreateSub(
             IRB.CreateSub(get(input_arg(0)), get(input_arg(1))),
-            IRB.CreateZExt(IRB.CreateLoad(IRB.getInt1Ty(), CarryAlloca),
+            IRB.CreateZExt(IRB.CreateLoad(IRB.getInt1Ty(), BorrowAlloca),
                            IRB.getIntNTy(out_bits()))),
         output_arg(0));
 
