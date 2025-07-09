@@ -10028,28 +10028,21 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 /*
             regs[r0] = tci_compare64(regs[r1], regs[r2], condition);
 */
-  CASE(setcond): {
-    llvm::Value *V = IRB.CreateZExt(
-        CondCompare(const_arg(0),
-                    get(input_arg(0)),
-                    get(input_arg(1))),
-        IRB.getIntNTy(out_bits()));
-
-    set(V, output_arg(0));
+#define the_setcond()                                                          \
+  ({                                                                           \
+    IRB.CreateZExt(                                                            \
+        CondCompare(const_arg(0), get(input_arg(0)), get(input_arg(1))),       \
+        IRB.getIntNTy(out_bits()));                                            \
+  })
+  CASE(setcond):
+    set(the_setcond(), output_arg(0));
     BREAK();
-  }
 
-  CASE(negsetcond): {
-    llvm::Value *V = IRB.CreateZExt(
-        CondCompare(const_arg(0),
-                    get(input_arg(0)),
-                    get(input_arg(1))),
-        IRB.getIntNTy(out_bits()));
-    V = IRB.CreateNeg(V);
-
-    set(V, output_arg(0));
+  CASE(negsetcond):
+    set(IRB.CreateNeg(the_setcond()), output_arg(0));
     BREAK();
-  }
+
+#undef the_setcond
 
 /*
             tmp32 = tci_compare64(regs[r1], regs[r2], condition);
