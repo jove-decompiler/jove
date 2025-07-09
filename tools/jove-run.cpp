@@ -398,14 +398,14 @@ static void touch(const fs::path &);
 
 template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
-  int pid_fd = -1;
+  scoped_fd pid_fd;
 
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
   if (!opts.PIDFifo.empty()) {
     pid_fd = ::open(opts.PIDFifo.c_str(), O_WRONLY | O_CLOEXEC);
-    if (pid_fd < 0) {
+    if (!pid_fd) {
       int err = errno;
       HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
                                   strerror(err));
@@ -649,8 +649,8 @@ int RunTool::DoRun(void) {
     Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(jv_file, jv, *Explorer, *symbolizer);
   }
 
-  int rfd = -1;
-  int wfd = -1;
+  scoped_fd rfd;
+  scoped_fd wfd;
 
   if (LivingDangerously) {
     //
@@ -852,12 +852,12 @@ int RunTool::DoRun(void) {
             //
             // close unused read end of pipe
             //
-            ::close(rfd);
+            rfd.close();
 
             //
             // make the write end of the pipe be close-on-exec
             //
-            if (::fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
+            if (::fcntl(wfd.get(), F_SETFD, FD_CLOEXEC) < 0) {
               int err = errno;
               HumanOut() << llvm::formatv(
                   "failed to set pipe write end close-on-exec: {0}\n",
@@ -928,7 +928,7 @@ int RunTool::DoRun(void) {
   } catch (const std::exception &e) {
 #if 0
     if (LivingDangerously)
-      ::close(wfd); /* close-on-exec didn't happen */
+      wfd.close(); /* close-on-exec didn't happen */
 #endif
 
     HumanOut() << e.what() << '\n';
@@ -941,27 +941,23 @@ int RunTool::DoRun(void) {
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
-  if (!(pid_fd < 0)) {
+  if (pid_fd) {
     uint64_t u64 = pid;
-    ssize_t ret = robust_write(pid_fd, &u64, sizeof(uint64_t));
+    ssize_t ret = robust_write(pid_fd.get(), &u64, sizeof(uint64_t));
 
     if (ret != sizeof(uint64_t))
       HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
 
-    if (::close(pid_fd) < 0) {
-      int err = errno;
-      HumanOut() << llvm::formatv("failed to close pid_fd: {0}\n",
-                                  strerror(err));
-    }
+    pid_fd.close();
   }
 
   if (LivingDangerously) {
-    ::close(wfd);
+    wfd.close();
 
     ssize_t ret;
     do {
       uint8_t byte;
-      ret = ::read(rfd, &byte, 1);
+      ret = ::read(rfd.get(), &byte, 1);
     } while (!(ret <= 0));
 
     /* if we got here, the other end of the pipe must have been closed,
@@ -1041,7 +1037,7 @@ int RunTool::DoRun(void) {
                      "*** restored root file system ***" __ANSI_NORMAL_COLOR
                      "\n");
 
-    ::close(rfd);
+    rfd.close();
   }
 
   //

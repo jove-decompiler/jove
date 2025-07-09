@@ -616,15 +616,15 @@ run:
       // read app pid from fifo
       //
       {
-        int pid_fd = ::open(fifo_path.c_str(), O_RDONLY);
-        if (pid_fd < 0) {
+        scoped_fd pid_fd(::open(fifo_path.c_str(), O_RDONLY));
+        if (!pid_fd) {
           int err = errno;
           HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
                                       strerror(err));
         } else {
           uint64_t u64;
 
-          ssize_t ret = robust_read(pid_fd, &u64, sizeof(u64));
+          ssize_t ret = robust_read(pid_fd.get(), &u64, sizeof(u64));
 
           if (ret != sizeof(u64)) {
             if (ret < 0)
@@ -635,12 +635,6 @@ run:
                   "failed to read pid from pipe: got {0}\n", ret);
           } else {
             app_pid.store(u64);
-          }
-
-          if (::close(pid_fd) < 0) {
-            int err = errno;
-            HumanOut() << llvm::formatv("failed to close pid fifo: {0}\n",
-                                        strerror(err));
           }
         }
 
