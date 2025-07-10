@@ -2587,9 +2587,9 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
 
 #ifdef TARGET_X86_64
       if (IsCOFF) {
-	//
-	// XXX x86_64 windows: force calling convention
-	//
+        //
+        // XXX x86_64 windows: force calling convention
+        //
         x.adapterF->setCallingConv(llvm::CallingConv::X86_64_SysV);
       }
 #endif
@@ -4647,7 +4647,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                                      ? llvm::GlobalValue::GeneralDynamicTLSModel
                                      : llvm::GlobalValue::NotThreadLocal);
       if (GV)
-	GV->setAlignment(llvm::Align(2 * WordBytes()));
+        GV->setAlignment(llvm::Align(2 * WordBytes()));
 
       if (!GV) {
         done = false;
@@ -4731,7 +4731,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
             GV->setAlignment(llvm::Align(1));
             GV->setSection(CurrSectName); /* no .bss */
 
-	    assert(DL.getTypeAllocSize(T) == space);
+            assert(DL.getTypeAllocSize(T) == space);
 
             LaidOut.GVVec.emplace_back(GV, space);
           }
@@ -5218,7 +5218,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
                         IRB.getIntN(WordBits(), pair.second.second.second)),
                     IRB.getInt8PtrTy()),
                 llvm::MaybeAlign(),
-		IRB.getInt32(pair.first.second), true /* Volatile */);
+                IRB.getInt32(pair.first.second), true /* Volatile */);
           } else {
             assert(opts.ForeignLibs);
 
@@ -5256,7 +5256,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
                         IRB.getIntN(WordBits(), pair.second.second.first)),
                     IRB.getInt8PtrTy()),
                 llvm::MaybeAlign(),
-		IRB.getInt32(pair.first.second), true /* Volatile */);
+                IRB.getInt32(pair.first.second), true /* Volatile */);
           }
 
           if (opts.IsVeryVerbose())
@@ -5393,7 +5393,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
           const function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
 
-	  llvm::Value *Env = GetEnv(IRB);
+          llvm::Value *Env = GetEnv(IRB);
           std::vector<llvm::Value *> ArgVec;
           {
             std::vector<unsigned> glbv;
@@ -7861,9 +7861,9 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
 #ifdef TARGET_X86_64
       if (IsCOFF) {
-	//
-	// XXX x86_64 windows: force calling convention
-	//
+        //
+        // XXX x86_64 windows: force calling convention
+        //
         Ret->setCallingConv(llvm::CallingConv::X86_64_SysV);
       }
 #endif
@@ -8310,8 +8310,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 #ifdef TARGET_X86_64
       if (IsCOFF) {
         //
-	// XXX x86_64 windows: force calling convention
-	//
+        // XXX x86_64 windows: force calling convention
+        //
         Ret->setCallingConv(llvm::CallingConv::X86_64_SysV);
       }
 #endif
