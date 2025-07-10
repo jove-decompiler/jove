@@ -308,6 +308,7 @@ class JoveTester:
         # establish clean slate
         self.ssh([
           "rm", "-rf", "--verbose",
+          "/root/.jove",
           f'/root/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}',
         ], check=True)
 
@@ -413,6 +414,7 @@ class JoveTester:
         # establish clean slate
         subprocess.run([
           "rm", "-rf", "--verbose",
+          os.path.expanduser("~/.jove"),
           os.path.expanduser(f'~/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}'),
         ], check=True)
 
