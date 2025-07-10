@@ -192,11 +192,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<disas_t> Disas;
 
-  std::string buff;
-  std::regex line_regex_ab;
-  std::regex line_regex_a;
-  std::regex line_regex_b;
-
   void gather_all_perf_data_files(std::vector<std::string> &out);
   void gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::string>> &out);
 
@@ -216,7 +211,6 @@ public:
   int Run(void) override;
   int Analyze(void);
 
-  std::string GetLine(int rfd, tbb::flow_control &);
   void ProcessLine(const std::string &line);
 
   void on_new_binary(binary_t &);
@@ -354,38 +348,6 @@ int IPTTool::Run(void) {
     });
 
   return Analyze();
-}
-
-std::string IPTTool::GetLine(int rfd, tbb::flow_control &fc) {
-  char tmp_buff[4096];
-
-  std::string res;
-  for (;;) {
-    // do we have a line ready to go?
-    ssize_t pos;
-    if ((pos = buff.find('\n')) != std::string::npos) {
-      res = buff.substr(0, pos);
-      buff.erase(0, pos + 1);
-      break;
-    }
-
-    ssize_t ret;
-    do
-      ret = ::read(rfd, tmp_buff, sizeof(tmp_buff));
-    while (ret < 0 && errno == EINTR);
-
-    if (ret < 0)
-      die("failed to read pipe: " + std::string(strerror(errno)));
-
-    if (ret == 0) {
-      fc.stop();
-      break;
-    }
-
-    buff.append(tmp_buff, ret);
-  }
-
-  return res;
 }
 
 int IPTTool::Analyze(void) {
