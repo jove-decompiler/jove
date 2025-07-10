@@ -28,7 +28,7 @@ void squashByvalFunctions(Module &M) {
     for (unsigned i = 0; i < F.getFunctionType()->getNumParams(); ++i) {
       if (F.hasParamAttribute(i, Attribute::ByVal)) {
         Type *ValTy = F.getParamByValType(i);
-	assert(ValTy);
+        assert(ValTy);
 
         llvm::errs() << llvm::formatv("{0} byval param #{1}: {2}\n",
                                       F.getName(), i, *ValTy);
