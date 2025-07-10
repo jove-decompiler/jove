@@ -549,9 +549,10 @@ int RunTool::DoRun(void) {
 
     scoped_fd recover_fd(fd);
     if (!recover_fd) {
-      WithColor::error() << llvm::formatv(
-          "failed to open fifo (\"{0}\") to signal app has exited: {1}\n",
-          fifo_path, strerror(err));
+      if (err != ENXIO)
+        WithColor::error() << llvm::formatv(
+            "failed to open fifo (\"{0}\") to signal app has exited: {1}\n",
+            fifo_path, strerror(err));
       return false;
     }
 
@@ -1150,26 +1151,26 @@ int RunTool::DoRun(void) {
     HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);
 
   if (IsFifoProcStillRunning(0u)) {
-    do {
-      if (!TellFifoProcToStop() || TimesToldToStop > 10) {
-        if (IsVerbose())
-          WithColor::note() << "killing FifoProc with fire\n";
+    if (TellFifoProcToStop()) {
+      if (IsVerbose())
+        WithColor::note() << "told FifoProc to stop\n";
+    } else {
+      if (IsFifoProcStillRunning(0u)) {
+        if (IsVeryVerbose())
+          HumanOut() << "killing FifoProc\n";
 
         ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
                                        boost::interprocess::try_to_lock);
         if (!e_lck)
-          WithColor::warning() << "FifoProc ain't giving up lock!\n";
+          WithColor::error() << "FifoProc ain't giving up lock!\n";
 
-        // kill it with fire
         if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
           int err = errno;
           WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
                                               strerror(err));
         }
-
-        break;
       }
-    } while (IsFifoProcStillRunning(5000u));
+    }
   } else {
     WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
   }
@@ -1226,10 +1227,9 @@ int RunTool::FifoProc(const char *const fifo_path) {
   {
   scoped_fd recover_fd(fd);
   if (!recover_fd) {
-    WithColor::error() << llvm::formatv(
-        "FifoProc: failed to open fifo at {0} ({1})\n", fifo_path,
+    int err = errno;
+    die("FifoProc: failed to open fifo at " + std::string(fifo_path) + ": " +
         strerror(err));
-    return 1;
   }
 
   if (IsVeryVerbose())
@@ -1253,9 +1253,7 @@ int RunTool::FifoProc(const char *const fifo_path) {
             continue;
 	  }
 
-          WithColor::error() << llvm::formatv("FifoProc: failed to read: {0}\n",
-                                              strerror(err));
-          return 1;
+          die("FifoProc: failed to read: " + std::string(strerror(err)));
         } else if (ret == 0) { /* closed */
           break;
         }
