@@ -4,6 +4,7 @@
 #include "analyze.h"
 #include "tcg.h"
 #include "recompile.h"
+#include "fork.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -199,7 +200,7 @@ int ServerTool::Serve(const int connection_socket) {
     //
     // Create process to service that connection
     //
-    if (!::fork())
+    if (!jove::fork())
       return ConnectionProc(std::move(args));
   }
 

@@ -18,6 +18,7 @@
 #include "hash.h"
 #include "objdump.h"
 #include "reflink.h"
+#include "fork.h"
 #include "augmented_raw_syscalls.h"
 
 #include <tbb/flow_graph.h>
@@ -941,7 +942,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
     std::vector<pid_t> pidvec;
     for (const auto &pair : aux_filenames) {
       if (!opts.Serial) {
-        pid_t pid = ::fork();
+        pid_t pid = jove::fork();
         if (pid) {
           pidvec.push_back(pid);
           continue;

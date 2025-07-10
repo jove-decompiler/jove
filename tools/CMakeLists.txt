@@ -88,6 +88,7 @@ set(JOVE_SOURCES
     ../core/portable_binary_iarchive.cpp
     ../core/portable_binary_oarchive.cpp
     ../core/ptrace.cpp
+    ../core/pidfd.cpp
     ../core/recovery.cpp
     ../core/recompile.cpp
     ../core/reflink.cpp
@@ -101,6 +102,7 @@ set(JOVE_SOURCES
     ../core/temp.cpp
     ../core/tool.cpp # has to come before all the tools
     ../core/triple.cpp
+    ../core/tbb_hacks.cpp
     ../core/util.cpp
     ../core/vdso.cpp
     ../core/win.cpp

@@ -5,6 +5,8 @@
 #include "tcg.h"
 #include "explore.h"
 #include "ansi.h"
+#include "pidfd.h"
+#include "fork.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -12,6 +14,8 @@
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
+#include <boost/interprocess/anonymous_shared_memory.hpp>
+#include <boost/interprocess/managed_external_buffer.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/MC/MCInstrInfo.h>
@@ -31,6 +35,7 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <poll.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -49,6 +54,11 @@ struct binary_state_t {
 };
 
 }
+
+struct shared_data_t {
+  ip_mutex mtx;
+  std::atomic<char> recovered_ch = '\0';
+};
 
 struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
@@ -176,6 +186,12 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                  cl::cat(JoveCategory)) {}
   } opts;
 
+  static constexpr unsigned shared_region_size = 1024;
+
+  boost::interprocess::mapped_region shared_mem;
+  boost::interprocess::managed_external_buffer shared_buff;
+  shared_data_t &shared_data;
+
   const bool IsCOFF;
 
   std::unique_ptr<disas_t> disas;
@@ -187,6 +203,9 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 public:
   RunTool()
       : opts(JoveCategory),
+        shared_mem(boost::interprocess::anonymous_shared_memory(shared_region_size)),
+        shared_buff(boost::interprocess::create_only, shared_mem.get_address(), shared_region_size),
+        shared_data(*shared_buff.construct<shared_data_t>(boost::interprocess::anonymous_instance)()),
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
@@ -196,12 +215,12 @@ public:
 
   static const char exited_char;
 
-  std::atomic<char> recovered_ch = '\0';
   std::atomic<bool> FileSystemRestored = false;
 
   template <bool LivingDangerously>
-  void *FifoProc(const char *const fifo_file_path);
-  std::atomic_flag FifoProcDone = ATOMIC_FLAG_INIT;
+  int FifoProc(const char *const fifo_file_path);
+
+  void DropPrivileges(void);
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -261,6 +280,13 @@ int RunTool::Run(void) {
 
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
   const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
+
+  if (WillChroot || LivingDangerously) {
+    if (::getuid() > 0) {
+      WithColor::error() << "must be root\n";
+      return 1;
+    }
+  }
 
 #define WILL_CHROOT_POSSIBILTIES                                               \
     ((true))                                                                   \
@@ -392,6 +418,26 @@ struct ScopedMount {
   }
 };
 
+void RunTool::DropPrivileges(void) {
+  if (!opts.Group.empty()) {
+    unsigned gid = atoi(opts.Group.c_str());
+
+    if (::setgid(gid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setgid failed: {0}", strerror(err));
+    }
+  }
+
+  if (!opts.User.empty()) {
+    unsigned uid = atoi(opts.User.c_str());
+
+    if (::setuid(uid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
+    }
+  }
+}
+
 static void touch(const fs::path &);
 
 #define __BEGIN_MOUNTS__ {
@@ -399,45 +445,133 @@ static void touch(const fs::path &);
 
 template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
-  scoped_fd pid_fd;
+  //
+  // code recovery fifo. why don't we use an anonymous pipe? because the
+  // program being recompiled may decide to close all the open file descriptors
+  //
+  std::string stuff_dir;
+  if (WillChroot)
+    stuff_dir = opts.sysroot;
+  stuff_dir.append("/tmp/jove.XXXXXX");
+
+  if (!mkdtemp(&stuff_dir[0])) {
+    int err = errno;
+
+    throw std::runtime_error("failed to make temporary directory: " +
+                             std::string(strerror(err)));
+  }
+
+  if (::chmod(stuff_dir.c_str(), 0777) < 0) {
+    int err = errno;
+
+    fs::remove_all(stuff_dir);
+    throw std::runtime_error("failed to change permissions of temporary directory: " +
+                             std::string(strerror(err)));
+  }
+
+  std::string fifo_path = stuff_dir + "/jove.fifo";
+  if (mkfifo(fifo_path.c_str(), 0666) < 0) {
+    int err = errno;
+
+    fs::remove_all(stuff_dir);
+    HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
+    return 1;
+  }
+
+  if (::chmod(fifo_path.c_str(), 0666) < 0) {
+    int err = errno;
+
+    fs::remove_all(stuff_dir);
+    throw std::runtime_error("failed to change permissions of temporary fifo: " +
+                             std::string(strerror(err)));
+  }
+
+  fs::path fifo_file_path = fs::canonical(fifo_path);
+
+  std::string fifo_path_under_sysroot;
+  if (WillChroot)
+    fifo_path_under_sysroot = "/" + fs::relative(fifo_file_path, fs::canonical(opts.sysroot)).string();
 
   //
-  // if we were given a pipefd, then communicate the app child's PID
+  // create process reading from fifo
   //
-  if (!opts.PIDFifo.empty()) {
-    pid_fd = ::open(opts.PIDFifo.c_str(), O_WRONLY | O_CLOEXEC);
-    if (!pid_fd) {
+  pid_t fifo_child = jove::fork();
+  if (!fifo_child) {
+    disas = std::make_unique<disas_t>();
+    tcg = std::make_unique<tiny_code_generator_t>();
+    symbolizer = std::make_unique<symbolizer_t>();
+    Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
+        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+    Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
+        jv_file, jv, *Explorer, *symbolizer);
+
+    return FifoProc<LivingDangerously>(fifo_file_path.c_str());
+  }
+
+  scoped_fd pidfd(pidfd_open(fifo_child, 0));
+  if (!pidfd) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("pidfd failed: {0}\n", strerror(err));
+  }
+
+  BOOST_SCOPE_DEFER [&] {
+    if (ShouldDeleteTemporaryFiles())
+      fs::remove_all(stuff_dir);
+  };
+
+  auto IsFifoProcStillRunning = [&](int timeout = 0) -> bool {
+    struct pollfd pfd = {.fd = pidfd.get(), .events = POLLIN};
+
+    if (IsVeryVerbose())
+      HumanOut() << "polling...\n";
+
+    int poll_ret = ::poll(&pfd, 1, timeout);
+    if (poll_ret < 0) {
       int err = errno;
-      HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
-                                  strerror(err));
-    }
-  }
-
-  if (WillChroot || LivingDangerously) {
-    if (::getuid() > 0) {
-      HumanOut() << "must be root\n";
-      return 1;
-    }
-  }
-
-  auto drop_privileges = [&](void) -> void {
-    if (!opts.Group.empty()) {
-      unsigned gid = atoi(opts.Group.c_str());
-
-      if (::setgid(gid) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("setgid failed: {0}", strerror(err));
-      }
+      WithColor::error() << llvm::formatv("poll failed: {0}\n", strerror(err));
+      return false;
     }
 
-    if (!opts.User.empty()) {
-      unsigned uid = atoi(opts.User.c_str());
+    if (IsVeryVerbose())
+      HumanOut() << "polled.\n";
 
-      if (::setuid(uid) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
-      }
+    return poll_ret == 0;
+  };
+
+  unsigned TimesToldToStop = 0;
+  auto TellFifoProcToStop = [&](void) -> bool {
+    int fd = -1;
+    int err = 0;
+    do {
+      fd = ::open(fifo_file_path.c_str(), O_WRONLY | O_NONBLOCK);
+      err = errno;
+    } while (fd < 0 && err == EINTR);
+
+    scoped_fd recover_fd(fd);
+    if (!recover_fd) {
+      WithColor::error() << llvm::formatv(
+          "failed to open fifo (\"{0}\") to signal app has exited: {1}\n",
+          fifo_path, strerror(err));
+      return false;
     }
+
+    ssize_t ret = -1;
+    err = 0;
+    do {
+      ret = ::write(fd, &exited_char, 1);
+      err = errno;
+    } while (ret < 0 && err == EINTR);
+
+    if (ret != 1) {
+      WithColor::error() << llvm::formatv(
+          "failed to write to fifo (\"{0}\") to signal app has exited: {1}\n",
+          fifo_path, strerror(err));
+      return false;
+    }
+
+    ++TimesToldToStop;
+
+    return true;
   };
 
   int ret_val = -1;
@@ -584,72 +718,7 @@ int RunTool::DoRun(void) {
 
 #undef __BIND_MOUNT_FILE
 
-  //
-  // code recovery fifo. why don't we use an anonymous pipe? because the
-  // program being recompiled may decide to close all the open file descriptors
-  //
-  std::string stuff_dir;
-  if (WillChroot)
-    stuff_dir = opts.sysroot;
-  stuff_dir.append("/tmp/jove.XXXXXX");
-
-  if (!mkdtemp(&stuff_dir[0])) {
-    int err = errno;
-    throw std::runtime_error("failed to make temporary directory: " +
-                             std::string(strerror(err)));
-  }
-
-  if (::chmod(stuff_dir.c_str(), 0777) < 0) {
-    int err = errno;
-    throw std::runtime_error("failed to change permissions of temporary directory: " +
-                             std::string(strerror(err)));
-  }
-
-  std::string fifo_path = stuff_dir + "/jove.fifo";
-  if (mkfifo(fifo_path.c_str(), 0666) < 0) {
-    int err = errno;
-    HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
-    return 1;
-  }
-
-  if (::chmod(fifo_path.c_str(), 0666) < 0) {
-    int err = errno;
-    throw std::runtime_error("failed to change permissions of temporary fifo: " +
-                             std::string(strerror(err)));
-  }
-
-  fs::path fifo_file_path = fs::canonical(fifo_path);
-
-  std::string fifo_path_under_sysroot;
-  if (WillChroot)
-    fifo_path_under_sysroot = "/" + fs::relative(fifo_file_path, fs::canonical(opts.sysroot)).string();
-
-  BOOST_SCOPE_DEFER [&] {
-    if (ShouldDeleteTemporaryFiles())
-      fs::remove_all(stuff_dir);
-  };
-
   {
-  //
-  // create thread reading from fifo
-  //
-  std::thread recover_thd(&RunTool::FifoProc<LivingDangerously>, this,
-                          fifo_file_path.c_str());
-
-  BOOST_SCOPE_DEFER [&] { recover_thd.join(); };
-
-  //
-  // parse jv
-  //
-  if (1 /* has_jv */) {
-    disas = std::make_unique<disas_t>();
-    tcg = std::make_unique<tiny_code_generator_t>();
-    symbolizer = std::make_unique<symbolizer_t>();
-    Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-    Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(jv_file, jv, *Explorer, *symbolizer);
-  }
-
   scoped_fd rfd;
   scoped_fd wfd;
 
@@ -924,7 +993,7 @@ int RunTool::DoRun(void) {
                       "\n");
           }
 
-          drop_privileges();
+          DropPrivileges();
         });
   } catch (const std::exception &e) {
 #if 0
@@ -942,14 +1011,20 @@ int RunTool::DoRun(void) {
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
-  if (pid_fd) {
-    uint64_t u64 = pid;
-    ssize_t ret = robust_write(pid_fd.get(), &u64, sizeof(uint64_t));
+  if (!opts.PIDFifo.empty()) {
+    scoped_fd pid_fd(::open(opts.PIDFifo.c_str(), O_WRONLY | O_CLOEXEC));
 
-    if (ret != sizeof(uint64_t))
-      HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
+    if (pid_fd) {
+      uint64_t u64 = pid;
+      ssize_t ret = robust_write(pid_fd.get(), &u64, sizeof(uint64_t));
 
-    pid_fd.close();
+      if (ret != sizeof(uint64_t))
+	HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
+    } else {
+      int err = errno;
+      HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
+                                  strerror(err));
+    }
   }
 
   if (LivingDangerously) {
@@ -1060,7 +1135,7 @@ int RunTool::DoRun(void) {
         break;
       }
 
-      if (recovered_ch.load()) {
+      if (shared_data.recovered_ch.load(std::memory_order_relaxed)) {
         if (IsVerbose())
           HumanOut() << "sleep interrupted by jove-recover\n";
         sleep(std::min<unsigned>(sec - t, 3));
@@ -1074,42 +1149,38 @@ int RunTool::DoRun(void) {
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);
 
-  //
-  // communicate to FifoProc that the app has exited.
-  //
-  for (;;) {
-    int fd = -1;
-    int err = 0;
+  if (IsFifoProcStillRunning(0u)) {
     do {
-      fd = ::open(fifo_file_path.c_str(), O_WRONLY | O_CLOEXEC);
-      err = errno;
-    } while (fd < 0 && err == EINTR);
+      if (!TellFifoProcToStop() || TimesToldToStop > 10) {
+        if (IsVerbose())
+          WithColor::note() << "killing FifoProc with fire\n";
 
-    scoped_fd recover_fd(fd);
-    if (!recover_fd) {
-      WithColor::error() << llvm::formatv(
-          "failed to open recovery fifo (\"{0}\") to send '!': {1}\n",
-          fifo_path, strerror(err));
-      return 1;
+        ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
+                                       boost::interprocess::try_to_lock);
+        if (!e_lck)
+          WithColor::warning() << "FifoProc ain't giving up lock!\n";
+
+        // kill it with fire
+        if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
+                                              strerror(err));
+        }
+
+        break;
+      }
+    } while (IsFifoProcStillRunning(5000u));
+  } else {
+    WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
+  }
+
+  {
+    siginfo_t si;
+    if (waitid(P_PIDFD, pidfd.get(), &si, WEXITED) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("waitid failed: {0}\n",
+                                          strerror(err));
     }
-
-    if (FifoProcDone.test()) break;
-
-    ssize_t ret = -1;
-    err = 0;
-    do {
-      ret = ::write(fd, &exited_char, 1);
-      err = errno;
-    } while (ret < 0 && err == EINTR);
-
-    if (ret != 1) {
-      if (IsVerbose())
-        WithColor::warning()
-            << llvm::formatv("failed to write to fifo (\"{0}\"): {1}\n",
-                             fifo_path, strerror(err));
-    }
-
-    if (FifoProcDone.test()) break;
   }
   }
 
@@ -1120,13 +1191,13 @@ int RunTool::DoRun(void) {
 
   __END_MOUNTS__
 
-  drop_privileges();
+  DropPrivileges();
 
   {
     //
     // robust means of determining whether jove-recover has run
     //
-    char ch = recovered_ch.load();
+    char ch = shared_data.recovered_ch.load(std::memory_order_relaxed);
     if (ch)
       return ch; /* return char jove-loop will recognize */
   }
@@ -1141,9 +1212,7 @@ void touch(const fs::path &p) {
 }
 
 template <bool LivingDangerously>
-void *RunTool::FifoProc(const char *const fifo_path) {
-  BOOST_SCOPE_DEFER [&] { FifoProcDone.test_and_set(); };
-
+int RunTool::FifoProc(const char *const fifo_path) {
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
 
@@ -1155,13 +1224,12 @@ void *RunTool::FifoProc(const char *const fifo_path) {
   } while (fd < 0 && err == EINTR);
 
   {
-
   scoped_fd recover_fd(fd);
   if (!recover_fd) {
     WithColor::error() << llvm::formatv(
         "FifoProc: failed to open fifo at {0} ({1})\n", fifo_path,
         strerror(err));
-    return nullptr;
+    return 1;
   }
 
   if (IsVeryVerbose())
@@ -1187,7 +1255,7 @@ void *RunTool::FifoProc(const char *const fifo_path) {
 
           WithColor::error() << llvm::formatv("FifoProc: failed to read: {0}\n",
                                               strerror(err));
-          return nullptr;
+          return 1;
         } else if (ret == 0) { /* closed */
           break;
         }
@@ -1216,12 +1284,19 @@ void *RunTool::FifoProc(const char *const fifo_path) {
     // 'f', 'F', 'O', 'b', 'B', 'a', 'r', or '!'
     //
     if (unlikely(ch == exited_char))
-      return nullptr; /* if we see this, the app has exited. */
+      return 0; /* if we see this, the app has exited. */
 
     assert(Recovery);
-    recovered_ch.store(ch);
+    shared_data.recovered_ch.store(ch, std::memory_order_relaxed);
 
     auto do_recover = [&](void) -> std::string {
+//
+// paranoid (raw) macro which locks a shared mutex. this is meant to defend
+// against the hypothetical possibility of the FifoProc going haywire. we are
+// being super careful here.
+//
+#define ___recovering___() ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx)
+
       if (ch == 'f') {
         struct {
           uint32_t BIdx;
@@ -1251,15 +1326,16 @@ void *RunTool::FifoProc(const char *const fifo_path) {
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("RecoverDynamicTarget({0}, {1}, {2}, {3})\n",
-                                           Caller.BIdx,
-                                           Caller.BBIdx,
-                                           Callee.BIdx,
-                                           Callee.FIdx);
+                                      Caller.BIdx,
+                                      Caller.BBIdx,
+                                      Callee.BIdx,
+                                      Callee.FIdx);
 
+        ___recovering___();
         return Recovery->RecoverDynamicTarget(Caller.BIdx,
-                                                   Caller.BBIdx,
-                                                   Callee.BIdx,
-                                                   Callee.FIdx);
+                                              Caller.BBIdx,
+                                              Callee.BIdx,
+                                              Callee.FIdx);
       } else if (ch == 'b') {
         struct {
           uint32_t BIdx;
@@ -1283,13 +1359,14 @@ void *RunTool::FifoProc(const char *const fifo_path) {
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("RecoverBasicBlock({0}, {1}, {2})\n",
-                                           IndBr.BIdx,
-                                           IndBr.BBIdx,
-                                           taddr2str(Addr, false));
+                                      IndBr.BIdx,
+                                      IndBr.BBIdx,
+                                      taddr2str(Addr, false));
 
+        ___recovering___();
         return Recovery->RecoverBasicBlock(IndBr.BIdx,
-                                                IndBr.BBIdx,
-                                                Addr);
+                                           IndBr.BBIdx,
+                                           Addr);
       } else if (ch == 'F') {
         struct {
           uint32_t BIdx;
@@ -1325,10 +1402,11 @@ void *RunTool::FifoProc(const char *const fifo_path) {
               Callee.BIdx,
               Callee.Addr);
 
+        ___recovering___();
         return Recovery->RecoverFunctionAtAddress(IndCall.BIdx,
-                                                       IndCall.BBIdx,
-                                                       Callee.BIdx,
-                                                       Callee.Addr);
+                                                  IndCall.BBIdx,
+                                                  Callee.BIdx,
+                                                  Callee.Addr);
       } else if (ch == 'O') {
         struct {
           uint32_t BIdx;
@@ -1364,10 +1442,11 @@ void *RunTool::FifoProc(const char *const fifo_path) {
               Callee.BIdx,
               Callee.Offset);
 
+        ___recovering___();
         return Recovery->RecoverFunctionAtOffset(IndCall.BIdx,
-                                                      IndCall.BBIdx,
-                                                      Callee.BIdx,
-                                                      Callee.Offset);
+                                                 IndCall.BBIdx,
+                                                 Callee.BIdx,
+                                                 Callee.Offset);
       } else if (ch == 'a') {
         struct {
           uint32_t BIdx;
@@ -1386,11 +1465,11 @@ void *RunTool::FifoProc(const char *const fifo_path) {
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("RecoverABI({0}, {1})\n",
-                                           NewABI.BIdx,
-                                           NewABI.FIdx);
-
+                                      NewABI.BIdx,
+                                      NewABI.FIdx);
+        ___recovering___();
         return Recovery->RecoverABI(NewABI.BIdx,
-                                         NewABI.FIdx);
+                                    NewABI.FIdx);
       } else if (ch == 'r') {
         struct {
           uint32_t BIdx;
@@ -1409,11 +1488,12 @@ void *RunTool::FifoProc(const char *const fifo_path) {
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("Returns({0}, {1})\n",
-                                           Call.BIdx,
-                                           Call.BBIdx);
-
-        return Recovery->Returns(Call.BIdx,
+                                      Call.BIdx,
                                       Call.BBIdx);
+
+        ___recovering___();
+        return Recovery->Returns(Call.BIdx,
+                                 Call.BBIdx);
       } else if (ch == 'B') {
         uint32_t PathLen;
         std::string Path;
@@ -1434,12 +1514,15 @@ void *RunTool::FifoProc(const char *const fifo_path) {
           HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n",
                                            Path);
 
+        ___recovering___();
         return Recovery->RecoverForeignBinary(Path.c_str());
       } else {
         std::string ch_s;
         ch_s.push_back(ch);
         throw std::runtime_error("unknown character \"" + ch_s + "\"");
       }
+
+#undef ___recovering___
     };
 
     try {

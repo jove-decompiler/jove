@@ -19,8 +19,17 @@ static inline void no_args(std::function<void(const char *)> Arg) {
 static inline void no_envs(std::function<void(const char *)>) {}
 }
 
+//
+// This function is called *right before* the call to execve(2). Aim to avoid
+// doing anything that might cause a deadlock, since this function is called
+// in the child of the fork().
+//
 typedef std::function<void(const char **, const char **)> before_exec_t;
 
+//
+// User-friendly function to fork and exec (i.e. spawning a process from an
+// executable).
+//
 template <typename ComputeArgs, typename ComputeEnvs>
 pid_t RunExecutable(const std::string &exe_path,
     ComputeArgs compute_args,
@@ -57,15 +66,19 @@ pid_t RunExecutable(const std::string &exe_path,
   arg_vec.push_back(nullptr);
   env_vec.push_back(nullptr);
 
+  //
+  // there are issues with tbb concerning the use of fork(2), but since we are
+  // calling execve(2) straight away there should be no chance of deadlocking.
+  //
   pid_t pid = ::fork();
   if (pid)
     return pid;
 
-  //
-  // we do this before messing with standard output streams
-  //
   before_exec(&arg_vec[0], &env_vec[0]);
 
+  //
+  // redirect standard output and/or standard error, if desired.
+  //
   if (!stdout_path.empty()) {
     //
     // redirect stdout
