@@ -74,10 +74,18 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   "pushl %%eax\n" /* preserve */                                               \
   "pushl %%edx\n" /* preserve */                                               \
                                                                                \
-  "pushl %%eax\n"                                                              \
+  /* <alignment dance> */                                                      \
+  "movl %%esp, %%ecx\n" /* save where we are */                                \
+  "andl $-16, %%esp\n"  /* do alignment */                                     \
+  "pushl %%ecx\n"       /* really save where we are */                         \
+  "subl $12, %%esp\n"   /* allocate mem */                                     \
+                                                                               \
   "fsts (%%esp)\n" /* get ST(0) as float */                                    \
   "call "_"jove_thunk_handle_st0\n"                                            \
-  "popl %%eax\n"                                                               \
+                                                                               \
+  "addl $12, %%esp\n"   /* deallocate mem */                                   \
+  "popl %%esp\n"        /* restore to where we were */                         \
+  /* </alignment dance> */                                                     \
                                                                                \
   "popl %%edx\n"                                                               \
   "popl %%eax\n"
