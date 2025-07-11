@@ -362,8 +362,8 @@ class JoveTester:
           stderr = tempfile.NamedTemporaryFile(delete=False)
           stderr.close()
 
-          self.scp_from("/tmp/stdout", stdout, check=True);
-          self.scp_from("/tmp/stderr", stderr, check=True);
+          self.scp_from("/tmp/stdout", stdout.name, check=True);
+          self.scp_from("/tmp/stderr", stderr.name, check=True);
 
           p2_stdout = open(stdout.name, "rb").read()
           p2_stderr = open(stderr.name, "rb").read()
