@@ -39,7 +39,8 @@ define template_platform
 build-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),build-$(1)-$(t))
 
 .PHONY: check-$(1)
-check-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t))
+check-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t)-remote) \
+            $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t)-local)
 
 .PHONY: clean-$(1)
 clean-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),clean-$(1)-$(t))
@@ -102,16 +103,19 @@ $$(file > .t/linux.tests.$(1).st.remote,$$(ST_REMOTE_TESTS))
 $$(file > .t/linux.tests.$(1).mt.local,$$(MT_LOCAL_TESTS))
 $$(file > .t/linux.tests.$(1).mt.remote,$$(MT_REMOTE_TESTS))
 
-.PHONY: check-linux-$(1)
-check-linux-$(1): build-linux-$(1)
-	$(ROOT_DIR)/run.py -a $(1) -p linux \
-                           --local \
-                           --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st.local) \
-                            --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt.local)
+.PHONY: check-linux-$(1)-remote
+check-linux-$(1)-remote: build-linux-$(1)
 	$(ROOT_DIR)/run.py -a $(1) -p linux \
                            --remote \
                            --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st.remote) \
                             --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt.remote)
+
+.PHONY: check-linux-$(1)-local
+check-linux-$(1)-local: build-linux-$(1)
+	$(ROOT_DIR)/run.py -a $(1) -p linux \
+                           --local \
+                           --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st.local) \
+                            --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt.local)
 
 $$(BINDIR)/$(1)/%.exe: $$(SRCDIR)/%.c
 	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fno-pic -no-pie $$(EXTRAFLAGS)
@@ -165,10 +169,17 @@ $(shell mkdir -p .t)
 $$(file > .t/win.tests.$(1).st,$$(ST_TESTS))
 $$(file > .t/win.tests.$(1).mt,$$(MT_TESTS))
 
-.PHONY: check-win-$(1)
-check-win-$(1): build-win-$(1)
+.PHONY: check-win-$(1)-remote
+check-win-$(1)-remote: build-win-$(1)
 	$(ROOT_DIR)/run.py -a $(1) -p win \
-                           --local-and-remote \
+                           --remote \
+                           --single-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).st) \
+                            --multi-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).mt)
+
+.PHONY: check-win-$(1)-local
+check-win-$(1)-local: build-win-$(1)
+	$(ROOT_DIR)/run.py -a $(1) -p win \
+                           --local \
                            --single-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).st) \
                             --multi-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).mt)
 
