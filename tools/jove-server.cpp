@@ -114,7 +114,7 @@ public:
   int Run(void) override;
   int Serve(const int connection_socket);
 
-  int ConnectionProc(ConnectionProcArgs &&);
+  int ConnectionProc(const ConnectionProcArgs &);
 };
 
 JOVE_REGISTER_TOOL("server", ServerTool);
@@ -214,19 +214,19 @@ int ServerTool::Serve(const int connection_socket) {
       return 1;
     }
 
-    ConnectionProcArgs args(data_socket, addr, addrlen);
-
     //
     // Create process to service that connection
     //
-    if (!jove::fork())
+    if (!jove::fork()) {
+      ConnectionProcArgs args(data_socket, addr, addrlen);
       return ConnectionProc(std::move(args));
+    }
   }
 
   __attribute__((musttail)) return Serve(connection_socket);
 }
 
-int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
+int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   const int data_socket = args.data_socket.get();
 
   const char our_endianness =
