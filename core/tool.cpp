@@ -196,7 +196,7 @@ found_tool:
 
   tool->UpdateVerbosity();
 
-#if 0
+#if 1 /* DO NOT COMMIT '#if 0' */
   /*
    * unfortunately, llvm::sys::PrintStackTrace() can trigger a deadlocks like
    * the following (because of abort in glibc malloc, which unwinding calls):
