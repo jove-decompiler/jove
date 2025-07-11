@@ -54,6 +54,7 @@ def main():
   if args.just_update_jove:
     tester.get_remote_ready()
     tester.update_jove()
+    del tester
     return 0
 
   test_configs = []
@@ -85,10 +86,10 @@ def main():
         remote=remote
       )
       if ret:
+        del tester
         return ret
 
   del tester
-
   return 0
 
 if __name__ == "__main__":
