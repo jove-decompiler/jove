@@ -1,5 +1,7 @@
 #include "tbb_hacks.h"
 
+#ifndef JOVE_NO_TBB
+
 #include <oneapi/tbb/global_control.h>    // for finalize()
 
 namespace jove {
@@ -21,3 +23,5 @@ void post_fork(void) {
 
 }
 }
+
+#endif

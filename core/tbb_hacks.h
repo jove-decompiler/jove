@@ -1,4 +1,7 @@
 #pragma once
+#include "jove/jove.h"
+
+#ifndef JOVE_NO_TBB
 
 namespace jove {
 namespace tbb_hacks {
@@ -12,3 +15,5 @@ void post_fork(void);
 
 }
 }
+
+#endif
