@@ -11,6 +11,8 @@
 #include <oneapi/tbb/parallel_invoke.h>
 
 #include <boost/filesystem.hpp>
+#include <boost/interprocess/anonymous_shared_memory.hpp>
+#include <boost/interprocess/managed_external_buffer.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
@@ -39,6 +41,14 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace jove {
+
+namespace {
+
+struct shared_data_t {
+  std::atomic<unsigned> counter = 0u;
+};
+
+}
 
 static std::string string_of_sockaddr(const struct sockaddr *addr,
                                       socklen_t addrlen) {
@@ -89,10 +99,17 @@ class ServerTool : public Tool {
                cl::cat(JoveCategory)) {}
   } opts;
 
-  tiny_code_generator_t TCG;
+  static constexpr unsigned shared_region_size = 1024;
+
+  boost::interprocess::mapped_region shared_mem;
+  boost::interprocess::managed_external_buffer shared_buff;
+  shared_data_t &shared_data;
 
 public:
-  ServerTool() : opts(JoveCategory) {}
+  ServerTool() : opts(JoveCategory),
+        shared_mem(boost::interprocess::anonymous_shared_memory(shared_region_size)),
+        shared_buff(boost::interprocess::create_only, shared_mem.get_address(), shared_region_size),
+        shared_data(*shared_buff.construct<shared_data_t>(boost::interprocess::anonymous_instance)()) {}
 
   int Run(void) override;
   int Serve(const int connection_socket);
@@ -156,6 +173,8 @@ int ServerTool::Run(void) {
       return 1;
     }
   }
+
+  (void)temporary_dir();
 
   //
   // Prepare for accepting connections. The backlog size is set
@@ -257,9 +276,8 @@ int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
   //
   fs::path TemporaryDir;
   {
-    static std::atomic<unsigned> x = 0;
-
-    TemporaryDir = fs::path(temporary_dir()) / std::to_string(x++);
+    unsigned x = shared_data.counter.fetch_add(1u, std::memory_order_relaxed);
+    TemporaryDir = fs::path(temporary_dir()) / std::to_string(x);
     fs::create_directory(TemporaryDir);
   }
 
@@ -428,6 +446,7 @@ int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
       B::is_coff(*Bin);
     });
 
+    tiny_code_generator_t TCG;
     llvm::LLVMContext Context;
 
     int rc = ({
