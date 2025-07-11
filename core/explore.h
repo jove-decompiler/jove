@@ -132,7 +132,7 @@ public:
 
   template <bool MT2>
   explicit explorer_t(const explorer_t<MT2, MinSize> &other) noexcept
-      : VerboseThing(VerbosityLevel),
+      : VerboseThing(other.VerbosityLevel),
         jv_file(other.jv_file),
         maybe_jv(boost::none),
         disas(other.disas),
