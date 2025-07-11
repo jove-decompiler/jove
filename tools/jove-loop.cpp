@@ -603,6 +603,7 @@ run:
             InitWithEnviron(Env);
 
             Env("JVPATH=" + path_to_jv());
+            Env("JOVEDIR=" + jove_dir());
           },
           std::string(),
           std::string(),
@@ -1219,6 +1220,7 @@ skip_run:
           InitWithEnviron(Env);
 
           Env("JVPATH=" + path_to_jv());
+          Env("JOVEDIR=" + jove_dir());
         });
 
       if (rc) {
@@ -1296,6 +1298,7 @@ skip_run:
           InitWithEnviron(Env);
 
           Env("JVPATH=" + path_to_jv());
+          Env("JOVEDIR=" + jove_dir());
         });
 
       if (rc) {

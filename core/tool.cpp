@@ -403,6 +403,9 @@ std::string Tool::home_dir(void) {
 }
 
 std::string Tool::jove_dir(void) {
+  if (char *var = getenv("JOVEDIR"))
+    return var;
+
   return home_dir() + "/.jove";
 }
 

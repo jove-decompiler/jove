@@ -192,7 +192,7 @@ class JoveTester:
   def start_server(self):
     print("starting jove server...")
 
-    server_cmd = [self.jove_bin_path, 'server', '-v', '--port=%d' % self.jove_server_port]
+    server_cmd = [str(self.jove_bin_path), 'server', '-v', '--port=%d' % self.jove_server_port]
     server_cmd += self.extra_server_args
 
     if self.unattended:
@@ -234,6 +234,7 @@ class JoveTester:
   def fake_run_command_for_user(self, command):
     p = self.pane("ssh")
     p.send_keys("true || " + " ".join(command), enter=True)
+    p.send_keys("", literal=False, enter=True)
 
   def set_up_ssh_command_for_user(self, command):
     self.set_up_command_for_user(["ssh"] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command)
@@ -326,21 +327,19 @@ class JoveTester:
         # run inputs through recompiled binary
         jove_loop_args = ["jove", "loop", "-v", "--dumb-term",\
           f"--rtmt={int(multi_threaded)}", \
-          "--connect", f"{self.iphost}:{str(self.jove_server_port)}", \
-          f"--stdout=/tmp/stdout",\
-          f"--stderr=/tmp/stderr"]
+          "--connect", f"{self.iphost}:{str(self.jove_server_port)}"]
         if self.platform == "win":
           jove_loop_args += ["--lay-out-sections"]
-        jove_loop_args += [testbin]
 
         # show user what we're doing
         if not self.unattended:
-          self.fake_run_ssh_command_for_user(jove_loop_args + inputs[0])
+          self.fake_run_ssh_command_for_user(jove_loop_args + [testbin] + inputs[0])
 
         # for good measure, in case there is new code we run into
         for i in range(0, 2):
           for input_args in inputs:
-            self.ssh(jove_loop_args + input_args)
+            print(jove_loop_args + [testbin] + input_args)
+            self.ssh(jove_loop_args + [testbin] + input_args)
 
         # compare result of executing testbin and recompiled testbin
         for input_args in inputs:
@@ -348,10 +347,14 @@ class JoveTester:
             print(f"FAILURE ({self.arch} server is down!)")
             return 1
 
-          self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"], check=True)
+          self.ssh(["rm", "-f", "--verbose", "/tmp/stdout", "/tmp/stderr"], check=True)
 
-          p1 = self.ssh_command(self.loader_args + [testbin] + input_args, text=True)
-          p2 = self.ssh_command(jove_loop_args + input_args, text=True)
+          p1 = self.ssh_command(self.loader_args + [testbin] + input_args, text=False)
+          p2 = self.ssh(jove_loop_args +
+            [f"--stdout=/tmp/stdout",\
+             f"--stderr=/tmp/stderr"] +
+             [testbin] +
+             input_args)
 
           if self.is_server_down():
             print(f"FAILURE ({self.arch} server is down!)")
@@ -360,8 +363,8 @@ class JoveTester:
           self.scp_from("/tmp/stdout", path_to_stdout, check=True);
           self.scp_from("/tmp/stderr", path_to_stderr, check=True);
 
-          p2_stdout = open(path_to_stdout, "r").read()
-          p2_stderr = open(path_to_stderr, "r").read()
+          p2_stdout = open(path_to_stdout, "rb").read()
+          p2_stderr = open(path_to_stderr, "rb").read()
 
           return_neq = p1.returncode != p2.returncode
           stdout_neq = p1.stdout != p2_stdout
@@ -375,18 +378,18 @@ class JoveTester:
             print("/////////\n///////// %s REMOTE TEST FAILURE %s [%s %s]\n/////////" % \
               ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
                testbin, self.platform, self.arch))
-            print(jove_loop_args)
+            print(jove_loop_args + [testbin] + input_args)
 
             if return_neq:
               print('%d != %d' % (p1.returncode, p2.returncode))
             if stdout_neq:
-              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2_stdout))
+              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
             if stderr_neq:
-              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2_stderr))
+              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
 
             # make it easy for user to rerun failing test
             if not self.unattended:
-              self.set_up_ssh_command_for_user(jove_loop_args + input_args)
+              self.set_up_ssh_command_for_user(jove_loop_args + [testbin] + input_args)
 
             return 1
 
@@ -411,65 +414,71 @@ class JoveTester:
 
         assert testbin_path.is_file()
 
-        # establish clean slate
-        subprocess.run([
-          "rm", "-rf", "--verbose",
-          os.path.expanduser("~/.jove"),
-          os.path.expanduser(f'~/.jv.{JoveTester.ARCH_2_SHORT_NAME[self.arch]}'),
-        ], check=True)
+        env = os.environ.copy()
+
+        path_to_jv = tempfile.NamedTemporaryFile(delete=False)
+        path_to_jv.close()
+        env["JVPATH"] = path_to_jv.name
 
         # initialize jv
-        subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], check=True)
+        subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], env=env, check=True)
 
-        path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
-        path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
+        with tempfile.TemporaryDirectory() as dot_jove:
+          env["JOVEDIR"] = dot_jove.name
 
-        # prepare loop command (no --connect for local)
-        jove_loop_base = [
-          f'{self.jove_bin_path}', "loop", "-v", "--dumb-term",
-          f'--rtmt={int(multi_threaded)}',
-          f'--stdout={path_to_stdout}',
-          f'--stderr={path_to_stderr}'
-        ]
+          # prepare loop command (no --connect for local)
+          jove_loop_base = [
+            f'{self.jove_bin_path}', "loop", "-v", "--dumb-term",
+            f'--rtmt={int(multi_threaded)}',
+          ]
 
-        if self.platform == "win":
-          jove_loop_base.insert(-1, "--lay-out-sections")
+          if self.platform == "win":
+            jove_loop_base.insert(-1, "--lay-out-sections")
 
-        # for good measure, in case there is new code we run into
-        for i in range(0, 2):
+          # for good measure, in case there is new code we run into
+          for i in range(0, 2):
+            for input_args in inputs:
+              subprocess.run(jove_loop_base + [str(testbin_path)] + input_args, env=env)
+
+          # compare result of executing testbin and recompiled testbin
           for input_args in inputs:
-            subprocess.run(jove_loop_base + [str(testbin_path)] + input_args)
+            stdout = tempfile.NamedTemporaryFile(delete=False)
+            stdout.close()
+            stderr = tempfile.NamedTemporaryFile(delete=False)
+            stderr.close()
 
-        # compare result of executing testbin and recompiled testbin
-        for input_args in inputs:
-          p1 = subprocess.run(self.loader_args + [str(testbin_path)] + input_args, capture_output=True)
-          p2 = subprocess.run(jove_loop_base + [str(testbin_path)] + input_args)
+            p1 = subprocess.run(self.loader_args + [str(testbin_path)] + input_args, capture_output=True)
+            p2 = subprocess.run(jove_loop_base + [f'--stdout={stdout.name}', f'--stderr={stderr.name}'] + [str(testbin_path)] + input_args, env=env)
 
-          p2_stdout = open(path_to_stdout, "rb").read()
-          p2_stderr = open(path_to_stderr, "rb").read()
+            p2_stdout = open(stdout.name, "rb").read()
+            p2_stderr = open(stderr.name, "rb").read()
 
-          return_neq = p1.returncode != p2.returncode
-          stdout_neq = p1.stdout != p2_stdout
-          stderr_neq = p1.stderr != p2_stderr if self.platform != "win" else False
+            os.unlink(stdout.name);
+            os.unlink(stderr.name);
 
-          failed = return_neq or stdout_neq
-          if self.platform != "win": # wine prints a bunch of shit to stderr
-            failed = failed or stderr_neq
+            return_neq = p1.returncode != p2.returncode
+            stdout_neq = p1.stdout != p2_stdout
+            stderr_neq = p1.stderr != p2_stderr if self.platform != "win" else False
 
-          if failed:
-            print("/////////\n///////// %s LOCAL TEST FAILURE %s [%s %s]\n/////////" % \
-              ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
-               str(testbin_path), self.platform, self.arch))
-            print(jove_loop_base + [str(testbin_path)] + input_args)
+            failed = return_neq or stdout_neq
+            if self.platform != "win": # wine prints a bunch of shit to stderr
+              failed = failed or stderr_neq
 
-            if return_neq:
-              print('%d != %d' % (p1.returncode, p2.returncode))
-            if stdout_neq:
-              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2_stdout))
-            if stderr_neq:
-              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2_stderr))
+            if failed:
+              print("/////////\n///////// %s LOCAL TEST FAILURE %s [%s %s]\n/////////" % \
+                ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
+                 str(testbin_path), self.platform, self.arch))
+              print(jove_loop_base + [str(testbin_path)] + input_args)
 
-            return 1
+              if return_neq:
+                print('%d != %d' % (p1.returncode, p2.returncode))
+              if stdout_neq:
+                print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
+              if stderr_neq:
+                print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
+
+              return 1
+        os.unlink(path_to_jv)
 
     print(f"SUCCESS <local> ({self.arch} {self.platform})")
     return 0
@@ -513,8 +522,9 @@ class JoveTester:
   def __del__(self):
     print(f"tester: cleaning up... [{self.platform} {self.arch}]")
     if self.unattended:
-      self.ssh(['systemctl', 'poweroff'])
-      time.sleep(3)
+      if self.is_remote_ready():
+        self.ssh(['systemctl', 'poweroff'])
+        time.sleep(3)
 
       if self.serv_process is not None:
         try:

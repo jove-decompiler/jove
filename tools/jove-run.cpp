@@ -53,12 +53,12 @@ struct binary_state_t {
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
-}
-
 struct shared_data_t {
   ip_mutex mtx;
   std::atomic<char> recovered_ch = '\0';
 };
+
+}
 
 struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
@@ -1290,8 +1290,7 @@ int RunTool::FifoProc(const char *const fifo_path) {
     auto do_recover = [&](void) -> std::string {
 //
 // paranoid (raw) macro which locks a shared mutex. this is meant to defend
-// against the hypothetical possibility of the FifoProc going haywire. we are
-// being super careful here.
+// against FifoProc going (hypothetically) haywire. we are being super careful.
 //
 #define ___recovering___() ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx)
 
