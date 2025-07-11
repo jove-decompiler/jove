@@ -1271,9 +1271,9 @@ struct jv_base_t {
   }
 
   void hack_interprocess_graphs(void) noexcept {
-    for_each_binary(maybe_par_unseq, *this, [&](binary_t &b) {
-      hack_interprocess_graph(b.Analysis.ICFG);
-    });
+    for_each_binary(
+        std::execution::seq /* XXX FIXME? maybe_par_unseq */, *this,
+        [&](binary_t &b) { hack_interprocess_graph(b.Analysis.ICFG); });
   }
 
 private:
