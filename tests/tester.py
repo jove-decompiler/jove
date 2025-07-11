@@ -418,13 +418,18 @@ class JoveTester:
 
         path_to_jv = tempfile.NamedTemporaryFile(delete=False)
         path_to_jv.close()
+
+        print(f"JVPATH={path_to_jv.name}")
+
+        os.unlink(path_to_jv.name)
         env["JVPATH"] = path_to_jv.name
 
         # initialize jv
         subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], env=env, check=True)
 
         with tempfile.TemporaryDirectory() as dot_jove:
-          env["JOVEDIR"] = dot_jove.name
+          env["JOVEDIR"] = dot_jove
+          print(f"JOVEDIR={dot_jove}")
 
           # prepare loop command (no --connect for local)
           jove_loop_base = [
@@ -477,8 +482,10 @@ class JoveTester:
               if stderr_neq:
                 print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
 
+              os.unlink(path_to_jv.name)
               return 1
-        os.unlink(path_to_jv)
+
+        os.unlink(path_to_jv.name)
 
     print(f"SUCCESS <local> ({self.arch} {self.platform})")
     return 0
