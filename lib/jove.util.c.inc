@@ -677,23 +677,34 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
 
 /* caches /proc/self/environ */
 static _UNUSED char *_get_environ(unsigned *np) {
-  static jove_buffer_t envs = {0};
-  static unsigned n = 0;
+  static jove_buffer_t _envs = {0};
+  static unsigned _n = 0;
   static mutex_t _mtx = JOVE_MUTEX_INIT;
 
-  if (!envs.ptr) {
-    _mutex_lock(&_mtx);
+  char *res = NULL;
+  unsigned n = 0u;
 
-    if (!envs.ptr) {
-      envs = _jove_alloc_buffer(JOVE_MAX_ENVIRON);
-      n = _jove_read_pseudo_file("/proc/self/environ", envs.ptr, envs.len);
-    }
+  _mutex_lock(&_mtx);
 
-    _mutex_unlock(&_mtx);
+  res = _envs.ptr;
+  n = _n;
+  if (!res) {
+    jove_buffer_t envs = _jove_alloc_buffer(JOVE_MAX_ENVIRON);
+
+    n = _jove_read_pseudo_file("/proc/self/environ", envs.ptr, envs.len);
+    res = envs.ptr;
+
+    _envs = envs;
+    _n = n;
   }
 
+  _mutex_unlock(&_mtx);
+
+  _ASSERT(res);
+  _ASSERT(n);
+
   *np = n;
-  return envs.ptr;
+  return res;
 }
 
 static _UNUSED char *_getenv(const char *name) {
