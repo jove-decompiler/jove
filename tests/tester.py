@@ -321,9 +321,6 @@ class JoveTester:
           for input_args in inputs:
             self.ssh(["jove", "bootstrap", testbin] + input_args)
 
-        path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
-        path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
-
         # run inputs through recompiled binary
         jove_loop_args = ["jove", "loop", "-v", "--dumb-term",\
           f"--rtmt={int(multi_threaded)}", \
@@ -360,11 +357,19 @@ class JoveTester:
             print(f"FAILURE ({self.arch} server is down!)")
             return 1
 
-          self.scp_from("/tmp/stdout", path_to_stdout, check=True);
-          self.scp_from("/tmp/stderr", path_to_stderr, check=True);
+          stdout = tempfile.NamedTemporaryFile(delete=False)
+          stdout.close()
+          stderr = tempfile.NamedTemporaryFile(delete=False)
+          stderr.close()
 
-          p2_stdout = open(path_to_stdout, "rb").read()
-          p2_stderr = open(path_to_stderr, "rb").read()
+          self.scp_from("/tmp/stdout", stdout, check=True);
+          self.scp_from("/tmp/stderr", stderr, check=True);
+
+          p2_stdout = open(stdout.name, "rb").read()
+          p2_stderr = open(stderr.name, "rb").read()
+
+          os.unlink(stdout.name);
+          os.unlink(stderr.name);
 
           return_neq = p1.returncode != p2.returncode
           stdout_neq = p1.stdout != p2_stdout
