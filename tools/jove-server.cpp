@@ -218,8 +218,12 @@ int ServerTool::Serve(const int connection_socket) {
     // Create process to service that connection
     //
     if (!jove::fork()) {
-      ConnectionProcArgs args(data_socket, addr, addrlen);
-      return ConnectionProc(std::move(args));
+      int ret = 1;
+      ignore_exception([&] {
+        ConnectionProcArgs args(data_socket, addr, addrlen);
+        ret = ConnectionProc(args);
+      });
+      _exit(ret);
     }
   }
 

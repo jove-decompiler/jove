@@ -914,8 +914,10 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       run(pair);
       integrate_jv();
 
-      if (!opts.Serial)
-        return 0;
+      if (!opts.Serial) {
+	// we forked and this is the child
+        _exit(0);
+      }
     }
 
     if (!opts.Serial) {

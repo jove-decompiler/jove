@@ -445,6 +445,14 @@ static void touch(const fs::path &);
 
 template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
+  disas = std::make_unique<disas_t>();
+  tcg = std::make_unique<tiny_code_generator_t>();
+  symbolizer = std::make_unique<symbolizer_t>();
+  Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
+      jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+  Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
+      jv_file, jv, *Explorer, *symbolizer);
+
   //
   // code recovery fifo. why don't we use an anonymous pipe? because the
   // program being recompiled may decide to close all the open file descriptors
@@ -497,15 +505,11 @@ int RunTool::DoRun(void) {
   //
   pid_t fifo_child = jove::fork();
   if (!fifo_child) {
-    disas = std::make_unique<disas_t>();
-    tcg = std::make_unique<tiny_code_generator_t>();
-    symbolizer = std::make_unique<symbolizer_t>();
-    Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-    Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
-        jv_file, jv, *Explorer, *symbolizer);
-
-    return FifoProc<LivingDangerously>(fifo_file_path.c_str());
+    int ret = 1;
+    ignore_exception([&] {
+      ret = FifoProc<LivingDangerously>(fifo_file_path.c_str());
+    });
+    _exit(ret);
   }
 
   scoped_fd pidfd(pidfd_open(fifo_child, 0));
