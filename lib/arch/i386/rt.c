@@ -29,7 +29,7 @@ void _jove_inverse_thunk(void) {
                //
                // restore emulated stack pointer
                //
-               "call "_"jove_emusp_location\n" // eax = emuspp
+               __ASM_ALIGNMENT_DANCE_REG_CALL(_"jove_emusp_location", "ecx") // eax = emuspp
 
                "movl (%%eax), %%edx\n"   // edx = emusp
                "movl %%edx, 8(%%esp)\n" // replace 0xdead with emusp
@@ -48,7 +48,7 @@ void _jove_inverse_thunk(void) {
                //
                // restore __jove_callstack
                //
-               "call "_"jove_callstack_location\n" // eax = &__jove_callstack
+               __ASM_ALIGNMENT_DANCE_REG_CALL(_"jove_callstack_location", "ecx") // eax = &__jove_callstack
 
                "movl 24(%%esp), %%edx\n" // edx = saved_callstack
                "movl $0, (%%edx)\n" /* reset */
@@ -67,14 +67,14 @@ void _jove_inverse_thunk(void) {
                // mark newstack as to be freed
                //
                "movl 32(%%esp), %%eax\n" // eax = newstack
-               "call "_"jove_do_free_stack_later\n"
+               __ASM_ALIGNMENT_DANCE_REG_CALL(_"jove_do_free_stack_later", "ecx")
 
                //
                // signal handling
                //
                "movl 36(%%esp), %%eax\n"
                "movl 40(%%esp), %%edx\n"
-               "call "_"jove_handle_signal_delivery\n"
+               __ASM_ALIGNMENT_DANCE_REG_CALL(_"jove_handle_signal_delivery", "ecx")
 
                //
                // ecx is the *only* register we can clobber

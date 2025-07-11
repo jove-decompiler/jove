@@ -73,6 +73,24 @@
 #define _REGPARM
 #endif
 
+#if !defined(__x86_64__) && defined(__i386__)
+#define __ASM_ALIGNMENT_DANCE_BEGIN(sav) \
+  "movl %%esp, %%" sav "\n" /* save where we are */                            \
+  "andl $-16, %%esp\n"  /* do alignment */                                     \
+  "pushl %%" sav "\n"       /* really save where we are */                     \
+  "subl $12, %%esp\n"   /* allocate mem */
+
+#define __ASM_ALIGNMENT_DANCE_END() \
+  "addl $12, %%esp\n"   /* deallocate mem */                                   \
+  "popl %%esp\n"        /* restore to where we were */
+
+#define __ASM_ALIGNMENT_DANCE_REG_CALL(name, sav) \
+  __ASM_ALIGNMENT_DANCE_BEGIN(sav)                \
+  "call " name "\n"                               \
+  __ASM_ALIGNMENT_DANCE_END()
+
+#endif
+
 #define WINAPI __stdcall
 #define PASCAL __stdcall
 
