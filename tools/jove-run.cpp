@@ -514,11 +514,6 @@ int RunTool::DoRun(void) {
     WithColor::error() << llvm::formatv("pidfd failed: {0}\n", strerror(err));
   }
 
-  BOOST_SCOPE_DEFER [&] {
-    if (ShouldDeleteTemporaryFiles())
-      fs::remove_all(stuff_dir);
-  };
-
   auto IsFifoProcStillRunning = [&](int timeout = 0) -> bool {
     struct pollfd pfd = {.fd = pidfd.get(), .events = POLLIN};
 
@@ -573,6 +568,51 @@ int RunTool::DoRun(void) {
     ++TimesToldToStop;
 
     return true;
+  };
+
+  BOOST_SCOPE_DEFER [&] {
+    //
+    // tell FifoProc to stop running
+    //
+    if (IsFifoProcStillRunning(0u)) {
+      if (TellFifoProcToStop()) {
+	if (IsVerbose())
+	  WithColor::note() << "told FifoProc to stop\n";
+      } else {
+	if (IsFifoProcStillRunning(0u)) {
+	  if (IsVeryVerbose())
+	    HumanOut() << "killing FifoProc\n";
+
+	  ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
+					 boost::interprocess::try_to_lock);
+	  if (!e_lck)
+	    WithColor::error() << "FifoProc ain't giving up lock!\n";
+
+	  if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
+	    int err = errno;
+	    WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
+						strerror(err));
+	  }
+	}
+      }
+    } else {
+      WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
+    }
+
+    {
+      siginfo_t si;
+      if (waitid(P_PIDFD, pidfd.get(), &si, WEXITED) < 0) {
+	int err = errno;
+	WithColor::error() << llvm::formatv("waitid failed: {0}\n",
+					    strerror(err));
+      }
+    }
+
+    //
+    // clean-up temporary files
+    //
+    if (ShouldDeleteTemporaryFiles())
+      fs::remove_all(stuff_dir);
   };
 
   int ret_val = -1;
@@ -1122,6 +1162,9 @@ int RunTool::DoRun(void) {
   //
   ret_val = WaitForProcessToExit(pid);
 
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);
+
   //
   // optionally sleep
   //
@@ -1147,42 +1190,6 @@ int RunTool::DoRun(void) {
     }
   }
 
-  if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);
-
-  if (IsFifoProcStillRunning(0u)) {
-    if (TellFifoProcToStop()) {
-      if (IsVerbose())
-        WithColor::note() << "told FifoProc to stop\n";
-    } else {
-      if (IsFifoProcStillRunning(0u)) {
-        if (IsVeryVerbose())
-          HumanOut() << "killing FifoProc\n";
-
-        ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
-                                       boost::interprocess::try_to_lock);
-        if (!e_lck)
-          WithColor::error() << "FifoProc ain't giving up lock!\n";
-
-        if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
-          int err = errno;
-          WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
-                                              strerror(err));
-        }
-      }
-    }
-  } else {
-    WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
-  }
-
-  {
-    siginfo_t si;
-    if (waitid(P_PIDFD, pidfd.get(), &si, WEXITED) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("waitid failed: {0}\n",
-                                          strerror(err));
-    }
-  }
   }
 
 #if 0 /* is this necessary? */
