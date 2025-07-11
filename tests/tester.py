@@ -393,7 +393,8 @@ class JoveTester:
 
             return 1
 
-    print(f"SUCCESS <remote> ({self.arch} {self.platform})")
+    threading_name = "multi" if multi_threaded else "single"
+    print(f"SUCCESS <remote> <{threading_name}-threaded> ({self.arch} {self.platform})")
     return 0
 
   def run_local_tests(self, tests, multi_threaded):
@@ -487,7 +488,8 @@ class JoveTester:
 
         os.unlink(path_to_jv.name)
 
-    print(f"SUCCESS <local> ({self.arch} {self.platform})")
+    threading_name = "multi" if multi_threaded else "single"
+    print(f"SUCCESS <local> <{threading_name}-threaded> ({self.arch} {self.platform})")
     return 0
 
 
