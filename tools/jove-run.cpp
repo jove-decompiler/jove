@@ -1043,8 +1043,7 @@ int RunTool::DoRun(void) {
 #endif
 
     HumanOut() << e.what() << '\n';
-
-    exit(1); /* exception must have been thrown in (forked) child process XXX */
+    return 1;
   }
 
   IgnoreCtrlC();
