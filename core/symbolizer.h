@@ -11,6 +11,7 @@ class LLVMSymbolizer;
 namespace jove {
 
 class symbolizer_t {
+  std::mutex mtx; // LLVMSymbolizer is *not* thread-safe.
   std::unique_ptr<llvm::symbolize::LLVMSymbolizer> Symbolizer;
 
 public:

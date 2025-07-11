@@ -27,6 +27,11 @@ std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
   if (!binary.is_file())
     return std::string();
 
+  llvm::DILineInfo LnInfo;
+  {
+  // LLVMSymbolizer is *not* thread-safe. It caches binaries.
+  std::unique_lock<std::mutex> lck(mtx);
+
   auto ResOrErr = Symbolizer->symbolizeCode(
       binary.path_str(),
       {Addr, llvm::object::SectionedAddress::UndefSection});
@@ -38,8 +43,8 @@ std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
     }
     return std::string();
   }
-
-  llvm::DILineInfo &LnInfo = ResOrErr.get();
+  LnInfo = ResOrErr.get();
+  }
 
   if (LnInfo.FileName == llvm::DILineInfo::BadString)
     return std::string();
