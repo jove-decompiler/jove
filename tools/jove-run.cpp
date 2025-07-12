@@ -319,7 +319,11 @@ int RunTool::Run(void) {
 
 static void *recover_proc(const char *fifo_path);
 
-static std::atomic<bool> interrupt_sleep;
+#if 0
+static std::atomic<bool> InterruptSleep = false;
+#endif
+static std::atomic<bool> StopFifoProc = false;
+static std::atomic<bool> DeathHandlerVerbose = false;
 
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
 
@@ -513,11 +517,29 @@ int RunTool::DoRun(void) {
   //
   pid_t fifo_child = jove::fork();
   if (!fifo_child) {
-    if (::prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+    DeathHandlerVerbose.store(IsVerbose(), std::memory_order_relaxed);
+    auto death_handler = [](int sig) -> void {
+      if (DeathHandlerVerbose.load(std::memory_order_relaxed))
+        WithColor::note() << "death_handler\n";
+
+      StopFifoProc.store(true, std::memory_order_relaxed);
+    };
+
+    struct sigaction sa;
+    sa.sa_handler = death_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; /* no SA_RESTART here, so that open() will return EINTR */
+    if (sigaction(SIGTERM, &sa, NULL) < 0) {
       int err = errno;
-      if (IsVerbose())
-        WithColor::warning()
-            << llvm::formatv("prctl failed: {0}\n", strerror(err));
+      WithColor::error() << llvm::formatv(
+          "failed to set FifoProc SIGTERM death handler: {0}\n", strerror(err));
+    } else {
+      if (::prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+        int err = errno;
+        if (IsVerbose())
+          WithColor::warning()
+              << llvm::formatv("prctl failed: {0}\n", strerror(err));
+      }
     }
 
     int ret = 1;
@@ -1191,11 +1213,13 @@ int RunTool::DoRun(void) {
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
 
-      if (interrupt_sleep.load()) {
+#if 0
+      if (InterruptSleep.load()) {
         if (IsVerbose())
           HumanOut() << "sleep interrupted\n";
         break;
       }
+#endif
 
       if (shared_data.recovered_ch.load(std::memory_order_relaxed)) {
         if (IsVerbose())
@@ -1239,6 +1263,12 @@ void touch(const fs::path &p) {
 
 template <bool LivingDangerously>
 int RunTool::FifoProc(const char *const fifo_path) {
+  if (StopFifoProc.load(std::memory_order_relaxed)) {
+    if (IsVerbose())
+      HumanOut() << "stopping FifoProc...\n";
+    return 0;
+  }
+
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
 
@@ -1247,6 +1277,12 @@ int RunTool::FifoProc(const char *const fifo_path) {
   do {
     fd = ::open(fifo_path, O_RDONLY | O_CLOEXEC);
     err = errno;
+
+    if (StopFifoProc.load(std::memory_order_relaxed)) {
+      if (IsVerbose())
+        HumanOut() << "stopping FifoProc...\n";
+      return 0;
+    }
   } while (fd < 0 && err == EINTR);
 
   {
@@ -1271,6 +1307,12 @@ int RunTool::FifoProc(const char *const fifo_path) {
       if (ret != 1) {
         if (ret < 0) {
           err = errno;
+
+          if (StopFifoProc.load(std::memory_order_relaxed)) {
+            if (IsVerbose())
+              HumanOut() << "stopping FifoProc...\n";
+            return 0;
+          }
 
           if (err == EINTR) {
             if (IsVeryVerbose())
