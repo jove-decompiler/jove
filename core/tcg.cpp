@@ -149,6 +149,9 @@ tiny_code_generator_t::tiny_code_generator_t() {
   the_exe.store();
 
   jv_init_libqemu(the_exe.path().c_str());
+
+  CPUState *const cs = jv_cpu;
+  cs->tcg_cflags |= CF_PARALLEL; /* XXX */
 }
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
@@ -198,6 +201,8 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   //
   {
     TCGTBCPUState s = cs->cc->tcg_ops->get_tb_cpu_state(cs);
+
+    s.cflags |= CF_PARALLEL;
 
     tb.cs_base = s.cs_base;
     tb.flags = s.flags;
