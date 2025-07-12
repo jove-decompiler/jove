@@ -486,6 +486,7 @@ private:
   void DumpModule(const char *);
 
   void ReloadGlobalVariables(void);
+  int DoDeadArgElim(void);
   int DoOptimize(void);
   int Debugify(void);
 

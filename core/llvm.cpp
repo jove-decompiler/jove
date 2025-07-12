@@ -67,6 +67,7 @@ static TCGContext *get_tcg_context() {
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/Transforms/IPO/Internalize.h>
+#include <llvm/Transforms/IPO.h>
 
 #include <cctype>
 #include <random>
@@ -1141,7 +1142,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || (opts.InlineHelpers ? InlineHelpers() : 0)
       || (opts.ForCBE ? PrepareForCBE() : 0)
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
-      || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
+      || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : DoDeadArgElim())
       || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
       || (opts.SoftfpuBitcode ? LinkInSoftFPU() : 0)
       || ForceCallConv()
@@ -2681,14 +2682,24 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
       continue;
     }
 
+    auto &x = state.for_function(f);
+
     if (!f.IsABI)
-      assert(state.for_function(f).adapterF);
+      assert(x.adapterF);
 
     C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
+#if 0
     C2 = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
-    C3 = state.for_function(f).adapterF
-             ? llvm::ConstantExpr::getPtrToInt(state.for_function(f).adapterF, WordType())
-             : llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
+#else
+    //
+    // By not taking the address of the LLVM function corresponding to f, we
+    // make it a viable candidate for the dead argument elimination pass.
+    //
+    C2 = llvm::Constant::getNullValue(WordType());
+#endif
+    C3 = x.adapterF
+             ? llvm::ConstantExpr::getPtrToInt(x.adapterF, WordType())
+             : llvm::ConstantExpr::getPtrToInt(x.F, WordType());
   }
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -6190,6 +6201,15 @@ template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::ReloadGlobalVariables(void) {
   SectsGlobal      = Module->getGlobalVariable(SectsGlobalName, true);
   ConstSectsGlobal = Module->getGlobalVariable(ConstSectsGlobalName, true);
+}
+
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::DoDeadArgElim(void) {
+  llvm::legacy::PassManager PM;
+  PM.add(llvm::createDeadArgEliminationPass());
+  PM.run(*Module);
+
+  return 0;
 }
 
 template <bool MT, bool MinSize>
