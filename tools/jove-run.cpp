@@ -513,7 +513,7 @@ int RunTool::DoRun(void) {
   //
   pid_t fifo_child = jove::fork();
   if (!fifo_child) {
-    if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+    if (::prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
       int err = errno;
       if (IsVerbose())
         WithColor::warning()
