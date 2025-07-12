@@ -3,6 +3,7 @@
 #ifndef JOVE_NO_TBB
 
 #include <oneapi/tbb/global_control.h>    // for finalize()
+#include <oneapi/tbb/task_arena.h>
 
 namespace jove {
 namespace tbb_hacks {
@@ -19,6 +20,15 @@ void pre_fork(void) {
 void post_fork(void) {
   oneapi::tbb::task_scheduler_handle child_or_parent_handle{
       oneapi::tbb::attach{}};
+}
+
+void disable(void) {
+  tbb::global_control c(tbb::global_control::max_allowed_parallelism, 1);
+}
+
+void enable(void) {
+  tbb::global_control c(tbb::global_control::max_allowed_parallelism,
+                        oneapi::tbb::this_task_arena::max_concurrency());
 }
 
 }

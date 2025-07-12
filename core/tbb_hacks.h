@@ -13,6 +13,9 @@ namespace tbb_hacks {
 void pre_fork(void);
 void post_fork(void);
 
+void disable(void);
+void enable(void);
+
 }
 }
 
