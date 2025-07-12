@@ -617,24 +617,24 @@ int RunTool::DoRun(void) {
     //
     if (IsFifoProcStillRunning(0u)) {
       if (TellFifoProcToStop()) {
-	if (IsVerbose())
-	  WithColor::note() << "told FifoProc to stop\n";
+        if (IsVerbose())
+          WithColor::note() << "told FifoProc to stop\n";
       } else {
-	if (IsFifoProcStillRunning(0u)) {
-	  if (IsVeryVerbose())
-	    HumanOut() << "killing FifoProc\n";
+        if (IsFifoProcStillRunning(0u)) {
+          if (IsVeryVerbose())
+            HumanOut() << "killing FifoProc\n";
 
-	  ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
-					 boost::interprocess::try_to_lock);
-	  if (!e_lck)
-	    WithColor::error() << "FifoProc ain't giving up lock!\n";
+          ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
+                                         boost::interprocess::try_to_lock);
+          if (!e_lck)
+            WithColor::error() << "FifoProc ain't giving up lock!\n";
 
-	  if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
-	    int err = errno;
-	    WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
-						strerror(err));
-	  }
-	}
+          if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
+            int err = errno;
+            WithColor::error() << llvm::formatv(
+                "pidfd_send_signal failed: {0}\n", strerror(err));
+          }
+        }
       }
     } else {
       WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
@@ -643,9 +643,9 @@ int RunTool::DoRun(void) {
     {
       siginfo_t si;
       if (waitid(P_PIDFD, pidfd.get(), &si, WEXITED) < 0) {
-	int err = errno;
-	WithColor::error() << llvm::formatv("waitid failed: {0}\n",
-					    strerror(err));
+        int err = errno;
+        WithColor::error() << llvm::formatv("waitid failed: {0}\n",
+                                            strerror(err));
       }
     }
 
@@ -1100,7 +1100,7 @@ int RunTool::DoRun(void) {
       ssize_t ret = robust_write(pid_fd.get(), &u64, sizeof(uint64_t));
 
       if (ret != sizeof(uint64_t))
-	HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
+        HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
     } else {
       int err = errno;
       HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
@@ -1318,14 +1318,14 @@ int RunTool::FifoProc(const char *const fifo_path) {
             if (IsVeryVerbose())
               HumanOut() << "FifoProc: read interrupted\n";
             continue;
-	  }
+          }
 
           die("FifoProc: failed to read: " + std::string(strerror(err)));
         } else if (ret == 0) { /* closed */
           break;
         }
 
-	die("FifoProc: read returned impossible value");
+        die("FifoProc: read returned impossible value");
       }
     }
 
