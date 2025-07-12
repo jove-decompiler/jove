@@ -36,6 +36,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <poll.h>
+#include <linux/prctl.h>  /* Definition of PR_* constants */
+#include <sys/prctl.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -206,7 +208,13 @@ public:
         shared_mem(boost::interprocess::anonymous_shared_memory(shared_region_size)),
         shared_buff(boost::interprocess::create_only, shared_mem.get_address(), shared_region_size),
         shared_data(*shared_buff.construct<shared_data_t>(boost::interprocess::anonymous_instance)()),
-        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
+        IsCOFF(({
+#ifndef JOVE_NO_TBB
+          tbb_hacks::disable();
+#endif
+          B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+        }))
+  {}
 
   int Run(void) override;
 
@@ -237,7 +245,7 @@ static void CrashHandler(int no) {
   case SIGABRT:
   case SIGSEGV: {
     const char *msg = "jove-run crashed! attach with a debugger..";
-    ::write(STDERR_FILENO, msg, strlen(msg));
+    robust_write(STDERR_FILENO, msg, strlen(msg));
 
     for (;;)
       sleep(1);
@@ -270,7 +278,7 @@ int RunTool::Run(void) {
     sa.sa_handler = CrashHandler;
 
     if (::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
-/*      ::sigaction(SIGABRT, &sa, nullptr) < 0 || */
+        ::sigaction(SIGABRT, &sa, nullptr) < 0 ||
         ::sigaction(SIGBUS, &sa, nullptr) < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));
@@ -505,6 +513,13 @@ int RunTool::DoRun(void) {
   //
   pid_t fifo_child = jove::fork();
   if (!fifo_child) {
+    if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+      int err = errno;
+      if (IsVerbose())
+        WithColor::warning()
+            << llvm::formatv("prctl failed: {0}\n", strerror(err));
+    }
+
     int ret = 1;
     ignore_exception([&] {
       ret = FifoProc<LivingDangerously>(fifo_file_path.c_str());
