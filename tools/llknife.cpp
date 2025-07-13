@@ -37,6 +37,8 @@ class KnifeTool : public Tool {
 
     cl::opt<bool> ForVimDiff;
 
+    cl::opt<bool> EraseCtorsAndDtors;
+
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : PathToSymList(cl::Positional, cl::desc("symbol list"),
                         cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -68,7 +70,13 @@ class KnifeTool : public Tool {
                        "hinder one's ability to spot important differences. "
                        "Selecting this option will produce a semantically "
                        "nonequivalent \"normalization\" of the LLVM IR."),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          EraseCtorsAndDtors("erase-ctors-and-dtors",
+                    cl::desc("Erase @llvm.global_ctors and @llvm.global_dtors"),
+                    cl::cat(JoveCategory))
+          {}
+
   } opts;
 
 public:
@@ -190,11 +198,27 @@ int KnifeTool::Run(void) {
     G->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
   };
 
+  auto EraseCtorsAndDtors = [&](void) -> void {
+    if (auto *GV = M.getGlobalVariable("llvm.global_ctors")) {
+      if (IsVerbose())
+	WithColor::note() << "removing @llvm.global_ctors\n";
+      GV->eraseFromParent();
+    }
+
+    if (auto *GV = M.getGlobalVariable("llvm.global_dtors")) {
+      if (IsVerbose())
+	WithColor::note() << "removing @llvm.global_dtors\n";
+      GV->eraseFromParent();
+    }
+  };
+
   //
   // Parse command args
   //
   if (opts.ForVimDiff.getNumOccurrences() > 0) {
     ForVimDiff();
+  } else if (opts.EraseCtorsAndDtors.getNumOccurrences() > 0) {
+    EraseCtorsAndDtors();
   } else {
     if (opts.PathToSymList.getNumOccurrences() == 0) {
       WithColor::error() << "no file containing global names provided\n";
