@@ -17,6 +17,7 @@
 #include <llvm/Support/SourceMgr.h>
 
 #include <string>
+#include <regex>
 
 namespace cl = llvm::cl;
 
@@ -38,6 +39,7 @@ class KnifeTool : public Tool {
     cl::opt<bool> ForVimDiff;
 
     cl::opt<bool> EraseCtorsAndDtors;
+    cl::opt<std::string> OnlyExternal;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : PathToSymList(cl::Positional, cl::desc("symbol list"),
@@ -74,7 +76,11 @@ class KnifeTool : public Tool {
 
           EraseCtorsAndDtors("erase-ctors-and-dtors",
                     cl::desc("Erase @llvm.global_ctors and @llvm.global_dtors"),
-                    cl::cat(JoveCategory))
+                    cl::cat(JoveCategory)),
+
+          OnlyExternal("only-external",
+                   cl::desc("Force everything matching regex to be only external globals"),
+                   cl::value_desc("regex"), cl::cat(JoveCategory))
           {}
 
   } opts;
@@ -201,13 +207,13 @@ int KnifeTool::Run(void) {
   auto EraseCtorsAndDtors = [&](void) -> void {
     if (auto *GV = M.getGlobalVariable("llvm.global_ctors")) {
       if (IsVerbose())
-	WithColor::note() << "removing @llvm.global_ctors\n";
+        WithColor::note() << "removing @llvm.global_ctors\n";
       GV->eraseFromParent();
     }
 
     if (auto *GV = M.getGlobalVariable("llvm.global_dtors")) {
       if (IsVerbose())
-	WithColor::note() << "removing @llvm.global_dtors\n";
+        WithColor::note() << "removing @llvm.global_dtors\n";
       GV->eraseFromParent();
     }
   };
@@ -219,6 +225,41 @@ int KnifeTool::Run(void) {
     ForVimDiff();
   } else if (opts.EraseCtorsAndDtors.getNumOccurrences() > 0) {
     EraseCtorsAndDtors();
+  } else if (opts.OnlyExternal.getNumOccurrences() > 0) {
+    std::regex external_re(opts.OnlyExternal);
+
+    auto isIntrinsicGlobal = [](const llvm::GlobalValue &GV) {
+      return GV.getName().startswith("llvm.");
+    };
+
+    auto maybe_adjust_linkage = [&](llvm::GlobalValue &GV) {
+      if (GV.isDeclaration())
+        return;
+      if (isIntrinsicGlobal(GV))
+        return;
+
+      std::string name = GV.getName().str();
+      if (std::regex_match(name, external_re)) {
+        if (IsVerbose())
+          llvm::outs() << llvm::formatv("making {0} external\n", name);
+
+        GV.setLinkage(llvm::GlobalValue::ExternalLinkage);
+      } else {
+        if (IsVeryVerbose())
+          llvm::outs() << llvm::formatv("making {0} internal\n", name);
+
+        GV.setLinkage(llvm::GlobalValue::InternalLinkage);
+      }
+    };
+
+    for (llvm::Function &F : M.functions())
+      maybe_adjust_linkage(F);
+
+    for (llvm::GlobalVariable &GV : M.globals())
+      maybe_adjust_linkage(GV);
+
+    for (llvm::GlobalAlias &GA : M.aliases())
+      maybe_adjust_linkage(GA);
   } else {
     if (opts.PathToSymList.getNumOccurrences() == 0) {
       WithColor::error() << "no file containing global names provided\n";
