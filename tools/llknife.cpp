@@ -44,6 +44,8 @@ class KnifeTool : public Tool {
     cl::opt<bool> PrintExternal;
     cl::opt<bool> EraseExternal;
 
+    cl::opt<std::string> PrintOnly;
+
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : PathToSymList(cl::Positional, cl::desc("symbol list"),
                         cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -91,7 +93,11 @@ class KnifeTool : public Tool {
 
 	  EraseExternal("erase-external",
                     cl::desc("Erase definitions of specified external functions"),
-                    cl::cat(JoveCategory))
+                    cl::cat(JoveCategory)),
+
+          PrintOnly("print-only",
+                   cl::desc("Print all external functions matching regex"),
+                   cl::value_desc("regex"), cl::cat(JoveCategory))
 
           {}
 
@@ -296,6 +302,19 @@ int KnifeTool::Run(void) {
 
       if (F.hasExternalLinkage())
         OS << F.getName() << "\n";
+    }
+
+    return 0;
+  } else if (opts.PrintOnly.getNumOccurrences() > 0) {
+    std::error_code FileErr;
+    llvm::raw_fd_ostream OS(opts.Output, FileErr, llvm::sys::fs::OF_Text);
+
+    std::regex only(opts.PrintOnly);
+
+    for (llvm::Function &F : M.functions()) {
+      std::string name = F.getName().str();
+      if (std::regex_match(name, only))
+        OS << name << '\n';
     }
 
     return 0;
