@@ -41,6 +41,8 @@ class KnifeTool : public Tool {
     cl::opt<bool> EraseCtorsAndDtors;
     cl::opt<std::string> OnlyExternal;
 
+    cl::opt<bool> PrintExternal;
+
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : PathToSymList(cl::Positional, cl::desc("symbol list"),
                         cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -80,7 +82,11 @@ class KnifeTool : public Tool {
 
           OnlyExternal("only-external",
                    cl::desc("Force everything matching regex to be only external globals"),
-                   cl::value_desc("regex"), cl::cat(JoveCategory))
+                   cl::value_desc("regex"), cl::cat(JoveCategory)),
+
+          PrintExternal("print-external",
+                    cl::desc("Print names of every externally visible global"),
+                    cl::cat(JoveCategory))
           {}
 
   } opts;
@@ -260,6 +266,19 @@ int KnifeTool::Run(void) {
 
     for (llvm::GlobalAlias &GA : M.aliases())
       maybe_adjust_linkage(GA);
+  } else if (opts.PrintExternal.getNumOccurrences() > 0) {
+    std::error_code FileErr;
+    llvm::raw_fd_ostream OS(opts.Output, FileErr, llvm::sys::fs::OF_Text);
+
+    for (const llvm::Function &F : M.functions()) {
+      if (F.isDeclaration())
+        continue;
+
+      if (F.hasExternalLinkage())
+        OS << F.getName() << "\n";
+    }
+
+    return 0;
   } else {
     if (opts.PathToSymList.getNumOccurrences() == 0) {
       WithColor::error() << "no file containing global names provided\n";
