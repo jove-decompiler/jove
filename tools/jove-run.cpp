@@ -626,7 +626,7 @@ int RunTool::DoRun(void) {
 
           ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
                                          boost::interprocess::defer_lock);
-          if (!e_lck.try_lock_for(boost::chrono::milliseconds(5000)))
+          if (!e_lck.try_lock_for(boost::chrono::milliseconds(20000)))
             WithColor::error() << "FifoProc ain't giving up lock!\n";
 
           if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
