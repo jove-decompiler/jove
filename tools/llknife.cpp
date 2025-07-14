@@ -42,6 +42,7 @@ class KnifeTool : public Tool {
     cl::opt<std::string> OnlyExternal;
 
     cl::opt<bool> PrintExternal;
+    cl::opt<bool> EraseExternal;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : PathToSymList(cl::Positional, cl::desc("symbol list"),
@@ -86,7 +87,12 @@ class KnifeTool : public Tool {
 
           PrintExternal("print-external",
                     cl::desc("Print names of every externally visible global"),
+                    cl::cat(JoveCategory)),
+
+	  EraseExternal("erase-external",
+                    cl::desc("Erase definitions of specified external functions"),
                     cl::cat(JoveCategory))
+
           {}
 
   } opts;
@@ -210,6 +216,20 @@ int KnifeTool::Run(void) {
     G->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
   };
 
+  auto EraseExternal = [&](llvm::GlobalValue *G) {
+    llvm::Function *F = llvm::dyn_cast<llvm::Function>(G);
+    if (!F)
+      return;
+
+    if (IsVerbose())
+      WithColor::note() << llvm::formatv("erasing body of {0}\n", G->getName());
+
+    F->deleteBody();
+  };
+
+  //
+  // Commands
+  //
   auto EraseCtorsAndDtors = [&](void) -> void {
     if (auto *GV = M.getGlobalVariable("llvm.global_ctors")) {
       if (IsVerbose())
@@ -313,6 +333,8 @@ int KnifeTool::Run(void) {
       }
     } else if (opts.DLLExport.getNumOccurrences() > 0) {
       Op = ForceDLLExport;
+    } else if (opts.EraseExternal.getNumOccurrences() > 0) {
+      Op = EraseExternal;
     }
 
     if (!Op) {
