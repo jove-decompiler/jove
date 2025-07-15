@@ -321,6 +321,8 @@ QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
 qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_TARGET)_carbon_build_$(1)
 qemu_softfpu_build_dir = $(QEMU_DIR)/$(1)_softfpu_$(2)_build
+qemu_softfpu_bitcode = $(call qemu_softfpu_build_dir,$(1),$(2))/qemu-$(1).bitcode
+softfpu_bitcode = $(call qemu_softfpu_build_dir,$(1),$(2))/libfpu_soft-$(1)-$(2)-user.a.p/fpu_softfloat.c.o
 
 LINUX_DIR := $(JOVE_ROOT_DIR)/linux
 linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
@@ -333,24 +335,35 @@ $(BINDIR)/$(1)/helpers/linux/%.ll: $(BINDIR)/$(1)/helpers/linux/%.bc
 $(BINDIR)/$(1)/helpers/win/%.ll: $(BINDIR)/$(1)/helpers/win/%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
-$(BINDIR)/$(1)/helpers/linux/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
-	$(OUR_LLVM_CC) -o $$@ --target=$($(1)_TRIPLE) $(call helper_cflags,$(1)) -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
-	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
-	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
-	@rm $$@.tmp
+$(BINDIR)/$(1)/qemu-$(1).bitcode.cut: $(call qemu_softfpu_bitcode,$(1),linux) | $(call softfpu_bitcode,$(1),linux)
+	$(call jove_tool,$(1)) llknife -v -o $(BINDIR)/$(1)/softfpu.externals.txt -i $(call softfpu_bitcode,$(1),linux) --print-external
+	$(call jove_tool,$(1)) llknife -v -o $$@.tmp.1 -i $(call qemu_softfpu_bitcode,$(1),linux) --erase-external $(BINDIR)/$(1)/softfpu.externals.txt
+	rm $(BINDIR)/$(1)/softfpu.externals.txt
+	$(call jove_tool,$(1)) llknife -v -o $$@.tmp.2 -i $$@.tmp.1 --erase-ctors-and-dtors
+	rm $$@.tmp.1
+	$(call jove_tool,$(1)) llknife -v -o $$@.tmp.3 -i $$@.tmp.2 --only-external 'helper_.*'
+	rm $$@.tmp.2
+	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp.3
+	rm $$@.tmp.3
 
-$(BINDIR)/$(1)/helpers/win/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
-	$(OUR_LLVM_CC) -o $$@ --target=$($(1)_TRIPLE) $(call helper_cflags,$(1)) -D JOVE_COFF -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
-	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
-	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
+$(BINDIR)/$(1)/helpers/linux/%.bc: $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
+	$(OUR_LLVM_OPT) -o $$@.tmp $$< -passes=internalize --internalize-public-api-list=helper_$$*
+	$(OUR_LLVM_OPT) -o $$@.dbg -O3 $$@.tmp
 	@rm $$@.tmp
+	$(OUR_LLVM_OPT) -o $$@ --strip-debug $$@.dbg
+
+$(BINDIR)/$(1)/helpers/win/%.bc: $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
+	$(OUR_LLVM_OPT) -o $$@.tmp $$< -passes=internalize --internalize-public-api-list=helper_$$*
+	$(OUR_LLVM_OPT) -o $$@.dbg -O3 $$@.tmp
+	@rm $$@.tmp
+	$(OUR_LLVM_OPT) -o $$@ --strip-debug $$@.dbg
 
 $(BINDIR)/$(1)/helpers/%.c:
 	@mkdir -p $(BINDIR)/$(1)/helpers
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) --notfound-empty helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) -o $$@
 
 .PHONY: check-helper-$(1)-%
-check-helper-$(1)-%: $(BINDIR)/$(1)/helpers/%.bc
+check-helper-$(1)-%: $(BINDIR)/$(1)/helpers/linux/%.bc
 	$(OUR_LLVM_BIN_DIR)/jove-$(1) check-helper --vars $$*
 
 .PHONY: extract-helpers-$(1)
@@ -404,10 +417,10 @@ clean-asm-offsets-$(1)-linux:
 clean-asm-offsets-$(1)-win:
 	rm -f $(BINDIR)/$(1)/asm-offsets-win.h
 
-$(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_softfpu_build_dir,$(1),linux)/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+$(BINDIR)/$(1)/softfpu-linux.o: $(call softfpu_bitcode,$(1),linux)
 	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic $$<
 
-$(BINDIR)/$(1)/softfpu-win.o: $(call qemu_softfpu_build_dir,$(1),win)/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+$(BINDIR)/$(1)/softfpu-win.o: $(call softfpu_bitcode,$(1),linux)
 	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
@@ -431,8 +444,11 @@ $(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 
 .PHONY: all-helpers-$(1)-mk
-all-helpers-$(1)-mk: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_PRINT_HELPERS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $(BINDIR)/$(1)/all_helpers.mk
+all-helpers-$(1)-mk: | $(call qemu_softfpu_bitcode,$(1),linux)
+	printf '%s_HELPERS := ' '$(1)' > $(BINDIR)/$(1)/all_helpers.mk
+	$(call jove_tool,$(1)) llknife -v -o $(BINDIR)/$(1)/all_helpers.txt -i $(call qemu_softfpu_bitcode,$(1),linux) --print-only 'helper_.*'
+	sed 's/^helper_//' < $(BINDIR)/$(1)/all_helpers.txt | tr '\n' ' ' >> $(BINDIR)/$(1)/all_helpers.mk
+	rm $(BINDIR)/$(1)/all_helpers.txt
 
 $(BINDIR)/$(1)/env_init.linux: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),linux)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
@@ -458,6 +474,8 @@ clean-qemu:
 	find $(BINDIR) -name 'qemu.tcg.copy.h' -delete
 	find $(BINDIR) -name 'tcgconstants.h' -delete
 	find $(BINDIR) -name 'tcgconstants.*.h' -delete
-	rm -f $(BINDIR)/*/env_init.*
-	rm -f $(BINDIR)/*/softfpu-*.o
-	rm -f $(BINDIR)/*/asm-offsets-*.*
+	find $(BINDIR) -name 'all_helpers.mk' -delete
+	find $(BINDIR) -name 'qemu-*.bitcode.cut' -delete
+	find $(BINDIR) -name 'env_init*' -delete
+	find $(BINDIR) -name 'softfpu-*.o' -delete
+	find $(BINDIR) -name 'asm-offsets-*.*' -delete
