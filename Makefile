@@ -218,12 +218,12 @@ $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.st.syms
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
+	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@ --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.st.syms
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.mt.syms
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@ --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.mt.syms
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
