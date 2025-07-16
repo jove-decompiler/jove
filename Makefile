@@ -165,10 +165,12 @@ include lib/asm-offsets.mk
 define target_code_template
 .PHONY: helpers-$(1)-linux
 helpers-$(1)-linux: $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).ll) \
-                    $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc)
+                    $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc) \
+                    $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
 .PHONY: helpers-$(1)-win
 helpers-$(1)-win: $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).ll) \
-                  $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).bc)
+                  $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).bc) \
+                  $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
 
 .PHONY: runtime-$(1)-win
 runtime-$(1)-win: $(BINDIR)/$(1)/libjove_rt.st.dll \
@@ -375,15 +377,17 @@ check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-helper-$(1)-$(h))
 .PHONY: clean-helpers-$(1)-linux
 clean-helpers-$(1)-linux:
 	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c) \
-	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc)\
-	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).ll)\
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc) \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc.dbg) \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).ll) \
 	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).d)
 
 .PHONY: clean-helpers-$(1)-win
 clean-helpers-$(1)-win:
 	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)   \
 	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).bc)  \
-	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).ll)  \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).bc.dbg) \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).ll) \
 	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).d)
 
 .PHONY: clean-runtime-$(1)
