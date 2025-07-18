@@ -100,7 +100,7 @@ ln -sf ${hostarch}_build build
 build_all_qemu_variants _carbon
 popd
 
-make -C $jove_path --output-sync all-helpers-mk utilities tcg-constants asm-offsets version -j$(nproc)
+make -C $jove_path --output-sync utilities tcg-constants asm-offsets version -j$(nproc)
 
 pushd .
 
@@ -119,5 +119,5 @@ build_all_variants qemu _softfpu _linux
 build_all_variants qemu _softfpu _win
 popd
 
-make -C $jove_path --output-sync env-inits softfpu -j$(nproc)
+make -C $jove_path --output-sync all-helpers-mk env-inits softfpu -j$(nproc)
 make -C $jove_path --output-sync -j$(nproc)
