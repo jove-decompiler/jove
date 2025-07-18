@@ -7851,9 +7851,6 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 #if defined(TARGET_X86_64)
       if (args.test(tcg_rax_index))
         store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
-#elif defined(TARGET_I386)
-      if (args.test(tcg_eax_index))
-        store_global_to_global_cpu_state(tcg_eax_index); /* vararg */
 #endif
 
       store_stack_pointer();
@@ -8301,8 +8298,6 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
 #if defined(TARGET_X86_64)
       store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
-#elif defined(TARGET_I386)
-      store_global_to_global_cpu_state(tcg_eax_index); /* vararg */
 #endif
 
       store_stack_pointer();
@@ -8601,8 +8596,6 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             store_stack_pointer();
 #if defined(TARGET_X86_64)
             store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
-#elif defined(TARGET_I386)
-            store_global_to_global_cpu_state(tcg_eax_index); /* vararg */
 #endif
 
             //save_callstack_pointers();
