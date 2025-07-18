@@ -67,8 +67,7 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   "movdqu " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_2___x_ZMMReg_0___q_XMMReg_0_) "(%%edi),%%xmm2\n"\
 /*"movq " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_fpregs_0_mmx) "(%%edi),%%mm0\n"*/\
 /*"movq " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_fpregs_1_mmx) "(%%edi),%%mm1\n"*/\
-/*"movq " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_fpregs_2_mmx) "(%%edi),%%mm2\n"*/\
-  "movl " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_regs_R_EAX_) "(%%edi),%%eax\n"
+/*"movq " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_fpregs_2_mmx) "(%%edi),%%mm2\n"*/
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
   "pushl %%eax\n" /* preserve */                                               \
