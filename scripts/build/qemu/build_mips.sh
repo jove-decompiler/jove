@@ -51,6 +51,7 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --enable-tcg \
   --disable-plugins \
   --enable-lto \
+  --enable-pie \
   --enable-tools \
   --disable-docs \
   --disable-install-blobs \
