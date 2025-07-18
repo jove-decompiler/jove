@@ -1,5 +1,6 @@
 tags
 /bin/version.inc
+/bin/*/*.cut
 /bin/*/*.bc
 /bin/*/*.ll
 /bin/*/*.d
