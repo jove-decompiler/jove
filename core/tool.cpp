@@ -241,6 +241,12 @@ found_tool:
            "setting the JVSIZE environment variable to something larger than "
            "the default (e.g. JVSIZE=8G jove init /path/to/program)\n";
     return 1;
+  } catch (const std::exception &e) {
+    WithColor::error() << llvm::formatv("exception: {0}\n", e.what());
+    return 1;
+  } catch (...) {
+    WithColor::error() << "unknown exception!\n";
+    return 1;
   }
 
   return res;
