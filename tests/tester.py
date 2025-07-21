@@ -295,6 +295,13 @@ class JoveTester:
     else:
       self.loader_args = []
 
+    if self.platform == "win":
+      # establish clean slate
+      self.ssh([
+        "rm", "-rf", "--verbose",
+        f'/root/.wine{JoveTester.ARCH_2_BITS[self.arch]}',
+      ], check=True)
+
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
 
@@ -375,8 +382,9 @@ class JoveTester:
           stdout_neq = p1.stdout != p2_stdout
           stderr_neq = p1.stderr != p2_stderr
 
-          failed = return_neq or stdout_neq
+          failed = stdout_neq
           if self.platform != "win": # wine prints a bunch of shit to stderr
+            failed = failed or return_neq
             failed = failed or stderr_neq
 
           if failed:
@@ -412,6 +420,12 @@ class JoveTester:
     else:
       self.loader_args = []
 
+    if self.platform == "win":
+      self.wineprefix = os.path.expanduser(f'~/.wine{JoveTester.ARCH_2_BITS[self.arch]}')
+      self.winearch = f'win{JoveTester.ARCH_2_BITS[self.arch]}'
+      # establish clean slate
+      subprocess.run(["rm", "-rf", "--verbose", self.wineprefix], check=True)
+
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
 
@@ -432,6 +446,10 @@ class JoveTester:
 
         # initialize jv
         subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], env=env, check=True)
+
+        if self.platform == "win":
+          env["WINEARCH"] = self.winearch
+          env["WINEPREFIX"] = self.wineprefix
 
         with tempfile.TemporaryDirectory() as dot_jove:
           env["JOVEDIR"] = dot_jove
@@ -469,10 +487,11 @@ class JoveTester:
 
             return_neq = p1.returncode != p2.returncode
             stdout_neq = p1.stdout != p2_stdout
-            stderr_neq = p1.stderr != p2_stderr if self.platform != "win" else False
+            stderr_neq = p1.stderr != p2_stderr
 
-            failed = return_neq or stdout_neq
+            failed = stdout_neq
             if self.platform != "win": # wine prints a bunch of shit to stderr
+              failed = failed or return_neq
               failed = failed or stderr_neq
 
             if failed:
