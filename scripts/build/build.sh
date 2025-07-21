@@ -16,6 +16,15 @@ else
 fi
 
 #
+# If you passed a second argument, use it as PARALLEL_JOBS, otherwise default to $(nproc).
+#
+if (( $# >= 2 )); then
+  PARALLEL_JOBS="$2"
+else
+  PARALLEL_JOBS=$(nproc)
+fi
+
+#
 # Retry function for building. Why? because clang-19 segfaults :(
 #
 retry() {
@@ -104,7 +113,7 @@ done
 # run everything in parallel (1)
 #
 printf "%s\n" "${cmds[@]}" \
-  | parallel -j $(nproc) -v --lb --halt soon,fail=1
+  | parallel -j "$PARALLEL_JOBS" -v --lb --halt soon,fail=1
 
 #
 # make steps (1)
@@ -146,7 +155,7 @@ done
 # run everything in parallel (2)
 #
 printf "%s\n" "${cmds[@]}" \
-  | parallel -j $(nproc) -v --lb --halt soon,fail=1
+  | parallel -j "$PARALLEL_JOBS" -v --lb --halt soon,fail=1
 
 #
 # final make steps (2)
