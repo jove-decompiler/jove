@@ -91,6 +91,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Stderr;
     cl::opt<bool> SoftfpuBitcode;
     cl::opt<bool> DumpPreOpt1;
+    cl::opt<bool> Symbolize;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -304,7 +305,13 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               cl::desc("Link the softfpu bitcode rather than the object file"),
               cl::cat(JoveCategory)),
 
-          DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)) {}
+          DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)),
+
+          Symbolize("symbolize",
+                 cl::desc("When recovering try to symbolize addresses"),
+                 cl::init(true),
+                 cl::cat(JoveCategory))
+          {}
   } opts;
 
   const bool IsCOFF;
@@ -512,6 +519,9 @@ run:
 
             if (opts.NoChroot || opts.ForeignLibs)
               Arg("--no-chroot");
+
+            if (!opts.Symbolize)
+              Arg("--symbolize=0");
 
             if (opts.NoChroot && !opts.ForeignLibs)
               Arg("--dangerous-sleep1=" + std::to_string(opts.DangerousSleep1));
