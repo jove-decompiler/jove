@@ -133,6 +133,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       mingw-w64 \
                       ninja-build \
                       openssh-client \
+                      parallel \
                       parted \
                       pkg-config \
                       pkgconf \
