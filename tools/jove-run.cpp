@@ -88,6 +88,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> WineStderr;
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
+    cl::opt<bool> Symbolize;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -185,7 +186,13 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                  cl::cat(JoveCategory)),
 
           Stderr("stderr", cl::desc("Redirect stderr to file"),
-                 cl::cat(JoveCategory)) {}
+                 cl::cat(JoveCategory)),
+
+          Symbolize("symbolize",
+                 cl::desc("When recovering try to symbolize addresses"),
+                 cl::init(true),
+                 cl::cat(JoveCategory))
+          {}
   } opts;
 
   static constexpr unsigned shared_region_size = 1024;
@@ -459,11 +466,13 @@ template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
-  symbolizer = std::make_unique<symbolizer_t>();
+  if (opts.Symbolize)
+    symbolizer = std::make_unique<symbolizer_t>();
   Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
       jv_file, jv, *disas, *tcg, GetVerbosityLevel());
   Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *Explorer, *symbolizer);
+      jv_file, jv, *Explorer,
+      symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
 
   //
   // code recovery fifo. why don't we use an anonymous pipe? because the
