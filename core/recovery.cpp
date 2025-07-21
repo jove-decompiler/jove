@@ -22,11 +22,25 @@ template <bool MT, bool MinSize>
 CodeRecovery<MT, MinSize>::CodeRecovery(jv_file_t &jv_file,
                                         jv_t &jv,
                                         explorer_t<MT, MinSize> &E,
-                                        symbolizer_t &symbolizer)
+                                        boost::optional<symbolizer_t &> symbolizer)
     : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
 
 template <bool MT, bool MinSize>
 CodeRecovery<MT, MinSize>::~CodeRecovery() {}
+
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::addr2str(binary_t &b, taddr_t Addr) {
+  if (symbolizer)
+    return symbolizer->addr2desc(b, Addr);
+
+  std::string name;
+  if (b.is_file())
+    name = fs::path(b.path_str()).filename().string();
+  else
+    name = b.Name.c_str();
+
+  return (fmt("%s:0x%08x") % name % Addr).str();
+}
 
 template <bool MT, bool MinSize>
 uint64_t CodeRecovery<MT, MinSize>::AddressOfTerminatorAtBasicBlock(
@@ -108,8 +122,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
 #endif
 
   return (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(CallerBinary, TermAddr)
-          % symbolizer.addr2desc(CalleeBinary, entry_address_of_function(callee, CalleeBinary)))
+          % addr2str(CallerBinary, TermAddr)
+          % addr2str(CalleeBinary, entry_address_of_function(callee, CalleeBinary)))
       .str();
 }
 
@@ -147,8 +161,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
     return std::string();
 
   return (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(b, TermAddr)
-          % symbolizer.addr2desc(b, Addr))
+          % addr2str(b, TermAddr)
+          % addr2str(b, Addr))
       .str();
 }
 
@@ -168,7 +182,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
   if (!is_binary_index_valid(IndCallBIdx) ||
       !is_basic_block_index_valid(IndCallBBIdx))
     return (fmt(__ANSI_CYAN "(call*) -> %s" __ANSI_NORMAL_COLOR)
-            % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
+            % addr2str(CalleeBinary, CalleeAddr))
         .str();
 
   auto &CallerBinary = jv.Binaries.at(IndCallBIdx);
@@ -215,8 +229,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
 #endif
 
   return (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(CallerBinary, TermAddr)
-          % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
+          % addr2str(CallerBinary, TermAddr)
+          % addr2str(CalleeBinary, CalleeAddr))
       .str();
 }
 
@@ -247,7 +261,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverABI(binary_index_t BIdx,
   f.IsABI = true;
 
   return (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(jv.Binaries.at(NewABI.first), entry_address_of_function(f, jv.Binaries.at(NewABI.first))))
+          % addr2str(jv.Binaries.at(NewABI.first), entry_address_of_function(f, jv.Binaries.at(NewABI.first))))
       .str();
 }
 
@@ -299,7 +313,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
   (void)isNewTarget; /* FIXME */
 
   return (fmt(__ANSI_YELLOW "(returned) %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(b, NextAddr))
+          % addr2str(b, NextAddr))
       .str();
 }
 

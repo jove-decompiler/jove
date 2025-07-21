@@ -21,7 +21,7 @@ class CodeRecovery {
 
   explorer_t<MT, MinSize> &E;
 
-  symbolizer_t &symbolizer;
+  boost::optional<symbolizer_t &> symbolizer;
 
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
@@ -33,8 +33,11 @@ class CodeRecovery {
              MinSize>
       state;
 
+  std::string addr2str(binary_t &, taddr_t);
+
 public:
-  CodeRecovery(jv_file_t &, jv_t &, explorer_t<MT, MinSize> &E, symbolizer_t &);
+  CodeRecovery(jv_file_t &, jv_t &, explorer_t<MT, MinSize> &,
+               boost::optional<symbolizer_t &>);
   ~CodeRecovery();
 
   uint64_t AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,
