@@ -21,6 +21,7 @@ class CodeRecovery {
 
   explorer_t<MT, MinSize> &E;
 
+  std::mutex symbolizer_mtx;
   boost::optional<symbolizer_t &> symbolizer;
 
   struct binary_state_t {

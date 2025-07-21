@@ -30,8 +30,10 @@ CodeRecovery<MT, MinSize>::~CodeRecovery() {}
 
 template <bool MT, bool MinSize>
 std::string CodeRecovery<MT, MinSize>::addr2str(binary_t &b, taddr_t Addr) {
-  if (symbolizer)
+  if (symbolizer) {
+    std::unique_lock<std::mutex> lck(symbolizer_mtx); // XXX
     return symbolizer->addr2desc(b, Addr);
+  }
 
   std::string name;
   if (b.is_file())
