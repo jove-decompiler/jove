@@ -555,6 +555,22 @@ int RunTool::DoRun(void) {
     WithColor::error() << llvm::formatv("pidfd failed: {0}\n", strerror(err));
   }
 
+  auto KillFifoProc = [&](void) -> void {
+    if (IsVeryVerbose())
+      HumanOut() << "killing FifoProc\n";
+
+    ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
+                                   boost::interprocess::defer_lock);
+    if (!e_lck.try_lock_for(boost::chrono::milliseconds(20000)))
+      WithColor::error() << "FifoProc ain't giving up lock!\n";
+
+    if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
+                                          strerror(err));
+    }
+  };
+
   auto IsFifoProcStillRunning = [&](int timeout = 0) -> bool {
     struct pollfd pfd = {.fd = pidfd.get(), .events = POLLIN};
 
@@ -619,22 +635,12 @@ int RunTool::DoRun(void) {
       if (TellFifoProcToStop()) {
         if (IsVerbose())
           WithColor::note() << "told FifoProc to stop\n";
+
+        if (IsFifoProcStillRunning(10000))
+          KillFifoProc();
       } else {
-        if (IsFifoProcStillRunning(0u)) {
-          if (IsVeryVerbose())
-            HumanOut() << "killing FifoProc\n";
-
-          ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
-                                         boost::interprocess::defer_lock);
-          if (!e_lck.try_lock_for(boost::chrono::milliseconds(20000)))
-            WithColor::error() << "FifoProc ain't giving up lock!\n";
-
-          if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
-            int err = errno;
-            WithColor::error() << llvm::formatv(
-                "pidfd_send_signal failed: {0}\n", strerror(err));
-          }
-        }
+        if (IsFifoProcStillRunning(0u))
+          KillFifoProc();
       }
     } else {
       WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
