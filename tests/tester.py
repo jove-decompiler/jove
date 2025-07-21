@@ -329,9 +329,12 @@ class JoveTester:
             self.ssh(["jove", "bootstrap", testbin] + input_args)
 
         # run inputs through recompiled binary
-        jove_loop_args = ["jove", "loop", "-v", "--dumb-term",\
-          f"--rtmt={int(multi_threaded)}", \
-          "--connect", f"{self.iphost}:{str(self.jove_server_port)}"]
+        jove_loop_args = [
+          "jove", "loop", "-v", "--dumb-term",
+          f"--rtmt={int(multi_threaded)}",
+          "--connect", f"{self.iphost}:{str(self.jove_server_port)}",
+          "--symbolize=0"
+        ]
         if self.platform == "win":
           jove_loop_args += ["--lay-out-sections"]
 
@@ -458,7 +461,7 @@ class JoveTester:
           # prepare loop command (no --connect for local)
           jove_loop_base = [
             f'{self.jove_bin_path}', "loop", "-v", "--dumb-term",
-            f'--rtmt={int(multi_threaded)}',
+            f'--rtmt={int(multi_threaded)}', "--symbolize=0"
           ]
 
           if self.platform == "win":
