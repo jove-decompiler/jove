@@ -3,14 +3,21 @@ set -e
 set -o pipefail
 set -x
 
+archs="x86_64 i386 mipsel mips64el aarch64"
+hostarch="x86_64"
+
+#
 # If you passed an argument, use it as MAX_RETRIES, otherwise default to 1.
+#
 if (( $# >= 1 )); then
   MAX_RETRIES="$1"
 else
   MAX_RETRIES=1
 fi
 
+#
 # Retry function for building. Why? because clang-19 segfaults :(
+#
 retry() {
   local command="$1"
   local retries=0
@@ -29,95 +36,120 @@ retry() {
   return 1
 }
 
+#
+# make this available to parallel
+#
+export -f retry
+export MAX_RETRIES
+
+#
+# locate stuff
+#
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
 jove_path=$build_scripts_path/../..
-
 qemu_path=$jove_path/qemu
 llvm_path=$jove_path/llvm-project
 wine_path=$jove_path/wine
 linux_path=$jove_path/linux
 
-pushd .
-cd $wine_path
-
-pushd .
-mkdir -p build64 && cd build64
-retry $build_scripts_path/wine/build64.sh
-popd
-
-pushd .
-mkdir -p build && cd build
-retry $build_scripts_path/wine/build.sh
-popd
-
-popd
-
+#
+# fresh symlinks
+#
 rm -f $llvm_path/llvm/projects/jove
 rm -f $llvm_path/llvm/projects/llvm-cbe
 
 ln -sf ../../.. $llvm_path/llvm/projects/jove
 ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
-archs="x86_64 i386 mipsel mips64el aarch64"
-hostarch="x86_64" # FIXME aarch64
+#
+# gather build commands into array (1)
+#
+cmds=()
 
-function build_all_variants() {
-  for arch in $archs ; do
-    pushd .
+#
+# wine
+#
+cmds+=("pushd \"$wine_path\" && mkdir -p build64 && cd build64 && retry \"$build_scripts_path/wine/build64.sh\" && popd")
+cmds+=("pushd \"$wine_path\" && mkdir -p build   && cd build   && retry \"$build_scripts_path/wine/build.sh\"   && popd")
 
-    mkdir -p ${arch}${2}${3}_build && cd ${arch}${2}${3}_build
-    retry "$build_scripts_path/$1/build_${arch}.sh $2 $3"
+#
+# linux
+#
+for arch in $archs; do
+  cmds+=("pushd \"$linux_path\" && mkdir -p ${arch}_carbon_build && cd ${arch}_carbon_build && retry \"$build_scripts_path/linux/build_${arch}.sh _carbon\" && popd")
+done
 
-    popd
-  done
-}
+#
+# qemu (_carbon)
+#
+for arch in $archs; do
+  cmds+=("pushd \"$qemu_path\" && mkdir -p ${arch}_carbon_build && cd ${arch}_carbon_build && retry \"$build_scripts_path/qemu/build_${arch}.sh _carbon\" && popd")
+done
 
-# FIXME rename to something better
-function build_all_qemu_variants() {
-  for arch in $archs ; do
-    pushd .
+#
+# qemu
+#
+for arch in $archs; do
+  cmds+=("pushd \"$qemu_path\" && mkdir -p ${arch}_build && cd ${arch}_build && retry \"$build_scripts_path/qemu/build_${arch}.sh\" && popd")
+done
 
-    mkdir -p ${hostarch}${1}_build_${arch} && cd ${hostarch}${1}_build_${arch}
-    retry "$build_scripts_path/qemu/build_${hostarch}.sh $1 $arch"
+#
+# qemu cross (_carbon)
+#
+for arch in $archs; do
+  cmds+=("pushd \"$qemu_path\" && mkdir -p ${hostarch}_carbon_build_${arch} && cd ${hostarch}_carbon_build_${arch} && retry \"$build_scripts_path/qemu/build_${hostarch}.sh _carbon $arch\" && popd")
+done
 
-    popd
-  done
-}
+#
+# run everything in parallel (1)
+#
+printf "%s\n" "${cmds[@]}" \
+  | parallel -j $(nproc) -v --lb --halt soon,fail=1
 
-pushd .
-cd $linux_path
-build_all_variants linux _carbon
-popd
-
-pushd .
-cd $qemu_path
-build_all_variants qemu _carbon
-build_all_variants qemu
-
-rm -f build
-ln -sf ${hostarch}_build build
-
-build_all_qemu_variants _carbon
-popd
-
+#
+# make steps (1)
+#
 make -C $jove_path --output-sync utilities tcg-constants asm-offsets version -j$(nproc)
 
-pushd .
+#
+# gather build commands into array (2)
+#
+cmds=()
 
-cd $llvm_path
-
-# XXX we are making a broken symlink...
-rm -f build && ln -s ${hostarch}_build build
-
-build_all_variants llvm
-
+#
+# llvm symlink
+#
+pushd "$llvm_path"
+rm -f build
+ln -s "${hostarch}_build" build
 popd
 
-pushd .
-cd $qemu_path
-build_all_variants qemu _softfpu _linux
-build_all_variants qemu _softfpu _win
-popd
+#
+# build `jove` (i.e. llvm)
+#
+for arch in $archs; do
+  cmds+=("pushd \"$llvm_path\" && mkdir -p ${arch}_build && cd ${arch}_build && retry \"$build_scripts_path/llvm/build_${arch}.sh\" && popd")
+done
 
-make -C $jove_path --output-sync all-helpers-mk env-inits softfpu -j$(nproc)
-make -C $jove_path --output-sync -j$(nproc)
+#
+# qemu _softfpu
+#
+for arch in $archs; do
+  cmds+=("pushd \"$qemu_path\" && mkdir -p ${arch}_softfpu_linux_build && cd ${arch}_softfpu_linux_build && retry \"$build_scripts_path/qemu/build_${arch}.sh _softfpu _linux\" && popd")
+done
+
+for arch in $archs; do
+  cmds+=("pushd \"$qemu_path\" && mkdir -p ${arch}_softfpu_win_build && cd ${arch}_softfpu_win_build && retry \"$build_scripts_path/qemu/build_${arch}.sh _softfpu _win\" && popd")
+done
+
+#
+# run everything in parallel (2)
+#
+printf "%s\n" "${cmds[@]}" \
+  | parallel -j $(nproc) -v --lb --halt soon,fail=1
+
+#
+# final make steps (2)
+#
+make -C "$jove_path" --output-sync all-helpers-mk env-inits softfpu -j$(nproc)
+make -C "$jove_path" --output-sync -j$(nproc)
