@@ -76,10 +76,9 @@ ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 cmds=()
 
 #
-# wine
+# wine64
 #
 cmds+=("pushd \"$wine_path\" && mkdir -p build64 && cd build64 && retry \"$build_scripts_path/wine/build64.sh\" && popd")
-cmds+=("pushd \"$wine_path\" && mkdir -p build   && cd build   && retry \"$build_scripts_path/wine/build.sh\"   && popd")
 
 #
 # linux
@@ -124,6 +123,11 @@ make -C $jove_path --output-sync utilities tcg-constants asm-offsets version -j$
 # gather build commands into array (2)
 #
 cmds=()
+
+#
+# wine32 (needs wine64)
+#
+cmds+=("pushd \"$wine_path\" && mkdir -p build   && cd build   && retry \"$build_scripts_path/wine/build.sh\"   && popd")
 
 #
 # llvm symlink
