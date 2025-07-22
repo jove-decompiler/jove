@@ -202,5 +202,5 @@ RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
 RUN patch -p1 -d /jove/zlib -i /jove/patches/zlib.diff
-RUN /jove/scripts/build/build.sh 6 1
+RUN /jove/scripts/build/build.sh 40 1
 RUN /jove/scripts/ci_install.sh
