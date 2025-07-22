@@ -60,6 +60,7 @@ qemu_path=$jove_path/qemu
 llvm_path=$jove_path/llvm-project
 wine_path=$jove_path/wine
 linux_path=$jove_path/linux
+carbc_path=$jove_path/carbon-copy
 
 #
 # fresh symlinks
@@ -69,6 +70,15 @@ rm -f $llvm_path/llvm/projects/llvm-cbe
 
 ln -sf ../../.. $llvm_path/llvm/projects/jove
 ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
+
+#
+# carbon-copy
+#
+pushd .
+cd $carbc_path
+mkdir -p build && cd build
+retry $build_scripts_path/carbon-copy/build.sh
+popd
 
 #
 # gather build commands into array (1)
