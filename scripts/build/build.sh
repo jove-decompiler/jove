@@ -95,6 +95,14 @@ for arch in $archs; do
 done
 
 #
+# qemu symlink
+#
+pushd "$qemu_path"
+rm -f build
+ln -s "${hostarch}_build" build
+popd
+
+#
 # qemu
 #
 for arch in $archs; do
