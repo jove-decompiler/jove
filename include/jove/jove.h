@@ -10,6 +10,7 @@
 #include "jove/racy.h"
 #include "jove/algo.h"
 #include "jove/verbose.h"
+#include "jove/assert.h"
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
@@ -81,6 +82,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#include "jove/assert.h"
 
 namespace llvm {
 namespace object {

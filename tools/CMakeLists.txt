@@ -1,5 +1,22 @@
 set(JOVE_VERSION "v0.94")
 
+# for some reason backtrace.h isn't found
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+  set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/aarch64-linux-gnu/12/include/backtrace.h")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86")
+  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/i686-linux-gnu/12/include/backtrace.h")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mipsel")
+  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/mipsel-linux-gnu/12/include/backtrace.h")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips64el")
+  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/mips64el-linux-gnuabi64/12/include/backtrace.h")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips")
+  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/mips-linux-gnu/12/include/backtrace.h")
+else()
+  message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
 set(JOVE_TOOL_FLAGS
   "-fwrapv"
 
@@ -8,6 +25,9 @@ set(JOVE_TOOL_FLAGS
 
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
   "-DBOOST_UNORDERED_DISABLE_REENTRANCY_CHECK"
+  "-DBOOST_STACKTRACE_USE_BACKTRACE"
+  "-DBOOST_STACKTRACE_STATIC_LINK"
+  "-DBOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=\"${BACKTRACE_HEADER}\""
 
   # opiniated stuff...
   "-Werror=format"
@@ -166,6 +186,8 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
 
     atomic
     zlibstatic
+    dl
+    backtrace
   )
 
   target_link_libraries(jove-${arch} PRIVATE Boost::system)
@@ -178,10 +200,27 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   target_link_libraries(jove-${arch} PRIVATE Boost::icl)
   target_link_libraries(jove-${arch} PRIVATE Boost::lockfree)
   target_link_libraries(jove-${arch} PRIVATE Boost::scope)
+# target_link_libraries(jove-${arch}
+#   PUBLIC
+#     Boost::stacktrace
+#     Boost::stacktrace_from_exception
+# )
+
+  target_link_libraries(jove-${arch} PRIVATE
+    -Wl,--push-state,--whole-archive
+    ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_from_exception.a
+    ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_backtrace.a
+    -Wl,--pop-state
+  )
+
+  # this is the magic we need for static-linking
+  target_link_options(jove-${arch} PRIVATE  "-Wl,--wrap=__cxa_allocate_exception")
 
   if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
     target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
   endif()
+
+  target_include_directories(jove-${arch} PRIVATE ${JOVE_SRC_DIR}/boost/libs/stacktrace/include)
 
   if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86|i[3-6]86|x86_64)$")
     target_link_libraries(jove-${arch} PRIVATE libipt)
