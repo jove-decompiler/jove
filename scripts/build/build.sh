@@ -113,14 +113,14 @@ ln -s "${hostarch}_build" build
 popd
 
 #
-# qemu
+# qemu 4jove
 #
 for arch in $archs; do
   cmds+=("pushd \"$qemu_path\" && mkdir -p ${arch}_build && cd ${arch}_build && retry \"$build_scripts_path/qemu/build_${arch}.sh\" && popd")
 done
 
 #
-# qemu cross (_carbon)
+# qemu 4jove cross (_carbon)
 #
 for arch in $archs; do
   cmds+=("pushd \"$qemu_path\" && mkdir -p ${hostarch}_carbon_build_${arch} && cd ${hostarch}_carbon_build_${arch} && retry \"$build_scripts_path/qemu/build_${hostarch}.sh _carbon $arch\" && popd")
@@ -138,6 +138,23 @@ printf "%s\n" "${cmds[@]}" \
 make -C $jove_path --output-sync utilities tcg-constants asm-offsets version -j$(nproc)
 
 #
+# llvm symlink
+#
+pushd "$llvm_path"
+rm -f build
+ln -s "${hostarch}_build" build
+popd
+
+#
+# build llvm-tblgen
+#
+pushd "$llvm_path"
+mkdir -p "${hostarch}_build"
+cd "${hostarch}_build"
+$build_scripts_path/llvm/build_${hostarch}.sh tblgen
+popd
+
+#
 # gather build commands into array (2)
 #
 cmds=()
@@ -148,14 +165,6 @@ cmds=()
 cmds+=("pushd \"$wine_path\" && mkdir -p build   && cd build   && retry \"$build_scripts_path/wine/build.sh\"   && popd")
 
 #
-# llvm symlink
-#
-pushd "$llvm_path"
-rm -f build
-ln -s "${hostarch}_build" build
-popd
-
-#
 # build `jove` (i.e. llvm)
 #
 for arch in $archs; do
@@ -163,7 +172,18 @@ for arch in $archs; do
 done
 
 #
-# qemu _softfpu
+# run everything in parallel (2)
+#
+printf "%s\n" "${cmds[@]}" \
+  | parallel -j "$PARALLEL_JOBS" -v --lb --halt soon,fail=1
+
+#
+# gather build commands into array (3)
+#
+cmds=()
+
+#
+# qemu _softfpu (needs clang compiler built from command above)
 #
 for arch in $archs; do
   cmds+=("pushd \"$qemu_path\" && mkdir -p ${arch}_softfpu_linux_build && cd ${arch}_softfpu_linux_build && retry \"$build_scripts_path/qemu/build_${arch}.sh _softfpu _linux\" && popd")
@@ -174,7 +194,7 @@ for arch in $archs; do
 done
 
 #
-# run everything in parallel (2)
+# run everything in parallel (3)
 #
 printf "%s\n" "${cmds[@]}" \
   | parallel -j "$PARALLEL_JOBS" -v --lb --halt soon,fail=1

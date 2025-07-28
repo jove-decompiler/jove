@@ -33,6 +33,7 @@ cmake -G Ninja \
       -D LLVM_ENABLE_ZLIB=FORCE_ON \
       -D LLVM_ENABLE_ASSERTIONS=ON \
       -D LLVM_BUILD_TELEMETRY=OFF \
+      -D LLVM_ENABLE_BACKTRACES=OFF \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
@@ -45,4 +46,12 @@ cmake -G Ninja \
 
 fi
 
-ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/lib/LLVMgold.so llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+if test "$#" -ge 1 ; then
+  if test "$1" = "tblgen" ; then
+    ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/llvm-tblgen
+  else
+    exit 1
+  fi
+else
+  ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/lib/LLVMgold.so llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+fi
