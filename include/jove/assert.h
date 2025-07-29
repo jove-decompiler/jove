@@ -17,7 +17,7 @@ struct StaticString {
   char value[N];
 };
 
-struct assertion_failure_base : public std::exception {
+struct assertion_failure_base {
   virtual const char* what() const noexcept = 0;
 };
 
