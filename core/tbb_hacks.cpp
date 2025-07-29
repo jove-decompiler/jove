@@ -8,6 +8,18 @@
 namespace jove {
 namespace tbb_hacks {
 
+#if 0
+struct disabler_t {
+  disabler_t() { jove::tbb_hacks::disable(); }
+};
+
+//
+// disabler must be constructed before anything else, so tbb_hacks.o should come
+// first on the command-line when linking jove.
+//
+static disabler_t disabler;
+#endif
+
 void pre_fork(void) {
   oneapi::tbb::task_scheduler_handle handle{oneapi::tbb::attach{}};
 
