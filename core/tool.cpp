@@ -4,6 +4,7 @@
 #include "sizes.h"
 #include "reflink.h"
 #include "ansi.h"
+#include "tbb_hacks.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -13,6 +14,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/stacktrace.hpp>
 #include <boost/stacktrace/this_thread.hpp>
+#include <boost/scope/defer.hpp>
 
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
@@ -41,11 +43,14 @@ using llvm::WithColor;
 int main(int argc, char **argv) {
   boost::stacktrace::this_thread::set_capture_stacktraces_at_throw(true);
   assert(boost::stacktrace::this_thread::get_capture_stacktraces_at_throw());
+#ifndef JOVE_NO_TBB
+  jove::tbb_hacks::disable();
+#endif
 
   auto usage = [&](void) -> std::string {
     std::string res =
-"jove " JOVE_VERSION " multi-call binary." "\n"
-"\n"
+"jove multi-call binary."                  "\n"
+                                           "\n"
 "Usage: jove [tool [arguments]...]"        "\n"
 "   or: tool [arguments]..."               "\n"
                                            "\n"
@@ -182,6 +187,11 @@ found_tool:
 
   llvm::InitLLVM X(argc, argv);
 
+  {
+#ifndef JOVE_NO_TBB
+  BOOST_SCOPE_DEFER [] { jove::tbb_hacks::disable(); };
+#endif
+
   //
   // select tool
   //
@@ -203,53 +213,41 @@ found_tool:
 
   ::srand(time(NULL));
 
-  int res;
+#ifndef JOVE_NO_TBB
+  jove::tbb_hacks::enable();
+#endif
+
   try {
-    res = tool->Run();
+    return tool->Run();
   } catch (const boost::interprocess::bad_alloc &) {
     WithColor::error()
         << "exhausted all available memory for .jv. try removing ~/.jv.* and "
            "setting the JVSIZE environment variable to something larger than "
            "the default (e.g. JVSIZE=8G jove init /path/to/program)\n";
-    return 1;
   } catch (const jove::assertion_failure_base &x) {
-    std::stringstream ss;
-    {
-      auto trace = boost::stacktrace::stacktrace::from_current_exception();
-      assert(trace);
+    auto trace = boost::stacktrace::stacktrace::from_current_exception();
+    assert(trace);
 
-      ss << trace;
-    }
-
-    WithColor::error() << llvm::formatv("!assert({0})\n{1}",
-                                        x.what(), ss.str());
-    return 1;
+    WithColor::error() << llvm::formatv("!assert({0})\n{1}", x.what(),
+                                        boost::stacktrace::to_string(trace));
   } catch (const std::exception &x) {
-    std::stringstream ss;
-    {
-      auto trace = boost::stacktrace::stacktrace::from_current_exception();
-      assert(trace);
-
-      ss << trace;
-    }
+    auto trace = boost::stacktrace::stacktrace::from_current_exception();
+    assert(trace);
 
     WithColor::error() << llvm::formatv("std::exception thrown: {0}\n{1}",
-                                        x.what(), ss.str());
-    return 1;
+                                        x.what(),
+                                        boost::stacktrace::to_string(trace));
   } catch (...) {
-    std::stringstream ss;
-    {
-      auto trace = boost::stacktrace::stacktrace::from_current_exception();
-      assert(trace);
+    auto trace = boost::stacktrace::stacktrace::from_current_exception();
+    assert(trace);
 
-      ss << trace;
-    }
-
-    WithColor::error() << llvm::formatv("exception was thrown!\n{0}", ss.str());
-    return 1;
+    WithColor::error() << llvm::formatv("exception was thrown!\n{0}",
+                                        boost::stacktrace::to_string(trace));
   }
 
-  return res;
+  }
+
+  return 1;
 }
 
 namespace fs = boost::filesystem;
@@ -580,7 +578,6 @@ std::string BaseJVTool<MT, MinSize>::cow_copy_if_possible(
   return cow_filename;
 }
 
-template struct BaseJVTool<false>;
-template struct BaseJVTool<true>;
+template struct BaseJVTool<>;
 
 }
