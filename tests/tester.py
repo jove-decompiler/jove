@@ -326,7 +326,7 @@ class JoveTester:
         if self.platform != "win":
           # bootstrap each input
           for input_args in inputs:
-            self.ssh(["jove", "bootstrap", testbin] + input_args)
+            self.ssh(["jove", "bootstrap", "--symbolize=0", testbin] + input_args)
 
         # run inputs through recompiled binary
         jove_loop_args = [
