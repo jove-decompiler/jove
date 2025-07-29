@@ -80,6 +80,7 @@ else()
 endif()
 
 set(JOVE_SOURCES
+    ../core/tbb_hacks.cpp # we'd like to have this first to disable TBB...
     ../core/B.cpp
     ../core/add.cpp
     ../core/analyze.cpp
@@ -122,7 +123,6 @@ set(JOVE_SOURCES
     ../core/temp.cpp
     ../core/tool.cpp # has to come before all the tools
     ../core/triple.cpp
-    ../core/tbb_hacks.cpp
     ../core/util.cpp
     ../core/vdso.cpp
     ../core/win.cpp
