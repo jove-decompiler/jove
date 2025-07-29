@@ -465,7 +465,7 @@ class JoveTester:
           ]
 
           if self.platform == "win":
-            jove_loop_base.insert(-1, "--lay-out-sections")
+            jove_loop_base.insert(-1, "--lay-out-sections") # .rsrc
 
           # for good measure, in case there is new code we run into
           for i in range(0, 2):
