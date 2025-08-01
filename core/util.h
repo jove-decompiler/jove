@@ -185,4 +185,34 @@ void IgnoreCtrlC(void);
 void DoDefaultOnErrorSignal(void);
 void exclude_from_coredumps(void *addr, size_t size);
 
+static inline char *uint_to_string(uint64_t x, char *Str, unsigned Radix) {
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return Str;
+  }
+
+  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return Str;
+}
+
 } // namespace jove
