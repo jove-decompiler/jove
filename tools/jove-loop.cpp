@@ -2,6 +2,10 @@
 #include "B.h"
 #include "serialize.h"
 #include "fd.h"
+#include "temp.h"
+#include "mmap.h"
+#include "redirect.h"
+#include "jove.constants.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -37,6 +41,16 @@ struct binary_state_t {
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
+}
+
+static std::unique_ptr<scoped_mmap> child_mmap;
+
+static int get_child_fd(void) {
+  scoped_mmap *const mm = child_mmap.get();
+  if (!mm)
+    std::abort();
+
+  return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
 }
 
 class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
@@ -316,6 +330,8 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   const bool IsCOFF;
 
+  std::unique_ptr<temp_file> child_file;
+
 public:
   LoopTool()
       : opts(JoveCategory),
@@ -323,82 +339,22 @@ public:
 
   int Run(void) override;
 
-  std::atomic<bool> Cancelled = false;
-  std::atomic<pid_t> app_pid, run_pid;
+  std::atomic<pid_t> run_pid;
 };
 
 JOVE_REGISTER_TOOL("loop", LoopTool);
 
-static LoopTool *pTool;
-
-static void SigHandler(int no) {
-  assert(pTool);
-  LoopTool &tool = *pTool;
-
-  switch (no) {
-  case SIGTERM:
-    if (pid_t pid = tool.app_pid.load()) {
-      // what we really want to do is terminate the child.
-      if (::kill(pid, SIGTERM) < 0) {
-        int err = errno;
-        tool.HumanOut() << llvm::formatv(
-            "failed to redirect SIGTERM: {0}\n", strerror(err));
-      }
-    } else {
-      tool.HumanOut() << "received SIGTERM but no app to redirect to! exiting...\n";
-      exit(0);
-    }
-    break;
-
-  case SIGINT:
-    if (pid_t pid = tool.run_pid.load()) {
-      // tell run to exit sleep loop
-      if (::kill(pid, SIGUSR1) < 0) {
-        int err = errno;
-        tool.HumanOut() << llvm::formatv(
-            "failed to send SIGUSR1 to jove-run: {0}\n", strerror(err));
-      }
-    } else {
-      tool.HumanOut() << "Received SIGINT. Cancelling..\n";
-
-      tool.Cancelled.store(true);
-    }
-    break;
-
-  default:
-    abort();
-  }
-}
+static const boost::unordered::unordered_set<int> SignalsToRedirect = {
+    SIGINT, SIGTERM, SIGABRT, SIGUSR1, SIGUSR2};
 
 int LoopTool::Run(void) {
   int rc;
-
-  pTool = this;
 
   for (char *dashdash_arg : dashdash_args)
     opts.Args.push_back(dashdash_arg);
 
   if (!opts.Silent && !opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
-
-  //
-  // signal handlers
-  //
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = SigHandler;
-
-    if (::sigaction(SIGINT, &sa, nullptr) < 0 ||
-        ::sigaction(SIGTERM, &sa, nullptr) < 0) {
-      int err = errno;
-      HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n", __func__,
-                                  strerror(err));
-      return 1;
-    }
-  }
 
   fs::create_directories(jove_dir());
 
@@ -433,7 +389,20 @@ int LoopTool::Run(void) {
                   fs::path(sysroot) / "usr" / "bin" / "gdbserver",
                   fs::copy_options::overwrite_existing);
 
-  while (!Cancelled) {
+  static const uint8_t zeros[JOVE_PAGE_SIZE] = {};
+
+  child_file = std::make_unique<temp_file>(&zeros[0], sizeof(zeros), "jove.loop");
+  child_file->store();
+  {
+    scoped_fd child_fd(::open(child_file->path().c_str(), O_RDONLY));
+    child_mmap = std::make_unique<scoped_mmap>(
+        nullptr, JOVE_PAGE_SIZE, PROT_READ, MAP_SHARED, child_fd.get(), 0);
+  }
+
+  for (int no : SignalsToRedirect)
+    setup_to_redirect_signal(no, *this, get_child_fd);
+
+  while (!this->interrupted.load(std::memory_order_relaxed)) {
     pid_t pid;
 
     static bool FirstTime = true;
@@ -480,11 +449,26 @@ run:
         return 1;
       }
 
+      scoped_fd child_fd(::open(child_file->path().c_str(), O_RDWR));
+      if (child_fd) {
+        scoped_mmap mapping(nullptr, JOVE_PAGE_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_SHARED, child_fd.get(), 0);
+        if (mapping) {
+          int *pChildFd = reinterpret_cast<int *>(mapping.ptr);
+          __atomic_store_n(pChildFd, -1 /* reset */, __ATOMIC_RELAXED);
+        }
+      } else {
+        WithColor::error() << llvm::formatv(
+            "cannot open child fd file at {0}\n", child_file->path());
+      }
+
       pid = RunTool(
           "run",
           [&](auto Arg) {
-            Arg("--pid-fifo");
-            Arg(fifo_path);
+            if (child_fd) {
+              Arg("--child-fd");
+              Arg(std::to_string(child_fd.get()));
+            }
 
             if (sudo && ::getgid() > 0 && !opts.RunAsRoot) {
               Arg("-g");
@@ -615,48 +599,12 @@ run:
             Env("JVPATH=" + path_to_jv());
             Env("JOVEDIR=" + jove_dir());
           },
-          std::string(),
-          std::string(),
+          std::string(), std::string(),
           Tool::RunToolExtraArgs(sudo, opts.PreserveEnvironment));
 
       IgnoreCtrlC();
 
       run_pid.store(pid);
-
-      //
-      // read app pid from fifo
-      //
-      {
-        scoped_fd pid_fd(::open(fifo_path.c_str(), O_RDONLY));
-        if (!pid_fd) {
-          int err = errno;
-          HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
-                                      strerror(err));
-        } else {
-          uint64_t u64;
-
-          ssize_t ret = robust_read(pid_fd.get(), &u64, sizeof(u64));
-
-          if (ret != sizeof(u64)) {
-            if (ret < 0)
-              HumanOut() << llvm::formatv(
-                  "failed to read pid from pipe: {0}\n", strerror(-ret));
-            else
-              HumanOut() << llvm::formatv(
-                  "failed to read pid from pipe: got {0}\n", ret);
-          } else {
-            app_pid.store(u64);
-          }
-        }
-
-        if (::unlink(fifo_path.c_str()) < 0) {
-          int err = errno;
-          HumanOut() << llvm::formatv("failed to delete pid fifo: {0}\n",
-                                      strerror(err));
-        }
-
-        fs::remove_all(fifo_dir);
-      }
 
       {
         int ret = WaitForProcessToExit(pid);
@@ -676,7 +624,6 @@ run:
       }
 
       run_pid.store(0); /* reset */
-      app_pid.store(0); /* reset */
     }
 
 skip_run:
@@ -1318,7 +1265,7 @@ skip_run:
     }
   }
 
-  assert(Cancelled);
+  assert(this->interrupted.load(std::memory_order_relaxed));
   return 1;
 }
 

@@ -88,6 +88,7 @@ set(JOVE_SOURCES
     ../core/block.cpp
     ../core/calls.cpp
     ../core/coff.cpp
+    ../core/crash.cpp
     ../core/crypto.cpp
     ../core/byval.cpp
     ../core/disas.cpp
@@ -112,6 +113,7 @@ set(JOVE_SOURCES
     ../core/pidfd.cpp
     ../core/recovery.cpp
     ../core/recompile.cpp
+    ../core/redirect.cpp
     ../core/reflink.cpp
     ../core/score.cpp
     ../core/sret.cpp

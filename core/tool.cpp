@@ -5,6 +5,7 @@
 #include "reflink.h"
 #include "ansi.h"
 #include "tbb_hacks.h"
+#include "crash.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -215,6 +216,14 @@ found_tool:
 
 #ifndef JOVE_NO_TBB
   jove::tbb_hacks::enable();
+#endif
+
+#ifndef NDEBUG
+  //
+  // In non-debug builds we want to catch any stray crashes by just looping
+  // endlessly. Eventually, we will (hopefully) investigate.
+  //
+  jove::setup_crash_handler();
 #endif
 
   try {

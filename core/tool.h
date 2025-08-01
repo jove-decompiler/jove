@@ -54,6 +54,7 @@ protected:
   }
 public:
   const char *_name = nullptr;
+  std::atomic<bool> interrupted = false;
 
 public:
   Tool();

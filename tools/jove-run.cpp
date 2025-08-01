@@ -7,6 +7,8 @@
 #include "ansi.h"
 #include "pidfd.h"
 #include "fork.h"
+#include "mmap.h"
+#include "redirect.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -84,7 +86,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::alias GroupAlias;
     cl::opt<std::string> User;
     cl::alias UserAlias;
-    cl::opt<std::string> PIDFifo;
+    cl::opt<unsigned> ChildFd;
     cl::opt<std::string> WineStderr;
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
@@ -174,8 +176,8 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
                     cl::cat(JoveCategory)),
 
-          PIDFifo("pid-fifo",
-                  cl::desc("Path to FIFO which will receive child PID"),
+          ChildFd("child-fd",
+                  cl::desc("File descriptor to which child PID will be written"),
                   cl::cat(JoveCategory)),
 
           WineStderr("wine-stderr",
@@ -209,18 +211,23 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> Explorer;
   std::unique_ptr<CodeRecovery<IsToolMT, IsToolMinSize>> Recovery;
 
+  std::unique_ptr<scoped_mmap> child_mapping;
+
+  int get_child_fd(void) const {
+    if (!child_mapping)
+      std::abort();
+
+    return __atomic_load_n(reinterpret_cast<int *>(child_mapping->ptr),
+                           __ATOMIC_RELAXED);
+  }
+
 public:
   RunTool()
       : opts(JoveCategory),
         shared_mem(boost::interprocess::anonymous_shared_memory(shared_region_size)),
         shared_buff(boost::interprocess::create_only, shared_mem.get_address(), shared_region_size),
         shared_data(*shared_buff.construct<shared_data_t>(boost::interprocess::anonymous_instance)()),
-        IsCOFF(({
-#ifndef JOVE_NO_TBB
-          tbb_hacks::disable();
-#endif
-          B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
-        }))
+        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin))
   {}
 
   int Run(void) override;
@@ -228,7 +235,7 @@ public:
   template <bool WillChroot, bool LivingDangerously>
   int DoRun(void);
 
-  static const char exited_char;
+  static inline const char exited_char = '!';
 
   std::atomic<bool> FileSystemRestored = false;
 
@@ -240,58 +247,17 @@ public:
 
 JOVE_REGISTER_TOOL("run", RunTool);
 
-const char RunTool::exited_char = '!';
-
 typedef boost::format fmt;
 
-static RunTool *pTool;
-
-static void CrashHandler(int no) {
-  switch (no) {
-  case SIGBUS:
-  case SIGABRT:
-  case SIGSEGV: {
-    const char *msg = "jove-run crashed! attach with a debugger..";
-    robust_write(STDERR_FILENO, msg, strlen(msg));
-
-    for (;;)
-      sleep(1);
-
-    __builtin_unreachable();
-  }
-
-  default:
-    abort();
-  }
-}
+static const boost::unordered::unordered_set<int> SignalsToRedirect = {
+    SIGINT, SIGTERM, SIGABRT, SIGUSR1, SIGUSR2};
 
 int RunTool::Run(void) {
-  pTool = this;
-
   for (char *dashdash_arg : dashdash_args)
     opts.Args.push_back(dashdash_arg);
 
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
-
-  //
-  // signal handlers
-  //
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = CrashHandler;
-
-    if (::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
-        ::sigaction(SIGABRT, &sa, nullptr) < 0 ||
-        ::sigaction(SIGBUS, &sa, nullptr) < 0) {
-      int err = errno;
-      HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));
-      return 1;
-    }
-  }
 
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
   const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
@@ -490,36 +456,46 @@ int RunTool::DoRun(void) {
                              std::string(strerror(err)));
   }
 
-  if (::chmod(stuff_dir.c_str(), 0777) < 0) {
-    int err = errno;
+  BOOST_SCOPE_DEFER [&] {
+    //
+    // clean-up temporary files
+    //
+    if (ShouldDeleteTemporaryFiles())
+      fs::remove_all(stuff_dir);
+  };
 
-    fs::remove_all(stuff_dir);
-    throw std::runtime_error("failed to change permissions of temporary directory: " +
-                             std::string(strerror(err)));
-  }
+  if (::chmod(stuff_dir.c_str(), 0777) < 0)
+    throw std::runtime_error(
+        "failed to change permissions of temporary directory: " +
+        std::string(strerror(errno)));
 
   std::string fifo_path = stuff_dir + "/jove.fifo";
-  if (mkfifo(fifo_path.c_str(), 0666) < 0) {
-    int err = errno;
+  if (mkfifo(fifo_path.c_str(), 0666) < 0)
+    throw std::runtime_error("mkfifo failed: " + std::string(strerror(errno)));
 
-    fs::remove_all(stuff_dir);
-    HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
-    return 1;
-  }
-
-  if (::chmod(fifo_path.c_str(), 0666) < 0) {
-    int err = errno;
-
-    fs::remove_all(stuff_dir);
-    throw std::runtime_error("failed to change permissions of temporary fifo: " +
-                             std::string(strerror(err)));
-  }
+  if (::chmod(fifo_path.c_str(), 0666) < 0)
+    throw std::runtime_error(
+        "failed to change permissions of temporary fifo: " +
+        std::string(strerror(errno)));
 
   fs::path fifo_file_path = fs::canonical(fifo_path);
 
   std::string fifo_path_under_sysroot;
   if (WillChroot)
     fifo_path_under_sysroot = "/" + fs::relative(fifo_file_path, fs::canonical(opts.sysroot)).string();
+
+  //
+  // communicating child PID to jove-loop (1)
+  //
+  if (opts.ChildFd.getNumOccurrences() > 0) {
+    child_mapping = std::make_unique<scoped_mmap>(nullptr, JOVE_PAGE_SIZE,
+                                                  PROT_READ | PROT_WRITE,
+                                                  MAP_SHARED, opts.ChildFd, 0);
+
+    assert(child_mapping);
+    __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
+                     __ATOMIC_RELAXED); /* reset */
+  }
 
   //
   // create process reading from fifo
@@ -663,15 +639,9 @@ int RunTool::DoRun(void) {
                                             strerror(err));
       }
     }
-
-    //
-    // clean-up temporary files
-    //
-    if (ShouldDeleteTemporaryFiles())
-      fs::remove_all(stuff_dir);
   };
 
-  int ret_val = -1;
+  int ret_val = 1;
 
 #if 0 /* is this necessary? */
   if (::mount(opts.sysroot, opts.sysroot, "", MS_BIND, nullptr) < 0)
@@ -1102,26 +1072,19 @@ int RunTool::DoRun(void) {
     return 1;
   }
 
-  IgnoreCtrlC();
-
   //
-  // if we were given a pipefd, then communicate the app child's PID
+  // communicating child PID to jove-loop (2)
   //
-  if (!opts.PIDFifo.empty()) {
-    scoped_fd pid_fd(::open(opts.PIDFifo.c_str(), O_WRONLY | O_CLOEXEC));
+  if (child_mapping) {
+    __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), pid,
+                     __ATOMIC_RELAXED);
 
-    if (pid_fd) {
-      uint64_t u64 = pid;
-      ssize_t ret = robust_write(pid_fd.get(), &u64, sizeof(uint64_t));
-
-      if (ret != sizeof(uint64_t))
-        HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
-    } else {
-      int err = errno;
-      HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
-                                  strerror(err));
-    }
+    for (int no : SignalsToRedirect)
+      setup_to_redirect_signal(no, *this,
+                               std::bind(&RunTool::get_child_fd, this));
   }
+
+  IgnoreCtrlC();
 
   if (LivingDangerously) {
     wfd.close();
@@ -1216,6 +1179,13 @@ int RunTool::DoRun(void) {
   // wait for process to exit
   //
   ret_val = WaitForProcessToExit(pid);
+
+  //
+  // communicating child PID to jove-loop (3)
+  //
+  if (child_mapping)
+    __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
+                     __ATOMIC_RELAXED); /* reset */
 
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);

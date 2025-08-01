@@ -41,6 +41,7 @@ public:
 
   scoped_fd &operator=(int fd_) noexcept(false) {
     close();
+
     fd = fd_;
     return *this;
   }
@@ -52,7 +53,13 @@ public:
     close();
   }
 
-  explicit operator bool(void) const { return fd >= 0; }
+  [[clang::always_inline]] bool valid(void) const {
+    return fd >= 0;
+  }
+
+  [[clang::always_inline]] explicit operator bool(void) const {
+    return valid();
+  }
 
   int get(void) const {
     assert(*this);
