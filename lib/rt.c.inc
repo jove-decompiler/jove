@@ -108,6 +108,17 @@ void _jove_rt_init(void) {
   sa.k_sa_restorer = _jove_do_rt_sigreturn;
 #endif
 
+  {
+    uintptr_t newstack = _jove_alloc_stack();
+
+    stack_t uss = {.ss_sp = (void *)(newstack + JOVE_PAGE_SIZE),
+                   .ss_flags = 0,
+                   .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
+
+    if (_jove_sys_sigaltstack(&uss, NULL) < 0)
+      _UNREACHABLE("failed to set alternate signal stack");
+  }
+
   if (_jove_sys_rt_sigaction(SIGSEGV, (void *)&sa, NULL, sizeof(kernel_sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGSEGV handler");
 
@@ -121,17 +132,6 @@ void _jove_rt_init(void) {
 
   if (_jove_sys_rt_sigaction(SIGILL, (void *)&sa, NULL, sizeof(kernel_sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGILL handler");
-
-  {
-    uintptr_t newstack = _jove_alloc_stack();
-
-    stack_t uss = {.ss_sp = (void *)(newstack + JOVE_PAGE_SIZE),
-                   .ss_flags = 0,
-                   .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
-
-    if (_jove_sys_sigaltstack(&uss, NULL) < 0)
-      _UNREACHABLE("failed to set alternate signal stack");
-  }
 
   _jove_init_cpu_state();
   _jove_callstack_init();
