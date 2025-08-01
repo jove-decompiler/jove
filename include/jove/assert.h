@@ -18,6 +18,8 @@ struct StaticString {
 };
 
 struct assertion_failure_base {
+  virtual ~assertion_failure_base() {}
+
   virtual const char* what() const noexcept = 0;
 };
 
