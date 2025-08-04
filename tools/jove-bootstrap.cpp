@@ -489,9 +489,6 @@ static void SignalHandler(int no);
 int BootstrapTool::Run(void) {
   pTool = this;
 
-  for (char *dashdash_arg : dashdash_args)
-    opts.Args.push_back(dashdash_arg);
-
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 

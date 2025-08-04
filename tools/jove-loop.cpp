@@ -350,9 +350,6 @@ static const boost::unordered::unordered_set<int> SignalsToRedirect = {
 int LoopTool::Run(void) {
   int rc;
 
-  for (char *dashdash_arg : dashdash_args)
-    opts.Args.push_back(dashdash_arg);
-
   if (!opts.Silent && !opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 
@@ -588,8 +585,6 @@ run:
             } else {
               Arg(opts.Prog);
             }
-            if (!opts.Args.empty())
-              Arg("--");
             for (std::string &s : opts.Args)
               Arg(s);
           },

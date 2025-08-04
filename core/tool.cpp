@@ -67,6 +67,7 @@ int main(int argc, char **argv) {
     return res;
   };
 
+#if 0
   //
   // scan for '--' on the command-line, and if found, collect trailing arguments
   //
@@ -90,6 +91,7 @@ int main(int argc, char **argv) {
       break;
     }
   }
+#endif
 
   //
   // examine argv[0]
@@ -184,7 +186,6 @@ found_tool:
   assert(tool);
 
   tool->_name = name;
-  tool->set_dashdash_args(dashdash_args);
 
   llvm::InitLLVM X(argc, argv);
 

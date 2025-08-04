@@ -165,9 +165,6 @@ static void set_permissions_recursively(const fs::path &p) {
 }
 
 int TraceTool::Run(void) {
-  for (char *dashdash_arg : dashdash_args)
-    opts.Args.push_back(dashdash_arg);
-
   if (!fs::exists(opts.Prog)) {
     WithColor::error() << "program does not exist\n";
     return 1;

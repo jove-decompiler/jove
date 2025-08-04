@@ -253,9 +253,6 @@ static const boost::unordered::unordered_set<int> SignalsToRedirect = {
     SIGINT, SIGTERM, SIGABRT, SIGUSR1, SIGUSR2};
 
 int RunTool::Run(void) {
-  for (char *dashdash_arg : dashdash_args)
-    opts.Args.push_back(dashdash_arg);
-
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 

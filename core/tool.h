@@ -81,11 +81,6 @@ public:
     return *HumanOutputStreamPtr;
   }
 
-  std::vector<char *> dashdash_args;
-  void set_dashdash_args(const std::vector<char *> dashdash_args) {
-    this->dashdash_args = dashdash_args;
-  }
-
   template <typename ComputeArgs>
   pid_t RunExecutable(const std::string &exe_path,
       ComputeArgs compute_args,
