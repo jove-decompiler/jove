@@ -7,6 +7,22 @@
 
 namespace jove {
 
+static void crash_handler(int no) {
+  static const char rest[] = " crashed! attach a debugger...\n";
+
+  char msg[65 + sizeof(rest)];
+  memcpy(uint_to_string(::gettid(), msg, 10), rest, sizeof(rest));
+  size_t len = strlen(msg);
+
+  for (;;) {
+    robust_write(STDERR_FILENO, msg, len);
+    robust_write(STDOUT_FILENO, msg, len);
+
+    sleep(1);
+  }
+  __builtin_unreachable();
+}
+
 void setup_crash_handler(void) {
   const unsigned altstack_size = SIGSTKSZ;
 
@@ -28,21 +44,7 @@ void setup_crash_handler(void) {
 
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_NODEFER | SA_ONSTACK;
-  sa.sa_handler = [](int no) -> void {
-    static const char rest[] = " crashed! attach a debugger...\n";
-
-    char msg[65 + sizeof(rest)];
-    memcpy(uint_to_string(::gettid(), msg, 10), rest, sizeof(rest));
-    size_t len = strlen(msg);
-
-    for (;;) {
-      robust_write(STDERR_FILENO, msg, len);
-      robust_write(STDOUT_FILENO, msg, len);
-
-      sleep(1);
-    }
-    __builtin_unreachable();
-  };
+  sa.sa_handler = crash_handler;
 
   if (::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
       ::sigaction(SIGABRT, &sa, nullptr) < 0 ||
