@@ -223,8 +223,9 @@ found_tool:
   // In non-debug builds we want to catch any stray crashes by just looping
   // endlessly. Eventually, we will (hopefully) investigate.
   //
-  jove::setup_crash_handler();
+  jove::setup_crash_signal_handler();
 #endif
+  jove::setup_crash_handler();
 
   try {
     return tool->Run();
@@ -237,8 +238,17 @@ found_tool:
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
     assert(trace);
 
-    WithColor::error() << llvm::formatv("!assert({0})\n{1}", x.what(),
-                                        boost::stacktrace::to_string(trace));
+    const bool smartterm = tool->is_smart_terminal();
+    llvm::errs() << llvm::formatv(
+      "==================================================\n"
+      "{2}JOVE ASSERTION FAILURE{3} ({4}{0}{5})\n{1}"
+      "==================================================\n",
+      x.what(),
+      boost::stacktrace::to_string(trace),
+      smartterm ? __ANSI_BOLD_RED : "",
+      smartterm ? __ANSI_NORMAL_COLOR : "",
+      smartterm ? __ANSI_YELLOW : "",
+      smartterm ? __ANSI_NORMAL_COLOR : "");
   } catch (const std::exception &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
     assert(trace);

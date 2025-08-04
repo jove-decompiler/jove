@@ -2,12 +2,44 @@
 #include "util.h"
 #include "fd.h"
 
+#include <sstream>
+#include <iostream>
+
+#include <boost/stacktrace.hpp>
+
 #include <sys/mman.h>
 #include <signal.h>
+#include <fcntl.h>
 
 namespace jove {
 
-static void crash_handler(int no) {
+//
+// This function is basically meant as a last-ditch effort to convey information
+// that may be useful for debugging.
+//
+// This function must be safe to call from signal handler.
+//
+static void dump_to_somewhere(const char *content) {
+  static char filename[128] = "/tmp/jove.something."; /* FIXME /tmp? */
+
+  {
+    char buff[65];
+    strcat(filename, uint_to_string(::gettid(), buff, 10));
+  }
+
+  scoped_fd fd(::open(filename, O_WRONLY | O_CREAT | O_TRUNC));
+  if (fd)
+    robust_write(fd.get(), content, strlen(content));
+}
+
+static void crash_signal_handler(int no) {
+  //
+  // In theory, walking the stack without decoding and demangling should be
+  // async signal safe. In practice, it is not. Therefore we must strive to
+  // acquire the trace *before* the deadly signal has been delivered. We do this
+  // by using C++ exceptions, throughout jove.
+  //
+
   static const char rest[] = " crashed! attach a debugger...\n";
 
   char msg[65 + sizeof(rest)];
@@ -15,15 +47,16 @@ static void crash_handler(int no) {
   size_t len = strlen(msg);
 
   for (;;) {
-    robust_write(STDERR_FILENO, msg, len);
-    robust_write(STDOUT_FILENO, msg, len);
+    if (robust_write(STDERR_FILENO, msg, len) != len ||
+        robust_write(STDOUT_FILENO, msg, len) != len)
+      dump_to_somewhere(msg);
 
     sleep(1);
   }
   __builtin_unreachable();
 }
 
-void setup_crash_handler(void) {
+void setup_crash_signal_handler(void) {
   const unsigned altstack_size = SIGSTKSZ;
 
   void *altstack = mmap(NULL, altstack_size, PROT_READ | PROT_WRITE,
@@ -44,7 +77,7 @@ void setup_crash_handler(void) {
 
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_NODEFER | SA_ONSTACK;
-  sa.sa_handler = crash_handler;
+  sa.sa_handler = crash_signal_handler;
 
   if (::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
       ::sigaction(SIGABRT, &sa, nullptr) < 0 ||
@@ -52,5 +85,26 @@ void setup_crash_handler(void) {
     throw std::runtime_error("sigaction failed: " +
                              std::string(strerror(errno)));
 }
+
+static void terminate_handler(void) {
+  try {
+    std::stringstream ss;
+    {
+      auto trace = boost::stacktrace::stacktrace();
+      if (trace)
+        ss << trace;
+      else
+        ss << "FAILED TO GET STACKTRACE!\n";
+    }
+    std::string s = ss.str();
+
+    std::cerr << s;
+    dump_to_somewhere(s.c_str());
+  } catch (...) {}
+
+  std::abort();
+}
+
+void setup_crash_handler(void) { std::set_terminate(&terminate_handler); }
 
 }
