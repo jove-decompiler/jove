@@ -79,12 +79,32 @@ pid_t RunExecutable(const std::string &exe_path,
   //
   // redirect standard output and/or standard error, if desired.
   //
+  // FIXME (style)
+  //
   if (!stdout_path.empty()) {
     //
     // redirect stdout
     //
-    int fd = ::open(stdout_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    ::dup2(fd, STDOUT_FILENO);
+    int fd = -1;
+    do
+      fd = ::open(stdout_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    while (fd < 0 && errno == EINTR);
+
+    if (fd < 0) {
+      perror(("open " + stdout_path).c_str());
+      exit(1);
+    }
+
+    int res = -1;
+    do
+      res = ::dup2(fd, STDOUT_FILENO);
+    while (res < 0 && errno == EINTR);
+
+    if (res < 0) {
+      perror("dup2 stdout");
+      exit(1);
+    }
+
     ::close(fd);
   }
 
@@ -92,8 +112,26 @@ pid_t RunExecutable(const std::string &exe_path,
     //
     // redirect stderr
     //
-    int fd = ::open(stderr_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    ::dup2(fd, STDERR_FILENO);
+    int fd = -1;
+    do
+      fd = ::open(stderr_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    while (fd < 0 && errno == EINTR);
+
+    if (fd < 0) {
+      perror(("open " + stderr_path).c_str());
+      exit(1);
+    }
+
+    int res = -1;
+    do
+      res = ::dup2(fd, STDERR_FILENO);
+    while (res < 0 && errno == EINTR);
+
+    if (res < 0) {
+      perror("dup2 stderr");
+      exit(1);
+    }
+
     ::close(fd);
   }
 
