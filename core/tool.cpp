@@ -31,10 +31,12 @@ namespace jove {
 // AutoRegisterTool, so tool.o should come first on the command-line when
 // linking jove.
 //
-static std::vector<std::pair<const char *, jove::ToolCreationProc>> AllTools;
+static boost::unordered::unordered_flat_map<std::string_view,
+                                            jove::ToolCreationProc>
+    AllTools;
 
 void RegisterTool(const char *name, ToolCreationProc proc) {
-  AllTools.emplace_back(name, proc);
+  AllTools.emplace(name, proc);
 }
 
 }
@@ -96,90 +98,56 @@ int main(int argc, char **argv) {
   //
   // examine argv[0]
   //
+  std::string name_str;
   const char *name = nullptr;
   std::unique_ptr<jove::Tool> tool;
 
-  std::string prefix("jove-");
-  std::string arg0 = argv[0];
+  auto make_tool = [&](const char *tool_name) -> void {
+    auto it = jove::AllTools.find(tool_name);
+    if (it != jove::AllTools.end()) {
+      auto &x = *it;
 
-  //
-  // is it a path?
-  //
-  {
-    std::string::size_type slash = arg0.rfind('/');
-    if (slash != std::string::npos)
-      arg0 = arg0.substr(slash + 1); /* chop off leading directories */
+      name_str = x.first;
+      name = name_str.c_str();
+      tool.reset(x.second()); /* instantiate */
+    }
+  };
+
+  if (argc < 1) {
+    llvm::errs() << usage();
+    return 1;
   }
+  make_tool(argv[0]);
 
-  //
-  // does it start with 'jove-'?
-  //
-  bool has_prefix = arg0.rfind(prefix, 0) == 0;
-  if (has_prefix)
-    arg0 = arg0.substr(prefix.size()); /* chop off prefix */
-
-  //
-  // is the multi-call binary being invoked?
-  //
   std::vector<char *> _argv;
-  if (arg0 == "jove" || arg0 == TARGET_ARCH_NAME) {
-    //
-    // interpret first argument as tool to call
-    //
+  if (!tool) {
     if (argc < 2) {
+      WithColor::error() << llvm::formatv("unknown tool requested (\"{0}\")\n",
+                                          argv[0]);
+
       llvm::errs() << usage();
       return 1;
     }
+    make_tool(argv[1]);
 
-    std::string tool_name(argv[1]);
+    if (tool) {
+      //
+      // shuffle argc/argv
+      //
+      _argv.reserve(argc);
+      _argv.push_back(argv[1]);
+      for (unsigned i = 2; i < argc; ++i)
+        _argv.push_back(argv[i]);
+      _argv.push_back(nullptr);
 
-    //
-    // search tools
-    //
-    for (const auto &x : jove::AllTools) {
-      if (x.first == tool_name) {
-        name = x.first;
-        tool.reset(x.second()); /* instantiate */
-        goto found_tool;
-      }
+      argc = argc - 1;
+      argv = _argv.data();
+    } else {
+      WithColor::error() << llvm::formatv(
+          "unknown tool requested (\"{0}\") (\"{1}\")\n", argv[0], argv[1]);
+      llvm::errs() << usage();
+      return 1;
     }
-
-    llvm::errs() << llvm::formatv("unknown tool '{0}'\n{1}", tool_name, usage());
-    return 1;
-
-found_tool:
-    //
-    // shuffle argc/argv
-    //
-    _argv.reserve(argc);
-    _argv.push_back(argv[0]);
-    for (unsigned i = 2; i < argc; ++i)
-      _argv.push_back(argv[i]);
-    _argv.push_back(nullptr);
-
-    argc = argc - 1;
-    argv = &_argv[0];
-  } else {
-    //
-    // search tools
-    //
-    for (const auto &x : jove::AllTools) {
-      if (x.first == arg0) {
-        name = x.first;
-        try {
-          tool.reset(x.second()); /* instantiate */
-        } catch (const boost::interprocess::interprocess_exception &e) {
-          llvm::errs() << llvm::formatv("interprocess exception: {0}\n", e.what());
-          return 1;
-        }
-        break;
-      }
-    }
-  }
-
-  if (!tool) {
-    llvm::errs() << usage();
-    return 1;
   }
 
   assert(name);
