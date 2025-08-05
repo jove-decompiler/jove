@@ -492,6 +492,8 @@ int RunTool::DoRun(void) {
     assert(child_mapping);
     __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
                      __ATOMIC_RELAXED); /* reset */
+
+    ::close(opts.ChildFd);
   }
 
   //
