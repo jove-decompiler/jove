@@ -4,6 +4,10 @@ import tempfile
 import libtmux
 import time
 import os
+import sys
+
+def eprint(*args, **kwargs):
+  print(*args, file=sys.stderr, **kwargs)
 
 class JoveTester:
   ARCH_2_BITS = {
@@ -128,7 +132,7 @@ class JoveTester:
 
     if self.sess is None:
       self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.TMUX_WINDOW_NAMES[0])
-      print('created tmux session ' + str(self.sess))
+      eprint('created tmux session ' + str(self.sess))
 
       self.sess.set_option('history-limit', 100000)
 
@@ -137,7 +141,7 @@ class JoveTester:
       self.wins[0] = self.sess.windows[0]
       res[0] = True
 
-      print('created tmux window ' + str(self.wins[0]))
+      eprint('created tmux window ' + str(self.wins[0]))
     else:
       for win in self.sess.windows:
         try:
@@ -149,7 +153,7 @@ class JoveTester:
       if self.wins[idx] is None:
         res[idx] = True
         self.wins[idx] = self.sess.new_window(window_name=JoveTester.TMUX_WINDOW_NAMES[idx])
-        print('created tmux window ' + str(self.wins[idx]))
+        eprint('created tmux window ' + str(self.wins[idx]))
 
     return res
 
@@ -161,7 +165,7 @@ class JoveTester:
     return os.path.exists(run_path) and Path(run_path).is_file()
 
   def create_vm(self):
-    print("creating VM...")
+    eprint("creating VM...")
 
     bringup_cmd = [self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)]
     if self.platform == "win":
@@ -182,7 +186,7 @@ class JoveTester:
     return res
 
   def start_vm(self):
-    print("starting VM...")
+    eprint("starting VM...")
 
     qp = self.pane("qemu")
     qp.send_keys("C-c", literal=False, enter=False)
@@ -190,7 +194,7 @@ class JoveTester:
     qp.send_keys('./run.sh')
 
   def start_server(self):
-    print("starting jove server...")
+    eprint("starting jove server...")
 
     server_cmd = [str(self.jove_bin_path), 'server', '-v', '--port=%d' % self.jove_server_port]
     server_cmd += self.extra_server_args
@@ -200,7 +204,7 @@ class JoveTester:
     else:
       self.serv_process = None
       p = self.pane("server")
-      print(" ".join(server_cmd))
+      eprint(" ".join(server_cmd))
       p.send_keys(" ".join(server_cmd)) # this is unreliable!!!
 
   def is_server_down(self):
@@ -215,14 +219,14 @@ class JoveTester:
     while not self.is_vm_ready():
       self.start_vm() # just in case
 
-      print("waiting for VM...")
+      eprint("waiting for VM...")
       time.sleep(t)
       self.pane("qemu").send_keys('')
       time.sleep(t)
       self.pane("qemu").send_keys('')
       time.sleep(t)
 
-    print("VM ready.")
+    eprint("VM ready.")
 
   def set_up_command_for_user(self, command):
     p = self.pane("ssh")
@@ -243,10 +247,14 @@ class JoveTester:
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def ssh_command(self, command, check=False, text=True):
-    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=check, capture_output=True, text=text)
+    args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command
+    eprint(" ".join(args))
+    return subprocess.run(args, check=check, capture_output=True, text=text)
 
   def ssh(self, command, check=False):
-    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=check)
+    args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command
+    eprint(" ".join(args))
+    return subprocess.run(args, check=check)
 
   def scp_to(self, src, dst, check=False):
     return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=check)
@@ -277,7 +285,7 @@ class JoveTester:
 
   def run_tests(self, tests, multi_threaded=True, remote=True):
     mode = 'remote' if remote else 'local'
-    print(f"running {len(tests)} {mode} tests [{self.platform} {self.arch}]...")
+    eprint(f"running {len(tests)} {mode} tests [{self.platform} {self.arch}]...")
 
     if remote:
       self.run_remote_tests(tests, multi_threaded)
@@ -345,26 +353,29 @@ class JoveTester:
         # for good measure, in case there is new code we run into
         for i in range(0, 2):
           for input_args in inputs:
-            print(jove_loop_args + [testbin] + input_args)
             self.ssh(jove_loop_args + [testbin] + input_args)
 
         # compare result of executing testbin and recompiled testbin
         for input_args in inputs:
           if self.is_server_down():
-            print(f"FAILURE ({self.arch} server is down!)")
+            eprint(f"FAILURE ({self.arch} server is down!)")
             return 1
 
           self.ssh(["rm", "-f", "--verbose", "/tmp/stdout", "/tmp/stderr"], check=True)
 
           p1 = self.ssh_command(self.loader_args + [testbin] + input_args, text=False)
-          p2 = self.ssh(jove_loop_args +
-            [f"--stdout=/tmp/stdout",\
-             f"--stderr=/tmp/stderr"] +
-             [testbin] +
-             input_args)
+          p2 = self.ssh(
+            jove_loop_args +
+            [
+              "--stdout=/tmp/stdout",
+              "--stderr=/tmp/stderr"
+            ] +
+            [testbin] +
+            input_args
+          )
 
           if self.is_server_down():
-            print(f"FAILURE ({self.arch} server is down!)")
+            eprint(f"FAILURE ({self.arch} server is down!)")
             return 1
 
           stdout = tempfile.NamedTemporaryFile(delete=False)
@@ -391,17 +402,17 @@ class JoveTester:
             failed = failed or stderr_neq
 
           if failed:
-            print("/////////\n///////// %s REMOTE TEST FAILURE %s [%s %s]\n/////////" % \
+            eprint("/////////\n///////// %s REMOTE TEST FAILURE %s [%s %s]\n/////////" % \
               ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
                testbin, self.platform, self.arch))
-            print(jove_loop_args + [testbin] + input_args)
+            eprint(jove_loop_args + [testbin] + input_args)
 
             if return_neq:
-              print('%d != %d' % (p1.returncode, p2.returncode))
+              eprint('%d != %d' % (p1.returncode, p2.returncode))
             if stdout_neq:
-              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
+              eprint('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
             if stderr_neq:
-              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
+              eprint('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
 
             # make it easy for user to rerun failing test
             if not self.unattended:
@@ -410,7 +421,7 @@ class JoveTester:
             return 1
 
     threading_name = "multi" if multi_threaded else "single"
-    print(f"SUCCESS <remote> <{threading_name}-threaded> ({self.arch} {self.platform})")
+    eprint(f"SUCCESS <remote> <{threading_name}-threaded> ({self.arch} {self.platform})")
     return 0
 
   def run_local_tests(self, tests, multi_threaded):
@@ -442,7 +453,7 @@ class JoveTester:
         path_to_jv = tempfile.NamedTemporaryFile(delete=False)
         path_to_jv.close()
 
-        print(f"JVPATH={path_to_jv.name}")
+        eprint(f"JVPATH={path_to_jv.name}")
 
         os.unlink(path_to_jv.name)
         env["JVPATH"] = path_to_jv.name
@@ -456,7 +467,7 @@ class JoveTester:
 
         with tempfile.TemporaryDirectory() as dot_jove:
           env["JOVEDIR"] = dot_jove
-          print(f"JOVEDIR={dot_jove}")
+          eprint(f"JOVEDIR={dot_jove}")
 
           # prepare loop command (no --connect for local)
           jove_loop_base = [
@@ -498,17 +509,17 @@ class JoveTester:
               failed = failed or stderr_neq
 
             if failed:
-              print("/////////\n///////// %s LOCAL TEST FAILURE %s [%s %s]\n/////////" % \
+              eprint("/////////\n///////// %s LOCAL TEST FAILURE %s [%s %s]\n/////////" % \
                 ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
                  str(testbin_path), self.platform, self.arch))
-              print(jove_loop_base + [str(testbin_path)] + input_args)
+              eprint(jove_loop_base + [str(testbin_path)] + input_args)
 
               if return_neq:
-                print('%d != %d' % (p1.returncode, p2.returncode))
+                eprint('%d != %d' % (p1.returncode, p2.returncode))
               if stdout_neq:
-                print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
+                eprint('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
               if stderr_neq:
-                print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
+                eprint('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
 
               os.unlink(path_to_jv.name)
               return 1
@@ -516,7 +527,7 @@ class JoveTester:
         os.unlink(path_to_jv.name)
 
     threading_name = "multi" if multi_threaded else "single"
-    print(f"SUCCESS <local> <{threading_name}-threaded> ({self.arch} {self.platform})")
+    eprint(f"SUCCESS <local> <{threading_name}-threaded> ({self.arch} {self.platform})")
     return 0
 
 
@@ -543,7 +554,7 @@ class JoveTester:
     # get IP of host seen by guest
     #
     self.iphost = self.ssh_command(['ip', 'route', 'show'], check=True).stdout.strip().split()[2]
-    print("iphost: %s" % self.iphost)
+    eprint("iphost: %s" % self.iphost)
 
     if update_jove:
       self.update_jove()
@@ -556,7 +567,7 @@ class JoveTester:
       time.sleep(1.0) # ?? we are seeing apparently weird poll() behavior
 
   def __del__(self):
-    print(f"tester: cleaning up... [{self.platform} {self.arch}]")
+    eprint(f"tester: cleaning up... [{self.platform} {self.arch}]")
     if self.unattended:
       if self.is_remote_ready():
         self.ssh(['systemctl', 'poweroff'])
@@ -568,7 +579,7 @@ class JoveTester:
           self.serv_process.wait(timeout=5)  # Wait for the process to exit
         except Exception as e:
           self.serv_process.kill()  # Forcefully kill if it doesn't exit
-          print(f"Forced server subprocess termination: {e}")
+          eprint(f"Forced server subprocess termination: {e}")
 
       if self.sess is not None:
         self.sess.kill_session()
