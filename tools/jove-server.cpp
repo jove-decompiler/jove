@@ -225,6 +225,8 @@ int ServerTool::Serve(const int connection_socket) {
       });
       _exit(ret);
     }
+
+    ::close(data_socket);
   }
 
   __attribute__((musttail)) return Serve(connection_socket);
