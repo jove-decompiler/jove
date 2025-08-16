@@ -172,12 +172,12 @@ class JoveTester:
       bringup_cmd += ["-w"]
     bringup_cmd += self.extra_bringup_args
 
-    subprocess.run(['sudo'] + bringup_cmd, check=True)
+    subprocess.run(['sudo'] + bringup_cmd, check=True, shell=True)
 
     our_uid = os.getuid()
 
     chown_cmd = ["chown", "-R", "%d:%d" % (our_uid, our_uid), self.vm_dir]
-    subprocess.run(['sudo'] + chown_cmd, check=True)
+    subprocess.run(['sudo'] + chown_cmd, check=True, shell=True)
 
   def pane(self, name):
     self.establish_tmux_session()
@@ -200,7 +200,7 @@ class JoveTester:
     server_cmd += self.extra_server_args
 
     if self.unattended:
-      self.serv_process = subprocess.Popen(server_cmd, stdin=subprocess.DEVNULL)
+      self.serv_process = subprocess.Popen(server_cmd, stdin=subprocess.DEVNULL, shell=False)
     else:
       self.serv_process = None
       p = self.pane("server")
@@ -249,18 +249,48 @@ class JoveTester:
   def ssh_command(self, command, check=False, text=True):
     args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command
     eprint(" ".join(args))
-    return subprocess.run(args, check=check, capture_output=True, text=text)
+    return subprocess.run(args, check=check, capture_output=True, text=text, shell=False)
 
   def ssh(self, command, check=False):
     args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command
     eprint(" ".join(args))
-    return subprocess.run(args, check=check)
+    ran = subprocess.run(args, check=check, capture_output=True, text=True, shell=False)
+    print(ran.stdout, file=sys.stdout)
+    print(ran.stderr, file=sys.stderr)
+    return ran
 
   def scp_to(self, src, dst, check=False):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=check)
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=check, shell=False)
 
   def scp_from(self, src, dst, check=False):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=check)
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check, shell=False)
+
+  def scp_with_retries(self, src, dst, max_retries=5, delay_seconds=2):
+    """
+    Repeatedly attempts scp_from until it succeeds or max_retries is reached.
+    If max_retries is None, it will retry indefinitely.
+    """
+    attempt = 0
+    while True:
+      attempt += 1
+      try:
+        # Use check=True so failures raise CalledProcessError
+        result = self.scp_from(src, dst, check=True)
+        # If we get here, scp succeeded
+        print(f"[attempt {attempt}] scp succeeded.")
+        return result
+      except subprocess.CalledProcessError as e:
+        # Log the error message
+        err = e.stderr.strip() or f"exit code {e.returncode}"
+        print(f"[attempt {attempt}] scp failed: {err}")
+        # Decide whether to give up
+        if max_retries is not None and attempt >= max_retries:
+          print("Max retries reached; giving up.")
+          raise
+        # Otherwise sleep and retry
+        print(f"Sleeping {delay_seconds} seconds before retry...")
+        time.sleep(delay_seconds)
+
 
   def remote_path_exists(self, remote_path) -> bool:
     return self.ssh(['/usr/bin/stat', remote_path], check=False).returncode == 0
@@ -383,8 +413,8 @@ class JoveTester:
           stderr = tempfile.NamedTemporaryFile(delete=False)
           stderr.close()
 
-          self.scp_from("/tmp/stdout", stdout.name, check=True);
-          self.scp_from("/tmp/stderr", stderr.name, check=True);
+          self.scp_with_retries("/tmp/stdout", stdout.name);
+          self.scp_with_retries("/tmp/stderr", stderr.name);
 
           p2_stdout = open(stdout.name, "rb").read()
           p2_stderr = open(stderr.name, "rb").read()
@@ -438,7 +468,7 @@ class JoveTester:
       self.wineprefix = os.path.expanduser(f'~/.wine{JoveTester.ARCH_2_BITS[self.arch]}')
       self.winearch = f'win{JoveTester.ARCH_2_BITS[self.arch]}'
       # establish clean slate
-      subprocess.run(["rm", "-rf", "--verbose", self.wineprefix], check=True)
+      subprocess.run(["rm", "-rf", "--verbose", self.wineprefix], check=True, shell=False)
 
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
@@ -459,7 +489,7 @@ class JoveTester:
         env["JVPATH"] = path_to_jv.name
 
         # initialize jv
-        subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], env=env, check=True)
+        subprocess.run([f'{self.jove_bin_path}', "init", "-v", str(testbin_path)], env=env, check=True, shell=False)
 
         if self.platform == "win":
           env["WINEARCH"] = self.winearch
@@ -481,7 +511,7 @@ class JoveTester:
           # for good measure, in case there is new code we run into
           for i in range(0, 2):
             for input_args in inputs:
-              subprocess.run(jove_loop_base + [str(testbin_path)] + input_args, env=env)
+              subprocess.run(jove_loop_base + [str(testbin_path)] + input_args, env=env, shell=False)
 
           # compare result of executing testbin and recompiled testbin
           for input_args in inputs:
@@ -490,8 +520,8 @@ class JoveTester:
             stderr = tempfile.NamedTemporaryFile(delete=False)
             stderr.close()
 
-            p1 = subprocess.run(self.loader_args + [str(testbin_path)] + input_args, capture_output=True)
-            p2 = subprocess.run(jove_loop_base + [f'--stdout={stdout.name}', f'--stderr={stderr.name}'] + [str(testbin_path)] + input_args, env=env)
+            p1 = subprocess.run(self.loader_args + [str(testbin_path)] + input_args, capture_output=True, shell=False)
+            p2 = subprocess.run(jove_loop_base + [f'--stdout={stdout.name}', f'--stderr={stderr.name}'] + [str(testbin_path)] + input_args, env=env, shell=False)
 
             p2_stdout = open(stdout.name, "rb").read()
             p2_stderr = open(stderr.name, "rb").read()
