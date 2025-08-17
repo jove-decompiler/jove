@@ -52,7 +52,6 @@ def main():
                       unattended=unattended)
 
   if args.just_update_jove:
-    tester.get_remote_ready()
     tester.update_jove()
     del tester
     return 0
@@ -85,7 +84,7 @@ def main():
         multi_threaded=multi_flag,
         remote=remote
       )
-      if ret:
+      if ret > 0:
         del tester
         return ret
 
