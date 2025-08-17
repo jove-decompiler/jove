@@ -33,6 +33,7 @@ cmake -G Ninja \
   -D LLVM_ENABLE_RTTI=ON \
   -D LLVM_ENABLE_LIBXML2=OFF \
   -D LLVM_ENABLE_TERMINFO=OFF \
+  -D LLVM_ENABLE_FFI=OFF \
   -D LLVM_ENABLE_LIBCXX=OFF \
   -D LLVM_INCLUDE_BENCHMARKS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
@@ -53,6 +54,7 @@ cmake -G Ninja \
   -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   -D LLVM_USE_LINKER=lld \
+  -D JOVE_HAVE_MEMFD=ON \
   -S $(pwd)/.. -B $(pwd)
 
 fi

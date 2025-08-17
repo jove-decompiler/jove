@@ -183,13 +183,13 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     -Wl,--pop-state
 
     -pthread
-    ffi
     glib-2.0
 
     atomic
     zlibstatic
     dl
     backtrace
+    ffi
   )
 
   target_link_libraries(jove-${arch} PRIVATE Boost::system)
@@ -248,6 +248,8 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
       SKIP_BUILD_RPATH  TRUE    # don't put any build-RPATH in the binary either
     )
   endif()
+
+  target_link_options(jove-${arch} PRIVATE "-pie")
 
   target_include_directories(jove-${arch} PRIVATE
     ${JOVE_SRC_DIR}/lib/arch/${arch}
