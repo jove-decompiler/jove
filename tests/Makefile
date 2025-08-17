@@ -60,7 +60,7 @@ $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call 
 define template_platform_just_update
 .PHONY: just-update-jove-$(1)-$(2)
 just-update-jove-$(1)-$(2):
-	-$(ROOT_DIR)/run.py -a $(2) -p $(1) --just-update-jove
+	-$(ROOT_DIR)/run.py -a $(2) -p $(1) --just-update-jove --remote
 endef
 $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call template_platform_just_update,$(p),$(t)))))
 
