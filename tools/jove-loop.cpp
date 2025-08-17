@@ -25,6 +25,8 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+#include "jove/assert.h"
+
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
@@ -47,7 +49,7 @@ static std::unique_ptr<scoped_mmap> child_mmap;
 
 static int get_child_fd(void) {
   scoped_mmap *const mm = child_mmap.get();
-  if (!mm)
+  if (!mm || !(*mm))
     std::abort();
 
   return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
@@ -426,26 +428,6 @@ int LoopTool::Run(void) {
     //
 run:
     {
-      std::string fifo_dir = "/tmp/jove.XXXXXX";
-      if (!mkdtemp(&fifo_dir[0])) {
-        int err = errno;
-        throw std::runtime_error("failed to make temporary directory: " +
-                                 std::string(strerror(err)));
-      }
-
-      if (::chmod(fifo_dir.c_str(), 0777) < 0) {
-        int err = errno;
-        throw std::runtime_error("failed to change permissions of temporary directory: " +
-                                 std::string(strerror(err)));
-      }
-
-      std::string fifo_path = fifo_dir + "/pid.fifo";
-      if (::mkfifo(fifo_path.c_str(), 0666) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
-        return 1;
-      }
-
       scoped_fd child_fd(::open(child_file->path().c_str(), O_RDWR));
       if (child_fd) {
         scoped_mmap mapping(nullptr, JOVE_PAGE_SIZE, PROT_READ | PROT_WRITE,
