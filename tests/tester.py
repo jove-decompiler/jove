@@ -8,6 +8,7 @@ import sys
 
 def eprint(*args, **kwargs):
   print(*args, file=sys.stderr, **kwargs)
+  sys.stderr.flush()
 
 class JoveTester:
   ARCH_2_BITS = {
@@ -167,17 +168,17 @@ class JoveTester:
   def create_vm(self):
     eprint("creating VM...")
 
-    bringup_cmd = [self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)]
+    bringup_cmd = [str(self.bringup_path), '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)]
     if self.platform == "win":
       bringup_cmd += ["-w"]
     bringup_cmd += self.extra_bringup_args
 
-    subprocess.run(['sudo'] + bringup_cmd, check=True, shell=True)
+    subprocess.run(['sudo'] + bringup_cmd, check=True)
 
     our_uid = os.getuid()
 
     chown_cmd = ["chown", "-R", "%d:%d" % (our_uid, our_uid), self.vm_dir]
-    subprocess.run(['sudo'] + chown_cmd, check=True, shell=True)
+    subprocess.run(['sudo'] + chown_cmd, check=True)
 
   def pane(self, name):
     self.establish_tmux_session()
@@ -246,62 +247,62 @@ class JoveTester:
   def fake_run_ssh_command_for_user(self, command):
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
-  def ssh_command(self, command, check=False, text=True):
-    args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command
-    eprint(" ".join(args))
-    return subprocess.run(args, check=check, capture_output=True, text=text, shell=False)
+  # returns a 3-tuple (returncode, stdout, stderr)
+  def ssh(self, command, check=False, text=False):
+    eprint(f"ssh -p {self.guest_ssh_port} root@localhost {command}")
 
-  def ssh(self, command, check=False):
-    args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command
-    eprint(" ".join(args))
-    ran = subprocess.run(args, check=check, capture_output=True, text=True, shell=False)
-    print(ran.stdout, file=sys.stdout)
-    print(ran.stderr, file=sys.stderr)
-    return ran
+    assert len(command) != 0
+    if len(command) == 1:
+      args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + [command[0]]
+      stdin_bytes = b''
+    else:
+      assert len(command) >= 2
+      args = ['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + ['xargs', '-0'] + [command[0]]
 
-  def scp_to(self, src, dst, check=False):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=check, shell=False)
+      # build NULL-terminated args
+      stdin_bytes = b'\0'.join(s.encode() for s in command[1:]) + b'\0'
 
-  def scp_from(self, src, dst, check=False):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check, shell=False)
+    try:
+      ran = subprocess.run(args, check=check, input=stdin_bytes, capture_output=True, text=False, shell=False)
 
-  def scp_with_retries(self, src, dst, max_retries=5, delay_seconds=2):
-    """
-    Repeatedly attempts scp_from until it succeeds or max_retries is reached.
-    If max_retries is None, it will retry indefinitely.
-    """
-    attempt = 0
-    while True:
-      attempt += 1
-      try:
-        # Use check=True so failures raise CalledProcessError
-        result = self.scp_from(src, dst, check=True)
-        # If we get here, scp succeeded
-        print(f"[attempt {attempt}] scp succeeded.")
-        return result
-      except subprocess.CalledProcessError as e:
-        # Log the error message
-        err = e.stderr.strip() or f"exit code {e.returncode}"
-        print(f"[attempt {attempt}] scp failed: {err}")
-        # Decide whether to give up
-        if max_retries is not None and attempt >= max_retries:
-          print("Max retries reached; giving up.")
-          raise
-        # Otherwise sleep and retry
-        print(f"Sleeping {delay_seconds} seconds before retry...")
-        time.sleep(delay_seconds)
+      sys.stdout.flush()
+      sys.stderr.flush()
+      sys.stdout.buffer.write(ran.stdout)
+      sys.stdout.buffer.flush()
+      sys.stderr.buffer.write(ran.stderr)
+      sys.stderr.buffer.flush()
+    except subprocess.CalledProcessError as e:
+      sys.stdout.flush()
+      sys.stderr.flush()
+      sys.stdout.buffer.write(e.stdout)
+      sys.stdout.buffer.flush()
+      sys.stderr.buffer.write(e.stderr)
+      sys.stderr.buffer.flush()
+      raise
 
+    if text:
+      return (ran.returncode, ran.stdout.decode(), ran.stderr.decode())
+
+    return (ran.returncode, ran.stdout, ran.stderr)
+
+  def scp_to(self, src, dst):
+    eprint(f"copying {src} to remote:{dst}")
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=True)
+
+  def scp_from(self, src, dst):
+    eprint(f"copying remote:{src} to {dst}")
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=True)
 
   def remote_path_exists(self, remote_path) -> bool:
-    return self.ssh(['/usr/bin/stat', remote_path], check=False).returncode == 0
+    return self.ssh(['/usr/bin/stat', remote_path], check=False)[0] == 0
 
   def update_jove(self):
-    self.scp_to(self.jove_client_path, '/usr/local/bin/jove', check=True)
+    self.scp_to(str(self.jove_client_path), '/usr/local/bin/jove')
 
   def update_libjove_rt(self, multi_threaded):
     rtpath = self.jove_rt_mt_path if multi_threaded else self.jove_rt_st_path
     dstdir = "/tmp" if self.platform == "win" else "/lib"
-    self.scp_to(rtpath, f'{dstdir}/libjove_rt.{self.dsoext}', check=True)
+    self.scp_to(str(rtpath), f'{dstdir}/libjove_rt.{self.dsoext}')
 
   def inputs_for_test(self, test, platform):
     inputs_path = f"{self.tests_dir}/{platform}/inputs/{test}.inputs"
@@ -318,9 +319,9 @@ class JoveTester:
     eprint(f"running {len(tests)} {mode} tests [{self.platform} {self.arch}]...")
 
     if remote:
-      self.run_remote_tests(tests, multi_threaded)
+      return self.run_remote_tests(tests, multi_threaded)
     else:
-      self.run_local_tests(tests, multi_threaded)
+      return self.run_local_tests(tests, multi_threaded)
 
   def run_remote_tests(self, tests, multi_threaded):
     assert self.is_remote_ready()
@@ -348,8 +349,8 @@ class JoveTester:
 
         assert testbin_path.is_file()
 
-        self.scp_to(testbin_path, '/tmp/', check=True)
         testbin = f"/tmp/{testbin_path.name}"
+        self.scp_to(str(testbin_path), testbin)
 
         # establish clean slate
         self.ssh([
@@ -393,7 +394,7 @@ class JoveTester:
 
           self.ssh(["rm", "-f", "--verbose", "/tmp/stdout", "/tmp/stderr"], check=True)
 
-          p1 = self.ssh_command(self.loader_args + [testbin] + input_args, text=False)
+          p1 = self.ssh(self.loader_args + [testbin] + input_args)
           p2 = self.ssh(
             jove_loop_args +
             [
@@ -413,8 +414,8 @@ class JoveTester:
           stderr = tempfile.NamedTemporaryFile(delete=False)
           stderr.close()
 
-          self.scp_with_retries("/tmp/stdout", stdout.name);
-          self.scp_with_retries("/tmp/stderr", stderr.name);
+          self.scp_from("/tmp/stdout", stdout.name);
+          self.scp_from("/tmp/stderr", stderr.name);
 
           p2_stdout = open(stdout.name, "rb").read()
           p2_stderr = open(stderr.name, "rb").read()
@@ -422,9 +423,9 @@ class JoveTester:
           os.unlink(stdout.name);
           os.unlink(stderr.name);
 
-          return_neq = p1.returncode != p2.returncode
-          stdout_neq = p1.stdout != p2_stdout
-          stderr_neq = p1.stderr != p2_stderr
+          return_neq = p1[0] != p2[0]
+          stdout_neq = p1[1] != p2_stdout
+          stderr_neq = p1[2] != p2_stderr
 
           failed = stdout_neq
           if self.platform != "win": # wine prints a bunch of shit to stderr
@@ -438,11 +439,11 @@ class JoveTester:
             eprint(jove_loop_args + [testbin] + input_args)
 
             if return_neq:
-              eprint('%d != %d' % (p1.returncode, p2.returncode))
+              eprint('%d != %d' % (p1[0], p2[0]))
             if stdout_neq:
-              eprint('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout.decode(), p2_stdout.decode()))
+              eprint('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1[1].decode(), p2_stdout.decode()))
             if stderr_neq:
-              eprint('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr.decode(), p2_stderr.decode()))
+              eprint('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1[2].decode(), p2_stderr.decode()))
 
             # make it easy for user to rerun failing test
             if not self.unattended:
@@ -583,7 +584,7 @@ class JoveTester:
     #
     # get IP of host seen by guest
     #
-    self.iphost = self.ssh_command(['ip', 'route', 'show'], check=True).stdout.strip().split()[2]
+    self.iphost = self.ssh(['ip', 'route', 'show'], text=True, check=True)[1].strip().split()[2]
     eprint("iphost: %s" % self.iphost)
 
     if update_jove:
