@@ -30,6 +30,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libgd3:i386 \
                       libgdm-dev:i386 \
                       libglib2.0-dev:i386 \
+                      libgcc-s1:i386 \
                       libgnutls28-dev:i386 \
                       libgstreamer-plugins-base1.0-dev:i386 \
                       libgstreamer1.0-dev:i386 \
@@ -90,6 +91,12 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       gcc-12-multilib-mips-linux-gnu \
                       gcc-12-multilib-mips64el-linux-gnuabi64 \
                       gcc-12-multilib-mipsel-linux-gnu \
+                      libgcc-12-dev \
+                      libgcc-12-dev-arm64-cross \
+                      libgcc-12-dev-i386-cross \
+                      libgcc-12-dev-mips-cross \
+                      libgcc-12-dev-mips64el-cross \
+                      libgcc-12-dev-mipsel-cross \
                       git \
                       glib2.0-dev \
                       gmsl \
@@ -108,6 +115,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev \
                       libgnutls28-dev \
                       libgraph-easy-perl \
+                      libgcc-s1 \
                       libgstreamer1.0-dev \
                       libkeyutils-dev \
                       libosmesa6-dev \
@@ -169,6 +177,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mipsel \
                       linux-libc-dev:mipsel \
+                      libgcc-s1:mipsel \
                       libglib2.0-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -180,6 +189,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mips64el \
                       linux-libc-dev:mips64el \
+                      libgcc-s1:mips64el \
                       libglib2.0-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -190,6 +200,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get dist-upgrade -y && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:arm64 \
+                      libgcc-s1:arm64 \
                       linux-libc-dev:arm64 \
                       libglib2.0-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
