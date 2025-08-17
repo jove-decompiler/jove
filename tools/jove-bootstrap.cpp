@@ -4032,6 +4032,7 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
   return std::make_pair(BIdx, BBIdx);
 }
 
+// bbmap needs to be locked.
 std::pair<binary_index_t, basic_block_index_t>
 BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   binary_index_t BIdx = binary_at_program_counter(child, pc);
