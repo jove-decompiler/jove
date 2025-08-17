@@ -32,6 +32,8 @@ struct assertion_failure_exception : public assertion_failure_base {
 
 #endif
 
+#ifndef NO_JOVE_ASSERT
+
 #ifndef assert
 #error "this should come after assert() has already been defined"
 #endif
@@ -48,3 +50,5 @@ struct assertion_failure_exception : public assertion_failure_base {
     }                                                                          \
   } while (false)
 #endif
+
+#endif /* NO_JOVE_ASSERT */
