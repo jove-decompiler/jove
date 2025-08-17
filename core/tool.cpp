@@ -1,3 +1,4 @@
+#define NO_JOVE_ASSERT
 #include "tool.h"
 #include "crypto.h"
 #include "locator.h"
