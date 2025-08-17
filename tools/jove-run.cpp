@@ -41,6 +41,8 @@
 #include <linux/prctl.h>  /* Definition of PR_* constants */
 #include <sys/prctl.h>
 
+#include "jove/assert.h"
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -216,6 +218,8 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   int get_child_fd(void) const {
     if (!child_mapping)
       std::abort();
+    if (!(*child_mapping))
+      return -1;
 
     return __atomic_load_n(reinterpret_cast<int *>(child_mapping->ptr),
                            __ATOMIC_RELAXED);
@@ -489,11 +493,17 @@ int RunTool::DoRun(void) {
                                                   PROT_READ | PROT_WRITE,
                                                   MAP_SHARED, opts.ChildFd, 0);
 
-    assert(child_mapping);
-    __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
-                     __ATOMIC_RELAXED); /* reset */
+    if (*child_mapping) {
+      __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
+                       __ATOMIC_RELAXED); /* reset */
 
-    ::close(opts.ChildFd);
+      ::close(opts.ChildFd);
+    } else {
+      if (IsVerbose())
+        WithColor::warning()
+            << llvm::formatv("failed to mmap child fd: {0} ({1})\n",
+                             strerror(errno), opts.ChildFd);
+    }
   }
 
   //
@@ -1074,7 +1084,7 @@ int RunTool::DoRun(void) {
   //
   // communicating child PID to jove-loop (2)
   //
-  if (child_mapping) {
+  if (child_mapping && *child_mapping) {
     __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), pid,
                      __ATOMIC_RELAXED);
 
@@ -1182,7 +1192,7 @@ int RunTool::DoRun(void) {
   //
   // communicating child PID to jove-loop (3)
   //
-  if (child_mapping)
+  if (child_mapping && *child_mapping)
     __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
                      __ATOMIC_RELAXED); /* reset */
 
