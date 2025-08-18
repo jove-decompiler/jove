@@ -565,7 +565,7 @@ int RunTool::DoRun(void) {
     }
   };
 
-  auto IsFifoProcStillRunning = [&](int timeout = 0) -> bool {
+  auto IsFifoProcStillRunning = [&](int timeout) -> bool {
     struct pollfd pfd = {.fd = pidfd.get(), .events = POLLIN};
 
     if (IsVeryVerbose())
