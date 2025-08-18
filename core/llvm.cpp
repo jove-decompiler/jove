@@ -9772,6 +9772,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   // doing things is to make it easy for us to ask an LLM to double-check our
   // code.
   //
+  // In other words, we'd like to be able to just stupidly copy-and-paste the
+  // contents of this source file into a ChatGPT prompt,, okay??
+  //
   // We will omit the TCI implementations for those TCG operations which do not
   // have a straightforward translation, or for where it simply makes no sense
   // to do so. Note: some of these operations do not have a corresponding TCI
