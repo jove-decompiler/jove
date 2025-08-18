@@ -1297,6 +1297,10 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG1, void)
 //
 // indirect control-transfer
 //
+// FIXME obviously we are going to eventually make this damn thing live in
+// "jove/lib/jove.call.c.inc" or something and we'll have TARGET_NUM_REG_ARGS
+// #include's of it to generate _jove_call0, _jove_call1, ..., _jove_callN
+//
 _REGPARM
 jove_thunk_return_t _jove_call(
                                #define __REG_ARG(n, i, data) uintptr_t reg##i,
