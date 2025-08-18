@@ -2,6 +2,11 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
+//
+// the first member is the begining address and the second member is the size.
+//
+// FIXME make our own custom class so these things are trivially copyable
+//
 typedef std::pair<taddr_t, taddr_t> addr_intvl; /* right open interval */
 
 struct addr_intvl_cmp {
