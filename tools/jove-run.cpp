@@ -560,8 +560,12 @@ int RunTool::DoRun(void) {
 
     if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
-                                          strerror(err));
+
+      if (err != ESRCH) {
+        if (IsVerbose())
+          WithColor::error() << llvm::formatv("pidfd_send_signal failed: {0}\n",
+                                              strerror(err));
+      }
     }
   };
 
