@@ -1,6 +1,5 @@
 set(JOVE_VERSION "v0.94")
 
-# for some reason backtrace.h isn't found
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
@@ -27,7 +26,6 @@ set(JOVE_TOOL_FLAGS
   "-DBOOST_UNORDERED_DISABLE_REENTRANCY_CHECK"
   "-DBOOST_STACKTRACE_USE_BACKTRACE"
   "-DBOOST_STACKTRACE_STATIC_LINK"
-  "-DBOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=\"${BACKTRACE_HEADER}\""
 
   # opiniated stuff...
   "-Werror=format"
@@ -263,6 +261,10 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     -DJOVE_VERSION=\"${JOVE_VERSION}\"
     ${JOVE_TOOL_FLAGS}
     ${arch_extra_cflags}
+  )
+
+  target_compile_definitions(boost_stacktrace_backtrace PRIVATE
+    "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
   )
 
   if (JOVE_HAVE_MEMFD)
