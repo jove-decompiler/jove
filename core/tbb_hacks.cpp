@@ -34,13 +34,22 @@ void post_fork(void) {
       oneapi::tbb::attach{}};
 }
 
+static std::mutex mtx;
+static tbb::global_control *glbl_ctl;
+
 void disable(void) {
-  tbb::global_control c(tbb::global_control::max_allowed_parallelism, 1);
+  std::unique_lock<std::mutex> lck(mtx);
+
+  if (!glbl_ctl)
+    glbl_ctl = new tbb::global_control(
+        tbb::global_control::max_allowed_parallelism, 1);
 }
 
 void enable(void) {
-  tbb::global_control c(tbb::global_control::max_allowed_parallelism,
-                        oneapi::tbb::this_task_arena::max_concurrency());
+  std::unique_lock<std::mutex> lck(mtx);
+
+  delete glbl_ctl;
+  glbl_ctl = nullptr;
 }
 
 }
