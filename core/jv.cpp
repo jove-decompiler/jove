@@ -20,7 +20,12 @@ size_t jvDefaultInitialSize(void) {
   case 8:
     return 3*GiB;
   case 4:
+#ifdef defined(__mips__)
+    // malta emulation has 236.3 MiB of RAM.
+    return 192*MiB;
+#else
     return 512*MiB;
+#endif
   }
 
   __compiletime_unreachable();
