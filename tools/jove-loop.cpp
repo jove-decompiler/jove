@@ -347,7 +347,7 @@ public:
 JOVE_REGISTER_TOOL("loop", LoopTool);
 
 static const boost::unordered::unordered_set<int> SignalsToRedirect = {
-    SIGINT, SIGTERM, SIGABRT, SIGUSR1, SIGUSR2};
+    SIGINT, SIGTERM, SIGUSR1, SIGUSR2};
 
 int LoopTool::Run(void) {
   int rc;
