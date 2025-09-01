@@ -146,8 +146,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   vertex_property_type &at(vertex_descriptor V) {
     auto s_lck = this->shared_access();
 
-    if (unlikely(index(V) >= num_vertices()))
-      throw std::out_of_range(__PRETTY_FUNCTION__);
+    assert(index(V) < num_vertices());
 
     return container()[V];
   }
@@ -155,8 +154,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   const vertex_property_type &at(vertex_descriptor V) const {
     auto s_lck = this->shared_access();
 
-    if (unlikely(index(V) >= num_vertices()))
-      throw std::out_of_range(__PRETTY_FUNCTION__);
+    assert(index(V) < num_vertices());
 
     return container()[V];
   }

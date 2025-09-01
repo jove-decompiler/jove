@@ -18,13 +18,8 @@ static inline std::string description_of_block(const bbprop_t &bbprop,
 template <bool MT>
 constexpr auto basic_block_of_index(basic_block_index_t BBIdx,
                                     const ip_icfg_base_t<MT> &ICFG) {
-#ifndef NDEBUG
-  if (unlikely(!is_basic_block_index_valid(BBIdx)))
-    throw std::runtime_error("basic_block_of_index: invalid index");
-
-  if (unlikely(BBIdx >= ICFG.num_vertices()))
-    throw std::runtime_error("basic_block_of_index: out-of-range index");
-#endif
+  assert(is_basic_block_index_valid(BBIdx));
+  assert(BBIdx < ICFG.num_vertices());
 
   return ICFG.vertex(BBIdx);
 }
@@ -686,8 +681,7 @@ index_of_basic_block_at_address(taddr_t Addr,
   assert(pmap);
   bbmap_t &bbmap = *pmap;
   auto it = bbmap_find(bbmap, Addr);
-  if (unlikely(it == bbmap.end()))
-    throw std::runtime_error("index_of_basic_block_at_address: no block @ " + taddr2str(Addr));
+  assert(it != bbmap.end());
   return (*it).second;
 }
 
@@ -708,8 +702,7 @@ index_of_basic_block_starting_at_address(taddr_t Addr,
       res = static_cast<basic_block_index_t>((*it).second);
   }
 
-  if (unlikely(!found))
-    throw std::runtime_error("index_of_basic_block_starting_at_address: no block @ " + taddr2str(Addr));
+  assert(found);
 
   return res;
 }
