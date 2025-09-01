@@ -196,9 +196,7 @@ int RecompileTool::Run(void) {
 
   options.temp_dir = temporary_dir();
 
-  llvm::LLVMContext Context;
-
-  recompiler_t recompiler(jv, options, TCG, Context, locator());
+  recompiler_t recompiler(jv, options, TCG, locator());
   return recompiler.go();
 }
 
