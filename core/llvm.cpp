@@ -74,6 +74,7 @@ static TCGContext *get_tcg_context() {
 #include <set>
 
 #include "jove_constants.h"
+#include "jove/assert.h"
 
 extern "C" {
 void __attribute__((noinline))
