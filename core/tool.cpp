@@ -206,7 +206,6 @@ int main(int argc, char **argv) {
            "the default (e.g. JVSIZE=8G jove init /path/to/program)\n";
   } catch (const jove::assertion_failure_base &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
-    assert(trace);
 
     const bool smartterm = tool->is_smart_terminal();
     llvm::errs() << llvm::formatv(
@@ -221,14 +220,12 @@ int main(int argc, char **argv) {
       smartterm ? __ANSI_NORMAL_COLOR : "");
   } catch (const std::exception &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
-    assert(trace);
 
     WithColor::error() << llvm::formatv("std::exception thrown: {0}\n{1}",
                                         x.what(),
                                         boost::stacktrace::to_string(trace));
   } catch (...) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
-    assert(trace);
 
     WithColor::error() << llvm::formatv("exception was thrown!\n{0}",
                                         boost::stacktrace::to_string(trace));
