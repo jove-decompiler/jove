@@ -1257,6 +1257,8 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
       });
 #else
   {
+    llvm::LLVMContext Context;
+
     llvm_options_t llvm_opts(llvm_options);
 
     if (B::is_coff(*state.for_binary(b).Bin)) {
