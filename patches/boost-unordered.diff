@@ -3482,7 +3482,7 @@ index 6f644dc0..b355491b 100644
  
        unordered_node_map& operator=(std::initializer_list<value_type> il)
 diff --git a/include/boost/unordered/unordered_node_set.hpp b/include/boost/unordered/unordered_node_set.hpp
-index 537f305e..eeb92611 100644
+index 537f305e..5624c147 100644
 --- a/include/boost/unordered/unordered_node_set.hpp
 +++ b/include/boost/unordered/unordered_node_set.hpp
 @@ -23,41 +23,41 @@
@@ -3528,3 +3528,49 @@ index 537f305e..eeb92611 100644
          unordered_node_set<K, H, KE, A>& set, Pred pred);
  
      public:
+@@ -170,43 +170,43 @@ namespace boost {
+       }
+ 
+       unordered_node_set(
+         std::initializer_list<value_type> il, allocator_type const& a)
+           : unordered_node_set(il, size_type(0), hasher(), key_equal(), a)
+       {
+       }
+ 
+       unordered_node_set(std::initializer_list<value_type> init, size_type n,
+         allocator_type const& a)
+           : unordered_node_set(init, n, hasher(), key_equal(), a)
+       {
+       }
+ 
+       unordered_node_set(std::initializer_list<value_type> init, size_type n,
+         hasher const& h, allocator_type const& a)
+           : unordered_node_set(init, n, h, key_equal(), a)
+       {
+       }
+ 
+-      template <bool avoid_explicit_instantiation = true>
++      template <typename Spin, bool avoid_explicit_instantiation = true>
+       unordered_node_set(
+-        concurrent_node_set<Key, Hash, KeyEqual, Allocator>&& other)
++        concurrent_node_set<Key, Hash, KeyEqual, Allocator, Spin>&& other)
+           : table_(std::move(other.table_))
+       {
+       }
+ 
+       ~unordered_node_set() = default;
+ 
+       unordered_node_set& operator=(unordered_node_set const& other)
+       {
+         table_ = other.table_;
+         return *this;
+       }
+ 
+       unordered_node_set& operator=(unordered_node_set&& other) noexcept(
+         noexcept(std::declval<table_type&>() = std::declval<table_type&&>()))
+       {
+         table_ = std::move(other.table_);
+         return *this;
+       }
+ 
+       unordered_node_set& operator=(std::initializer_list<value_type> il)
