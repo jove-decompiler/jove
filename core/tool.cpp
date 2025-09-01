@@ -45,8 +45,14 @@ void RegisterTool(const char *name, ToolCreationProc proc) {
 using llvm::WithColor;
 
 int main(int argc, char **argv) {
+  //
+  // ld.lld --wrap is broken on MIPS.
+  //
+#if !defined(__mips64) && !defined(__mips__)
   boost::stacktrace::this_thread::set_capture_stacktraces_at_throw(true);
   assert(boost::stacktrace::this_thread::get_capture_stacktraces_at_throw());
+#endif
+
 #ifndef JOVE_NO_TBB
   jove::tbb_hacks::disable();
 #endif
