@@ -473,7 +473,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     fs::create_directory(sysroot_dir);
 
     rc = ({
-    recompiler_t recompiler(jv, recompiler_opts, TCG, Context, locator());
+    recompiler_t recompiler(jv, recompiler_opts, TCG, locator());
     recompiler.go();
     });
 
