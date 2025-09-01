@@ -23,10 +23,17 @@ else()
     set(BUILD_TESTING OFF)
     set(BOOST_INCLUDE_LIBRARIES system filesystem serialization interprocess dll graph format icl lockfree stacktrace)
     set(BOOST_STACKTRACE_ENABLE_BACKTRACE      ON  CACHE BOOL "" FORCE)
-    set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION ON  CACHE BOOL "" FORCE)
     set(BOOST_STACKTRACE_ENABLE_ADDR2LINE      OFF CACHE BOOL "" FORCE)
     set(BOOST_STACKTRACE_ENABLE_NOOP           OFF CACHE BOOL "" FORCE)
     set(BOOST_STACKTRACE_ENABLE_BASIC          OFF CACHE BOOL "" FORCE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
+      #
+      # --wrap appears to be broken on MIPS
+      #
+      set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION OFF CACHE BOOL "" FORCE)
+    else()
+      set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION ON CACHE BOOL "" FORCE)
+    endif()
     add_subdirectory(boost EXCLUDE_FROM_ALL)
     #target_compile_definitions(boost PRIVATE BOOST_NO_RTTI)
   endfunction()

@@ -26,6 +26,7 @@ set(JOVE_TOOL_FLAGS
   "-DBOOST_UNORDERED_DISABLE_REENTRANCY_CHECK"
   "-DBOOST_STACKTRACE_USE_BACKTRACE"
   "-DBOOST_STACKTRACE_STATIC_LINK"
+# "-DTBB_USE_ASSERT=1"
 
   # opiniated stuff...
   "-Werror=format"
@@ -206,17 +207,27 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
 #     Boost::stacktrace_from_exception
 # )
 
+  target_compile_definitions(boost_stacktrace_backtrace PRIVATE
+    "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
+  )
+
   target_link_libraries(jove-${arch} PRIVATE
     -Wl,--push-state,--whole-archive
-    ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_from_exception.a
     ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_backtrace.a
     -Wl,--pop-state
   )
 
-  # this is the magic we need for static-linking
-  target_link_options(jove-${arch} PRIVATE  "-Wl,--wrap=__cxa_allocate_exception")
-
   if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
+    if(JOVE_STATIC_BUILD)
+      # this is the magic we need for static-linking
+      target_link_options(jove-${arch} PRIVATE  "-Wl,--wrap=__cxa_allocate_exception")
+    endif()
+
+    target_link_libraries(jove-${arch} PRIVATE
+      -Wl,--push-state,--whole-archive
+      ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_from_exception.a
+      -Wl,--pop-state
+    )
     target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
   endif()
 
@@ -233,8 +244,8 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   endif()
 
   if(JOVE_SANITIZE_THREAD)
-    add_definitions(-DJOVE_TSAN)
-    add_definitions(-DBOOST_UNORDERED_THREAD_SANITIZER)
+    target_compile_definitions(jove-${arch} PRIVATE JOVE_TSAN)
+    target_compile_definitions(jove-${arch} PRIVATE BOOST_UNORDERED_THREAD_SANITIZER)
   endif()
 
   if(JOVE_STATIC_BUILD)
@@ -263,12 +274,8 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     ${arch_extra_cflags}
   )
 
-  target_compile_definitions(boost_stacktrace_backtrace PRIVATE
-    "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
-  )
-
   if (JOVE_HAVE_MEMFD)
-    target_compile_options(jove-${arch} PRIVATE -DJOVE_HAVE_MEMFD)
+    target_compile_definitions(jove-${arch} PRIVATE JOVE_HAVE_MEMFD)
   endif()
 
 endfunction()
