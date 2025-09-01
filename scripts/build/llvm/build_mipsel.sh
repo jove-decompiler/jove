@@ -7,17 +7,15 @@ TRIPLE="mipsel-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"\
-" -fPIE"\
-" -pie"\
-" -O3"\
-" -gdwarf-4"\
+" -Oz"\
 " -g1"\
-" -ggdb"
+" -ggdb"\
+" -gdwarf-4"
 
 if [ ! -f build.ninja ]; then
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=MinSizeRel \
+  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D CMAKE_SYSTEM_PROCESSOR=mips \
@@ -26,9 +24,8 @@ cmake -G Ninja \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
   -D CMAKE_C_COMPILER=$(which clang-19) \
   -D CMAKE_CXX_COMPILER=$(which clang++-19) \
-  -D "CMAKE_C_FLAGS_MINSIZEREL=$OURCFLAGS" \
-  -D "CMAKE_CXX_FLAGS_MINSIZEREL=$OURCFLAGS" \
-  -D "CMAKE_ASM_FLAGS_MINSIZEREL=$OURCFLAGS" \
+  -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
+  -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \
   -D "JOVE_TARGETS_TO_BUILD=mipsel" \
   -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
@@ -38,7 +35,6 @@ cmake -G Ninja \
   -D LLVM_ENABLE_RTTI=ON \
   -D LLVM_ENABLE_LIBXML2=OFF \
   -D LLVM_ENABLE_TERMINFO=OFF \
-  -D LLVM_ENABLE_FFI=OFF \
   -D LLVM_ENABLE_LIBCXX=OFF \
   -D LLVM_INCLUDE_BENCHMARKS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
@@ -53,12 +49,11 @@ cmake -G Ninja \
   -D LLVM_ENABLE_THREADS=OFF \
   -D LLVM_ENABLE_BINDINGS=OFF \
   -D LLVM_ENABLE_EH=ON \
-  -D LLVM_ENABLE_PIC=ON \
+  -D LLVM_ENABLE_PIC=OFF \
   -D JOVE_STATIC_BUILD=ON \
   -D LLVM_BUILD_DOCS=OFF \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   -D LLVM_USE_LINKER=lld \
-  -D JOVE_HAVE_MEMFD=ON \
   -S $(pwd)/.. -B $(pwd)
 
 fi
