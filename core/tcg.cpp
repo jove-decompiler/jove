@@ -142,13 +142,24 @@ static const uint8_t starter_bin_bytes[] = {
 #include "qemu-starter.inc"
 };
 
-tiny_code_generator_t::tiny_code_generator_t() {
-  temp_exe the_exe(&starter_bin_bytes[0],
-                   sizeof(starter_bin_bytes),
-                   "qemu-starter-" TARGET_ARCH_NAME);
-  the_exe.store();
+static std::mutex libqemu_init_mtx;
+static bool did_init_libqemu = false;
 
-  jv_init_libqemu(the_exe.path().c_str());
+tiny_code_generator_t::tiny_code_generator_t() {
+  {
+    std::unique_lock<std::mutex> lck(libqemu_init_mtx);
+
+    if (!did_init_libqemu) {
+      did_init_libqemu = true;
+
+      temp_exe the_exe(&starter_bin_bytes[0],
+                       sizeof(starter_bin_bytes),
+                       "qemu-starter-" TARGET_ARCH_NAME);
+      the_exe.store();
+
+      jv_init_libqemu(the_exe.path().c_str());
+    }
+  }
 
   CPUState *const cs = jv_cpu;
   cs->tcg_cflags |= CF_PARALLEL; /* XXX */
