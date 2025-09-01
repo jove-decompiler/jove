@@ -30,8 +30,10 @@ void pre_fork(void) {
 }
 
 void post_fork(void) {
+#if 0
   oneapi::tbb::task_scheduler_handle child_or_parent_handle{
       oneapi::tbb::attach{}};
+#endif
 }
 
 static std::mutex mtx;
