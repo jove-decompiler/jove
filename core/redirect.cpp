@@ -15,32 +15,41 @@ static void RedirectSigHandler(int no) {
   assert(the_tool);
   Tool &tool = *the_tool;
 
+#if 0
   const char *const sigdesc = strsignal(no);
   std::string signame("SIG");
   signame.append(sigabbrev_np(no));
+#endif
 
   pid_t child = get_redirectee();
   if (child < 0) {
+#if 0
     tool.HumanOut() << llvm::formatv(
         "received {0} but no app to redirect to!\n", signame);
+#endif
   } else {
     //
     // redirect the signal.
     //
-
     if (no == SIGINT) {
+#if 0
       if (tool.IsVerbose())
         tool.HumanOut() << "Received SIGINT. Cancelling..\n";
+#endif
       tool.interrupted.store(true, std::memory_order_relaxed);
     }
 
+#if 0
     if (tool.IsVerbose())
       tool.HumanOut() << llvm::formatv("redirecting {0} to {1}... <{2}>\n",
                                        signame, child, sigdesc);
+#endif
 
     if (::kill(child, no) < 0) {
+#if 0
       int err = errno;
       tool.HumanOut() << llvm::formatv("failed to redirect {0}\n", signame);
+#endif
     }
   }
 }
