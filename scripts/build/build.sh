@@ -135,7 +135,7 @@ printf "%s\n" "${cmds[@]}" \
 #
 # make steps (1)
 #
-make -C $jove_path --output-sync utilities tcg-constants asm-offsets version -j$(nproc)
+retry "make -C $jove_path --output-sync utilities tcg-constants asm-offsets version -j$(nproc)"
 
 #
 # llvm symlink
@@ -202,5 +202,5 @@ printf "%s\n" "${cmds[@]}" \
 #
 # final make steps (2)
 #
-make -C "$jove_path" --output-sync all-helpers-mk env-inits softfpu -j$(nproc)
-make -C "$jove_path" --output-sync -j$(nproc)
+retry "make -C $jove_path --output-sync all-helpers-mk env-inits softfpu -j$(nproc)"
+retry "make -C $jove_path --output-sync -j$(nproc)"
