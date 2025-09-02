@@ -207,7 +207,11 @@ int main(int argc, char **argv) {
   jove::setup_crash_handler();
 
   try {
+#if 0 /* FIXME */
     return tool->Run();
+#else
+    _exit(tool->Run());
+#endif
   } catch (const boost::interprocess::bad_alloc &) {
     WithColor::error()
         << "exhausted all available memory for .jv. try removing ~/.jv.* and "
