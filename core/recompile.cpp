@@ -1173,7 +1173,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
   std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
 
-#if 0
+  if (MT == AreWeMT && MinSize == AreWeMinSize) {
   rc = RunExecutableToExit(
       "/proc/self/exe", /* FIXME */
       [&](auto Arg) {
@@ -1255,8 +1255,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
           print_command(argv);
         }
       });
-#else
-  {
+  } else {
     llvm::LLVMContext Context;
 
     llvm_options_t llvm_opts(llvm_options);
@@ -1275,7 +1274,6 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
     llvm_t llvm(jv, llvm_opts, analyzer_options, TCG, Context, locator());
     rc = llvm.go();
   }
-#endif
 
   //
   // check exit code
