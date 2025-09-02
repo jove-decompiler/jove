@@ -365,7 +365,7 @@ class JoveTester:
         if self.platform != "win":
           # bootstrap each input
           for input_args in inputs:
-            bootstrap_extra_args = ["--rtld-dbg-brk=0"] if (self.arch is "mipsel" or self.arch is "mips64el") else []
+            bootstrap_extra_args = ["--rtld-dbg-brk=0"] if (self.arch == "mipsel" or self.arch == "mips64el") else []
             self.ssh(["jove", "bootstrap", "--dumb-term", "--symbolize=0"] + bootstrap_extra_args + [testbin] + input_args)
 
         # run inputs through recompiled binary
