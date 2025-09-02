@@ -43,7 +43,7 @@ void livenessComputeFixpoint(flow_graph_t &G,
       const tcg_global_set_t _IN = G[V].IN;
 
       auto eit_pair = boost::out_edges(V, G);
-      G[V].OUT = std::accumulate(
+      const tcg_global_set_t G_V_OUT = std::accumulate(
           eit_pair.first,
           eit_pair.second,
           tcg_global_set_t(),
@@ -51,12 +51,15 @@ void livenessComputeFixpoint(flow_graph_t &G,
             return res | G[boost::target(E, G)].IN;
           });
 
-      tcg_global_set_t use = G[V].Analysis->live.use;
-      tcg_global_set_t def = G[V].Analysis->live.def;
+      const tcg_global_set_t use = G[V].Analysis->live.use;
+      const tcg_global_set_t def = G[V].Analysis->live.def;
 
-      G[V].IN = use | (G[V].OUT & ~def);
+      const tcg_global_set_t G_V_IN = use | (G_V_OUT & ~def);
 
-      change = change || _IN != G[V].IN;
+      G[V].OUT = G_V_OUT;
+      G[V].IN = G_V_IN;
+
+      change = change || _IN != G_V_IN;
     }
   } while (likely(change));
 }
@@ -79,16 +82,19 @@ void reachingComputeFixpoint(flow_graph_t &G,
       const tcg_global_set_t _OUT = G[V].OUT;
 
       auto eit_pair = boost::in_edges(V, G);
-      G[V].IN = std::accumulate(
+      const tcg_global_set_t G_V_IN = std::accumulate(
           eit_pair.first,
           eit_pair.second,
           tcg_global_set_t(),
           [&](tcg_global_set_t res, flow_edge_t E) -> tcg_global_set_t {
             return res | (G[boost::source(E, G)].OUT & G[E].reach.mask);
           });
-      G[V].OUT = G[V].Analysis->reach.def | G[V].IN;
+      const tcg_global_set_t G_V_OUT = G[V].Analysis->reach.def | G_V_IN;
 
-      change = change || _OUT != G[V].OUT;
+      G[V].OUT = G_V_OUT;
+      G[V].IN = G_V_IN;
+
+      change = change || _OUT != G_V_OUT;
     }
   } while (likely(change));
 }
