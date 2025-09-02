@@ -166,7 +166,10 @@ int main(int argc, char **argv) {
 
   {
 #ifndef JOVE_NO_TBB
-  BOOST_SCOPE_DEFER [] { jove::tbb_hacks::disable(); };
+  BOOST_SCOPE_DEFER [] {
+    jove::tbb_hacks::pre_fork();
+    jove::tbb_hacks::disable();
+  };
 #endif
 
   //
