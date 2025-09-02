@@ -254,7 +254,7 @@ JOVE_REGISTER_TOOL("run", RunTool);
 typedef boost::format fmt;
 
 static const boost::unordered::unordered_set<int> SignalsToRedirect = {
-    SIGINT, SIGTERM, SIGABRT, SIGUSR1, SIGUSR2};
+    SIGINT, SIGTERM, SIGUSR1, SIGUSR2};
 
 int RunTool::Run(void) {
   if (!opts.HumanOutput.empty())
