@@ -1,0 +1,191 @@
+diff --git a/include/boost/serialization/singleton.hpp b/include/boost/serialization/singleton.hpp
+index e2c78a15..ecb87d49 100644
+--- a/include/boost/serialization/singleton.hpp
++++ b/include/boost/serialization/singleton.hpp
+@@ -19,40 +19,42 @@
+ // any class into a singleton with the following features:
+ //
+ // a) initialized before first use.
+ // b) thread-safe for const access to the class
+ // c) non-locking
+ //
+ // In order to do this,
+ // a) Initialize dynamically when used.
+ // b) Require that all singletons be initialized before main
+ // is called or any entry point into the shared library is invoked.
+ // This guarantees no race condition for initialization.
+ // In debug mode, we assert that no non-const functions are called
+ // after main is invoked.
+ //
+ 
+ // MS compatible compilers support #pragma once
+ #if defined(_MSC_VER)
+ # pragma once
+ #endif
+ 
++#include <mutex>
++
+ #include <boost/assert.hpp>
+ #include <boost/config.hpp>
+ #include <boost/noncopyable.hpp>
+ #include <boost/serialization/force_include.hpp>
+ #include <boost/serialization/config.hpp>
+ 
+ #include <boost/archive/detail/auto_link_archive.hpp>
+ #include <boost/archive/detail/abi_prefix.hpp> // must be the last header
+ 
+ #ifdef BOOST_MSVC
+ #  pragma warning(push)
+ #  pragma warning(disable : 4511 4512)
+ #endif
+ 
+ namespace boost {
+ namespace serialization {
+ 
+ //////////////////////////////////////////////////////////////////////
+ // Provides a dynamically-initialized (singleton) instance of T in a
+ // way that avoids LNK1179 on vc6.  See http://tinyurl.com/ljdp8 or
+@@ -171,48 +173,53 @@ private:
+         static detail::singleton_wrapper< T > t;
+ 
+         // note that the following is absolutely essential.
+         // commenting out this statement will cause compilers to fail to
+         // construct the instance at pre-execution time.  This would prevent
+         // our usage/implementation of "locking" and introduce uncertainty into
+         // the sequence of object initialization.
+         // Unfortunately, this triggers detectors of undefined behavior
+         // and reports an error.  But I've been unable to find a different way
+         // of guaranteeing that the the singleton is created at pre-main time.
+         if (m_instance) use(* m_instance);
+ 
+         return static_cast<T &>(t);
+     }
+ protected:
+     // Do not allow instantiation of a singleton<T>. But we want to allow
+     // `class T: public singleton<T>` so we can't delete this ctor
+     BOOST_DLLEXPORT singleton(){}
+ 
+ public:
++    static std::mutex m_mtx;
++
+     BOOST_DLLEXPORT static T & get_mutable_instance(){
+         BOOST_ASSERT(! get_singleton_module().is_locked());
+         return get_instance();
+     }
+     BOOST_DLLEXPORT static const T & get_const_instance(){
+         return get_instance();
+     }
+     BOOST_DLLEXPORT static bool is_destroyed(){
+         return detail::singleton_wrapper< T >::is_destroyed();
+     }
+ };
+ 
+ // Assigning the instance reference to a static member forces initialization
+ // at startup time as described in
+ // https://groups.google.com/forum/#!topic/microsoft.public.vc.language/kDVNLnIsfZk
+ template<class T>
+ T * singleton< T >::m_instance = & singleton< T >::get_instance();
+ 
++template<class T>
++std::mutex singleton< T >::m_mtx;
++
+ } // namespace serialization
+ } // namespace boost
+ 
+ #include <boost/archive/detail/abi_suffix.hpp> // pops abi_suffix.hpp pragmas
+ 
+ #ifdef BOOST_MSVC
+ #pragma warning(pop)
+ #endif
+ 
+ #endif // BOOST_SERIALIZATION_SINGLETON_HPP
+diff --git a/src/extended_type_info_typeid.cpp b/src/extended_type_info_typeid.cpp
+index 335cc231..50f00c2e 100644
+--- a/src/extended_type_info_typeid.cpp
++++ b/src/extended_type_info_typeid.cpp
+@@ -70,47 +70,51 @@ extended_type_info_typeid_0::is_equal(
+         * m_ti 
+         != *(static_cast<const extended_type_info_typeid_0 &>(rhs).m_ti)
+         )
+     ;
+ }
+ 
+ BOOST_SERIALIZATION_DECL
+ extended_type_info_typeid_0::extended_type_info_typeid_0(
+     const char * key
+ ) :
+     extended_type_info(EXTENDED_TYPE_INFO_TYPE_KEY, key),
+     m_ti(NULL)
+ {}
+ 
+ BOOST_SERIALIZATION_DECL
+ extended_type_info_typeid_0::~extended_type_info_typeid_0()
+ {}
+ 
+ BOOST_SERIALIZATION_DECL void 
+ extended_type_info_typeid_0::type_register(const std::type_info & ti){
++    std::lock_guard e_lck(singleton<tkmap>::m_mtx);
++
+     m_ti = & ti;
+     singleton<tkmap>::get_mutable_instance().insert(this);
+ }
+ 
+ BOOST_SERIALIZATION_DECL void 
+ extended_type_info_typeid_0::type_unregister()
+ {
++    std::lock_guard e_lck(singleton<tkmap>::m_mtx);
++
+     if(NULL != m_ti){
+         // note: previously this conditional was a runtime assertion with
+         // BOOST_ASSERT.  We've changed it because we've discovered that at
+         // least one platform is not guaranteed to destroy singletons in
+         // reverse order of destruction.
+         // BOOST_ASSERT(! singleton<tkmap>::is_destroyed());
+         if(! singleton<tkmap>::is_destroyed()){
+             tkmap & x = singleton<tkmap>::get_mutable_instance();
+ 
+             // remove all entries in map which corresponds to this type
+             // make sure that we don't use any invalidated iterators
+             while(true){
+                 const tkmap::iterator & it = x.find(this);
+                 if(it == x.end())
+                     break;
+                 x.erase(it);
+             }
+         }
+     }
+     m_ti = NULL;
+@@ -137,31 +141,33 @@ public:
+         extended_type_info_typeid_0(NULL)
+     { 
+         // note absence of self register and key as this is used only as
+         // search argument given a type_info reference and is not to 
+         // be added to the map.
+         m_ti = & ti;
+     }
+     ~extended_type_info_typeid_arg() BOOST_OVERRIDE {
+         m_ti = NULL;
+     }
+ };
+ 
+ #ifdef BOOST_MSVC
+ #  pragma warning(pop)
+ #endif
+ 
+ BOOST_SERIALIZATION_DECL const extended_type_info *
+ extended_type_info_typeid_0::get_extended_type_info(
+     const std::type_info & ti
+ ) const {
++    std::lock_guard e_lck(singleton<tkmap>::m_mtx);
++
+     typeid_system::extended_type_info_typeid_arg etia(ti);
+     const tkmap & t = singleton<tkmap>::get_const_instance();
+     const tkmap::const_iterator it = t.find(& etia);
+     if(t.end() == it)
+         return NULL;
+     return *(it);
+ }
+ 
+ } // namespace detail
+ } // namespace serialization
+ } // namespace boost

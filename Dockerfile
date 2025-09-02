@@ -214,6 +214,7 @@ RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interproce
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
 RUN patch -p1 -d /jove/boost/libs/stacktrace -i /jove/patches/boost-stacktrace.diff
 RUN patch -p1 -d /jove/boost/libs/dynamic_bitset -i /jove/patches/boost-dynamic_bitset.diff
+RUN patch -p1 -d /jove/boost/libs/serialization -i /jove/patches/boost-serialization.diff
 
 RUN patch -p1 -d /jove/zlib -i /jove/patches/zlib.diff
 RUN /jove/scripts/build/build.sh 40 1
