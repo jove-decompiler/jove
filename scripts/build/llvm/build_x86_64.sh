@@ -10,7 +10,8 @@ OURCFLAGS=\
 " -g"\
 " -fno-omit-frame-pointer"\
 " -mno-omit-leaf-frame-pointer"\
-" -ggdb"
+" -ggdb"\
+" -gdwarf-4"
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
