@@ -1,5 +1,3 @@
-set(JOVE_VERSION "v0.94")
-
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
@@ -269,7 +267,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   target_compile_options(jove-${arch} PRIVATE
     -DTARGET_${uc_arch}
     -DTARGET_ARCH_NAME=\"${arch}\"
-    -DJOVE_VERSION=\"${JOVE_VERSION}\"
     ${JOVE_TOOL_FLAGS}
     ${arch_extra_cflags}
   )
