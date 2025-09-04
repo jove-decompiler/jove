@@ -42,17 +42,17 @@ index d07b3298..818f57ca 100644
  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TBB_SANITIZE_OPTION}")
  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${TBB_SANITIZE_OPTION}")
 diff --git a/src/tbb/governor.cpp b/src/tbb/governor.cpp
-index 218a2bc5..d344d7a7 100644
+index 4b417b40..9cebc708 100644
 --- a/src/tbb/governor.cpp
 +++ b/src/tbb/governor.cpp
-@@ -158,41 +158,45 @@ static std::uintptr_t get_stack_base(std::size_t stack_size) {
-     suppress_unused_warning(stack_size);
+@@ -157,41 +157,46 @@ static void get_stack_attributes(std::uintptr_t& stack_base, std::size_t& stack_
+     stack_size = fallback_stack_size;
+ #if __TBB_USE_WINAPI
      NT_TIB* pteb = (NT_TIB*)NtCurrentTeb();
      __TBB_ASSERT(&pteb < pteb->StackBase && &pteb > pteb->StackLimit, "invalid stack info in TEB");
-     return reinterpret_cast<std::uintptr_t>(pteb->StackBase);
+     stack_base = reinterpret_cast<std::uintptr_t>(pteb->StackBase);
  #elif defined(EMSCRIPTEN)
-     suppress_unused_warning(stack_size);
-     return reinterpret_cast<std::uintptr_t>(emscripten_stack_get_base());
+     stack_base = reinterpret_cast<std::uintptr_t>(emscripten_stack_get_base());
  #else
      // There is no portable way to get stack base address in Posix, so we use
      // non-portable method (on all modern Linux) or the simplified approach
@@ -66,16 +66,19 @@ index 218a2bc5..d344d7a7 100644
      pthread_attr_t np_attr_stack;
      if (0 == pthread_getattr_np(pthread_self(), &np_attr_stack)) {
          if (0 == pthread_attr_getstack(&np_attr_stack, &stack_limit, &np_stack_size)) {
-+#if 1 /* defined(__SANITIZE_ADDRESS__) */
+-            __TBB_ASSERT( &stack_limit > stack_limit, "stack size must be positive" );
++#if __has_feature(address_sanitizer)
++          if (!(&stack_limit > stack_limit))
 +            np_stack_size = 1u << 15;
 +#else
-             __TBB_ASSERT( &stack_limit > stack_limit, "stack size must be positive" );
++          __TBB_ASSERT( &stack_limit > stack_limit, "stack size must be positive" );
 +#endif
+             if (np_stack_size > 0)
+                 stack_size = np_stack_size;
          }
          pthread_attr_destroy(&np_attr_stack);
      }
  #endif /* __linux__ */
-     std::uintptr_t stack_base{};
      if (stack_limit) {
          stack_base = reinterpret_cast<std::uintptr_t>(stack_limit) + stack_size;
      } else {
@@ -83,7 +86,6 @@ index 218a2bc5..d344d7a7 100644
          int anchor{};
          stack_base = reinterpret_cast<std::uintptr_t>(&anchor);
      }
-     return stack_base;
  #endif /* __TBB_USE_WINAPI */
  }
  
