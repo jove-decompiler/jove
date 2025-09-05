@@ -339,7 +339,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   // parse the header
   //
   struct {
-    bool DFSan, ForeignLibs, Trace, Optimize, SkipCopyRelocHack, DebugSjlj, ABICalls, RuntimeMT, CallStack, LayOutSections, MT, MinSize, SoftfpuBitcode;
+    bool DFSan, ForeignLibs, Trace, Optimize, SkipCopyRelocHack, DebugSjlj, ABICalls, RuntimeMT, CallStack, LayOutSections, MT, MinSize, SoftfpuBitcode, VerifyBitcode;
   } options;
 
   std::bitset<16> headerBits(header);
@@ -357,6 +357,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   options.MT                = headerBits.test(10);
   options.MinSize           = headerBits.test(11);
   options.SoftfpuBitcode    = headerBits.test(12);
+  options.VerifyBitcode     = headerBits.test(13);
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -416,6 +417,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   PROPOGATE_OPTION(CallStack);
   PROPOGATE_OPTION(LayOutSections);
   PROPOGATE_OPTION(SoftfpuBitcode);
+  PROPOGATE_OPTION(VerifyBitcode);
 
   recompiler_opts.temp_dir = temporary_dir();
 

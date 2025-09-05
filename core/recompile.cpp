@@ -1228,6 +1228,10 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
           Arg("--lay-out-sections");
         if (opts.PlaceSectionBreakpoints)
           Arg("--place-section-breakpoints");
+        if (opts.SoftfpuBitcode)
+          Arg("--softfpu-bitcode");
+        if (opts.VerifyBitcode)
+          Arg("--verify-bitcode");
 
 #if 0
         if (!opts.PinnedGlobals.empty()) {

@@ -108,6 +108,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> SoftfpuBitcode;
     cl::opt<bool> DumpPreOpt1;
     cl::opt<bool> Symbolize;
+    cl::opt<bool> VerifyBitcode;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -326,7 +327,13 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           Symbolize("symbolize",
                  cl::desc("When recovering try to symbolize addresses"),
                  cl::init(true),
-                 cl::cat(JoveCategory))
+                 cl::cat(JoveCategory)),
+
+          VerifyBitcode(
+              "verify-bitcode",
+              cl::desc("Run the LLVM verifier"),
+              cl::cat(JoveCategory))
+
           {}
   } opts;
 
@@ -708,6 +715,7 @@ skip_run:
         headerBits.set(10, IsToolMT);
         headerBits.set(11, IsToolMinSize);
         headerBits.set(12, opts.SoftfpuBitcode);
+        headerBits.set(13, opts.VerifyBitcode);
 
         uint16_t header = headerBits.to_ullong();
 
@@ -1209,6 +1217,9 @@ skip_run:
 
           if (opts.SoftfpuBitcode)
             Arg("--softfpu-bitcode");
+
+          if (opts.VerifyBitcode)
+            Arg("--verify-bitcode");
 
           if (opts.DumpPreOpt1)
             Arg("--dump-pre-opt1");

@@ -38,6 +38,7 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<bool> DumpPreOpt1;
     cl::opt<bool> SoftfpuBitcode;
+    cl::opt<bool> VerifyBitcode;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -144,7 +145,13 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
           SoftfpuBitcode(
               "softfpu-bitcode",
               cl::desc("Link the softfpu bitcode rather than the object file"),
+              cl::cat(JoveCategory)),
+
+          VerifyBitcode(
+              "verify-bitcode",
+              cl::desc("Run the LLVM verifier"),
               cl::cat(JoveCategory)) {}
+
 
   } opts;
 
@@ -193,6 +200,7 @@ int RecompileTool::Run(void) {
   PROPOGATE_OPTION(PlaceSectionBreakpoints);
   PROPOGATE_OPTION(DumpPreOpt1);
   PROPOGATE_OPTION(SoftfpuBitcode);
+  PROPOGATE_OPTION(VerifyBitcode);
 
   options.temp_dir = temporary_dir();
 
