@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <sys/resource.h>
 
 namespace jove {
 
@@ -45,6 +46,11 @@ static void crash_signal_handler(int no) {
   char msg[65 + sizeof(rest)];
   memcpy(uint_to_string(::gettid(), msg, 10), rest, sizeof(rest));
   size_t len = strlen(msg);
+
+  //
+  // try to stand out in htop via nice(7)
+  //
+  setpriority(PRIO_PROCESS, 0, 7);
 
   for (;;) {
     if (robust_write(STDERR_FILENO, msg, len) != len ||
