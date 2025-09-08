@@ -61,15 +61,15 @@ void call_graph_builder_t<MT, MinSize>::write_graphviz(std::ostream &os) const {
         : jv(jv), G(G) {}
 
     void operator()(std::ostream &out,
-		    const typename call_graph_t::vertex_descriptor &V) const {
+                    const typename call_graph_t::vertex_descriptor &V) const {
       const function_t &f = function_of_target(G[V], jv);
       const auto &b = binary_of_function(f, jv);
 
       std::string str(b.is_file() ? fs::path(b.path()).filename().string()
-				  : std::string(b.Name.c_str()));
+                                  : std::string(b.Name.c_str()));
       std::size_t dotPos = str.find('.');
       if (dotPos != std::string::npos)
-	str = str.substr(0, dotPos);
+        str = str.substr(0, dotPos);
 
       str += ".";
       str += std::to_string(index_of_function(f));
@@ -77,14 +77,14 @@ void call_graph_builder_t<MT, MinSize>::write_graphviz(std::ostream &os) const {
       out << "[";
       if (true /* ForGraphviz */) {
 #if 1
-	out << "shape=plain, ";
-	out << "style=filled, ";
-	out << "fillcolor=grey, ";
+        out << "shape=plain, ";
+        out << "style=filled, ";
+        out << "fillcolor=grey, ";
 #else
-	out << "shape=box, ";
-	out << "width=0, ";
-	out << "height=0, ";
-	out << "margin=0, ";
+        out << "shape=box, ";
+        out << "width=0, ";
+        out << "height=0, ";
+        out << "margin=0, ";
 #endif
       }
 
@@ -96,10 +96,9 @@ void call_graph_builder_t<MT, MinSize>::write_graphviz(std::ostream &os) const {
 
   struct graphviz_edge_prop_writer {
     void operator()(std::ostream &out,
-		    const typename call_graph_t::edge_descriptor &E) const {
-      static const char *edge_type_styles[] = {
-	  "solid", "dashed", /*"invis"*/ "dotted"
-      };
+                    const typename call_graph_t::edge_descriptor &E) const {
+      static const char *edge_type_styles[] = {"solid", "dashed",
+                                               /*"invis"*/ "dotted"};
 
       out << "[style=\"" << edge_type_styles[0] << "\"]";
     }
@@ -108,19 +107,19 @@ void call_graph_builder_t<MT, MinSize>::write_graphviz(std::ostream &os) const {
   struct graphviz_prop_writer {
     void operator()(std::ostream &out) const {
       out << "fontname = \"Courier\"\n"
-	     "fontsize = 10\n"
-	     "\n"
-	     "node [\n"
-	     "fontname = \"Courier\"\n"
-	     "fontsize = 10\n"
-	     "shape = \"box\"\n"
-	     "]\n"
-	     "\n"
-	     "edge [\n"
-	     "fontname = \"Courier\"\n"
-	     "fontsize = 10\n"
-	     "]\n"
-	     "\n";
+             "fontsize = 10\n"
+             "\n"
+             "node [\n"
+             "fontname = \"Courier\"\n"
+             "fontsize = 10\n"
+             "shape = \"box\"\n"
+             "]\n"
+             "\n"
+             "edge [\n"
+             "fontname = \"Courier\"\n"
+             "fontsize = 10\n"
+             "]\n"
+             "\n";
     }
   };
 
@@ -128,14 +127,10 @@ void call_graph_builder_t<MT, MinSize>::write_graphviz(std::ostream &os) const {
   std::iota(idx_map.begin(), idx_map.end(), 0);
 
   boost::write_graphviz(
-      os, G,
-      graphviz_label_writer(state.jv, G),
-      graphviz_edge_prop_writer(),
+      os, G, graphviz_label_writer(state.jv, G), graphviz_edge_prop_writer(),
       graphviz_prop_writer(),
-      boost::make_iterator_property_map(
-	  idx_map.begin(),
-	  boost::get(boost::vertex_index, G)
-      ));
+      boost::make_iterator_property_map(idx_map.begin(),
+                                        boost::get(boost::vertex_index, G)));
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
