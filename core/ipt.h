@@ -1644,7 +1644,7 @@ protected:
                 bb_t bb) {
     if constexpr (IsVeryVerbose()) {
       auto &ICFG = b.Analysis.ICFG;
-      if (index_of_binary(b) == OnBlock.Last.BIdx &&
+      if (index_of_binary(b)             == OnBlock.Last.BIdx &&
           index_of_basic_block(ICFG, bb) == OnBlock.Last.BBIdx) {
         fputs(".", stderr);
       } else {
