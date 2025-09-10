@@ -28,29 +28,10 @@ struct jv_state_t {
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
 private:
-  static constexpr bool IsContainerVec =
-      (LazyInitialization && !MultiThreaded) || Eager;
-  static constexpr bool CanReserve = IsContainerVec;
-
-  static_assert(sizeof(binary_index_t) <= sizeof(uint32_t));
-  static_assert(sizeof(function_index_t) <= sizeof(uint32_t));
-  static_assert(sizeof(basic_block_index_t) <= sizeof(uint32_t));
-
-  typedef boost::container::vector_options<
-      boost::container::stored_size<uint32_t>>::type VectorOptions;
-  typedef boost::container::deque_options<
-      boost::container::stored_size<uint32_t>>::type DequeOptions;
+  static constexpr bool CanReserve = false;
 
   template <typename T>
-  using DequeAlloc = boost::container::allocator<T>;
-  template <typename T>
-  using VectorAlloc = boost::container::allocator<T>;
-
-  template <typename T>
-  using ContainerType = std::conditional_t<
-      IsContainerVec,
-      boost::container::vector<T, VectorAlloc<T>, VectorOptions>,
-      boost::container::deque<T, DequeAlloc<T>, DequeOptions>>;
+  using ContainerType = std::deque<T>;
 
   template <typename T>
   using StatePtr = std::conditional_t<
