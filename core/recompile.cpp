@@ -693,7 +693,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     if (b.IsExecutable)
       return;
 
-    binary_state_t &x = state.for_binary(b);
+    const binary_state_t &x = state.for_binary(b);
 
     const auto &chrooted_path = x.chrooted_path;
 
@@ -757,7 +757,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     if (b.IsExecutable)
       return;
 
-    binary_state_t &x = state.for_binary(b);
+    const binary_state_t &x = state.for_binary(b);
 
     B::_coff(*x.Bin, [&](COFFO &O) {
       std::string def_path =
@@ -1149,7 +1149,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
 
   assert(b.is_file());
 
-  binary_state_t &x = state.for_binary(b);
+  const binary_state_t &x = state.for_binary(b);
 
   const auto &chrooted_path = x.chrooted_path;
 
