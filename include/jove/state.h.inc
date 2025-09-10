@@ -182,7 +182,7 @@ public:
 
     const unsigned N_B = BIdx + 1;
     if constexpr (LazyInitialization) {
-      x.resize(N_B);
+      x.resize(std::max<unsigned>(N_B, x.size()));
     } else {
       if constexpr (CanReserve)
         x.reserve(N_B);
@@ -214,7 +214,7 @@ public:
 
     const unsigned N_F = FIdx + 1;
     if constexpr (LazyInitialization) {
-      y.resize(N_F);
+      y.resize(std::max<unsigned>(N_F, y.size()));
     } else {
       if constexpr (CanReserve)
         y.reserve(N_F);
@@ -237,7 +237,7 @@ public:
 
     const unsigned N_BB = BBIdx + 1;
     if constexpr (LazyInitialization) {
-      y.resize(N_BB);
+      y.resize(std::max<unsigned>(N_BB, y.size()));
     } else {
       if constexpr (CanReserve)
         y.reserve(N_BB);
