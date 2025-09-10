@@ -5,6 +5,7 @@
 #include "tcg.h"
 #include "recompile.h"
 #include "fork.h"
+#include "ip.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -428,25 +429,18 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     bool IsCOFF = false;
 
     using jv_t_1 = jv_base_t<MT, MinSize>;
-    ip_unique_ptr<jv_t_1> jv1 = boost::interprocess::make_managed_unique_ptr(
-        jv_file.construct<jv_t_1>(boost::interprocess::anonymous_instance)(
-            jv_file),
-        jv_file);
+    jv_t_1 &jv1 = *ip_construct<jv_t_1>(*jv_file.get_segment_manager(), jv_file);
     {
-    auto &jv = *jv1;
+    auto &jv = jv1;
     UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str(),
                           our_endianness != other_endianness /* text */);
     llvm::errs() << llvm::formatv("jv.Binaries.size()={0}\n", jv.Binaries.size());
     }
 
     using jv_t_2 = jv_base_t<AreWeMT, MinSize>;
-    ip_unique_ptr<jv_t_2> jv2 = boost::interprocess::make_managed_unique_ptr(
-        jv_file.construct<jv_t_2>(boost::interprocess::anonymous_instance)(
-            std::move(*jv1), jv_file),
-        jv_file);
-    jv1.release();
+    jv_t_2 &jv2 = *ip_construct<jv_t_2>(*jv_file.get_segment_manager(), std::move(jv1), jv_file);
     {
-    auto &jv = *jv2;
+    auto &jv = jv2;
     llvm::errs() << llvm::formatv(" jv.Binaries.size()={0}\n", jv.Binaries.size());
 
     IsCOFF = ({
@@ -484,13 +478,9 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     }
 
     using jv_t_3 = jv_t_1;
-    ip_unique_ptr<jv_t_3> jv3 = boost::interprocess::make_managed_unique_ptr(
-        jv_file.construct<jv_t_3>(boost::interprocess::anonymous_instance)(
-            std::move(*jv2), jv_file),
-        jv_file);
-    jv2.release();
+    jv_t_3 &jv3 = *ip_construct<jv_t_3>(*jv_file.get_segment_manager(), std::move(jv2), jv_file);
     {
-      auto &jv = *jv3;
+      auto &jv = jv3;
 
       llvm::errs() << llvm::formatv("  jv.Binaries.size()={0}\n", jv.Binaries.size());
 
@@ -563,8 +553,6 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
               strerror(-ret));
       }
     }
-
-    jv3.release();
   };
 
 #define MT_POSSIBILTIES                                                        \
