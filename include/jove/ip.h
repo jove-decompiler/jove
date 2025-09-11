@@ -3,7 +3,7 @@
 #endif
 
 //
-// create an instance, withot tracking.
+// create an instance, without tracking.
 //
 template <typename T, typename... Args>
 T *ip_construct(segment_manager_t &sm, Args &&...args) {
