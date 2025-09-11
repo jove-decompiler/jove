@@ -21,11 +21,12 @@ namespace jove {
 // This function must be safe to call from signal handler.
 //
 static void dump_to_somewhere(const char *content) {
-  static char filename[128] = "/tmp/jove.something."; /* FIXME /tmp? */
+  static char filename[128] = "/tmp/jove.crash."; /* FIXME /tmp? */
 
   {
     char buff[65];
-    strcat(filename, uint_to_string(::gettid(), buff, 10));
+    uint_to_string(::gettid(), buff, 10);
+    strcat(filename, buff);
   }
 
   scoped_fd fd(::open(filename, O_WRONLY | O_CREAT | O_TRUNC));
@@ -57,7 +58,7 @@ static void crash_signal_handler(int no) {
         robust_write(STDOUT_FILENO, msg, len) != len)
       dump_to_somewhere(msg);
 
-    sleep(1);
+    do {} while (sleep(1) < 0 && errno == EINTR);
   }
   __builtin_unreachable();
 }
@@ -96,7 +97,7 @@ static void terminate_handler(void) {
   try {
     std::stringstream ss;
     {
-      auto trace = boost::stacktrace::stacktrace();
+      auto trace = boost::stacktrace::stacktrace::from_current_exception();
       if (trace)
         ss << trace;
       else
