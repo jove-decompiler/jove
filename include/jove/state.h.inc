@@ -28,12 +28,7 @@ struct jv_state_t {
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
 private:
-  //
-  // Eager implies no chance of dangling references. Similarily, lazy
-  // initialization means that references to state contents will never be
-  // invalidated.
-  //
-  static constexpr bool IsContainerVec = Eager || LazyInitialization;
+  static constexpr bool IsContainerVec = Eager;
   static constexpr bool CanReserve = IsContainerVec;
 
   template <typename T>
