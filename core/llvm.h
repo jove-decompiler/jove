@@ -246,8 +246,12 @@ class llvm_t {
   };
 
   jv_state_t<binary_state_t, function_state_t, basic_block_state_t,
-             false /* AreWeMT */, true, false, true, true, MT, MinSize>
-      state;
+             false, /* MultiThreaded */
+             true,  /* LazyInitialization */
+             true,  /* Eager */
+             false, /* BoundsChecking */
+             false, /* SubjectToChange */
+             MT, MinSize> state;
 
   using section_properties_set_t =
       unordered_set<section_properties_t, section_hasher>;
