@@ -742,23 +742,23 @@ int RunTool::DoRun(void) {
 
 #define __BIND_MOUNT_DIR(name, dir)                                            \
   fs::path _##name##_path;                                                     \
-  try {                                                                        \
-    _##name##_path = fs::canonical(dir);                                       \
-  } catch (...) {                                                              \
-    ;                                                                          \
+  fs::path _##chrooted_##name;                                                 \
+  if constexpr (WillChroot) {                                                  \
+    ignore_exception([&]() {                                                   \
+      _##name##_path = fs::canonical(dir);                                     \
+    });                                                                        \
+    _##chrooted_##name = fs::path(opts.sysroot) / dir;                         \
+                                                                               \
+    if (!_##name##_path.empty())                                               \
+      fs::create_directories(_##chrooted_##name);                              \
   }                                                                            \
                                                                                \
-  fs::path _##chrooted_##name = fs::path(opts.sysroot) / dir;                 \
-                                                                               \
-  if (!_##name##_path.empty())                                                 \
-    fs::create_directories(_##chrooted_##name);                                \
-                                                                               \
-  ScopedMayMount name##_mnt(*this,                                    \
-                                     _##name##_path.c_str(),                   \
-                                     _##chrooted_##name.c_str(),               \
-                                     "",                                       \
-                                     MS_BIND,                                  \
-                                     nullptr);
+  ScopedMayMount name##_mnt(*this,                                             \
+                            _##name##_path.c_str(),                            \
+                            _##chrooted_##name.c_str(),                        \
+                            "",                                                \
+                            MS_BIND,                                           \
+                            nullptr);
 
   __BIND_MOUNT_DIR(dev, "/dev")
   __BIND_MOUNT_DIR(run, "/run")
@@ -771,21 +771,21 @@ int RunTool::DoRun(void) {
 
 #define __BIND_MOUNT_FILE(name, filepath)                                      \
   fs::path _##name##_path;                                                     \
-  try {                                                                        \
-    _##name##_path = fs::canonical(filepath);                                  \
-  } catch (...) {                                                              \
-    ;                                                                          \
+  fs::path _##chrooted_##name;                                                 \
+  if constexpr (WillChroot) {                                                  \
+    ignore_exception([&]() {                                                   \
+      _##name##_path = fs::canonical(filepath);                                \
+    });                                                                        \
+    _##chrooted_##name = fs::path(opts.sysroot) / filepath;                    \
+                                                                               \
+    if (!_##name##_path.empty())                                               \
+      touch(_##chrooted_##name.c_str());                                       \
   }                                                                            \
                                                                                \
-  fs::path _##chrooted_##name = fs::path(opts.sysroot) / filepath;             \
-                                                                               \
-  if (!_##name##_path.empty())                                                 \
-    touch(_##chrooted_##name.c_str());                                         \
-                                                                               \
-  ScopedMayMount name##_mnt(*this,                                    \
-                                     _##name##_path.c_str(),                   \
-                                     _##chrooted_##name.c_str(), "", MS_BIND,  \
-                                     nullptr);
+  ScopedMayMount name##_mnt(*this,                                             \
+                            _##name##_path.c_str(),                            \
+                            _##chrooted_##name.c_str(), "", MS_BIND,           \
+                            nullptr);
 
 
 #if 0 /* already bind mounted /etc */
