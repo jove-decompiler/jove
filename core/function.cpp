@@ -18,8 +18,8 @@ template <bool MT, bool MinSize>
 bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   using OurCallers_t = Callers_t<MT, MinSize>;
 
-  if (void *const p = pCallers.Load(IsTSAN && MT ? std::memory_order_acquire
-                                                 : std::memory_order_relaxed)) {
+  if (void *const p = pCallers.Load(MT ? std::memory_order_acquire
+                                       : std::memory_order_relaxed)) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     bool The_MT      = !!(addr & 1u);
     bool The_MinSize = !!(addr & 2u);
@@ -56,8 +56,8 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
     void *desired = reinterpret_cast<void *>(addr);
     if (pCallers.CompareExchangeStrong(
             expected, desired,
-            IsTSAN ? std::memory_order_release : std::memory_order_relaxed,
-            IsTSAN ? std::memory_order_acquire : std::memory_order_relaxed)) {
+            MT ? std::memory_order_release : std::memory_order_relaxed,
+            MT ? std::memory_order_acquire : std::memory_order_relaxed)) {
       pTheCallers->Insert(caller);
       return true; /* it was empty before */
     }
@@ -82,8 +82,8 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
 }
 
 function_analysis_t::~function_analysis_t() noexcept {
-  if (void *const p = pCallers.Load(IsTSAN && AreWeMT ? std::memory_order_acquire
-                                                      : std::memory_order_relaxed)) {
+  if (void *const p = pCallers.Load(AreWeMT ? std::memory_order_acquire
+                                            : std::memory_order_relaxed)) {
     pCallers.Store(nullptr, std::memory_order_relaxed);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
