@@ -1277,7 +1277,6 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
 
     llvm_opts.Output = bcfp;
     llvm_opts.BinaryIndex = std::to_string(BIdx);
-    llvm_opts.Optimize = opts.Optimize;
 
     llvm_t llvm(jv, llvm_opts, analyzer_options, TCG, Context, locator());
     rc = llvm.go();
