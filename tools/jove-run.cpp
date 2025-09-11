@@ -432,16 +432,6 @@ static void touch(const fs::path &);
 
 template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
-  disas = std::make_unique<disas_t>();
-  tcg = std::make_unique<tiny_code_generator_t>();
-  if (opts.Symbolize)
-    symbolizer = std::make_unique<symbolizer_t>();
-  Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-  Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *Explorer,
-      symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
-
   //
   // code recovery fifo. why don't we use an anonymous pipe? because the
   // program being recompiled may decide to close all the open file descriptors
@@ -536,6 +526,16 @@ int RunTool::DoRun(void) {
               << llvm::formatv("prctl failed: {0}\n", strerror(err));
       }
     }
+
+    disas = std::make_unique<disas_t>();
+    tcg = std::make_unique<tiny_code_generator_t>();
+    if (opts.Symbolize)
+      symbolizer = std::make_unique<symbolizer_t>();
+    Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
+        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+    Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
+        jv_file, jv, *Explorer,
+        symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
 
     int ret = 1;
     ignore_exception([&] {
