@@ -132,9 +132,13 @@ class recompiler_t {
     binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
   };
 
-  jv_state_t<binary_state_t, void, void, AreWeMT, true, false, true, true, MT,
-             MinSize>
-      state;
+  jv_state_t<binary_state_t, void, void,
+    AreWeMT, /* MultiThreaded  */
+    true,    /* LazyInitialization */
+    false,   /* Eager */
+    true,    /* BoundsChecking */
+    true,    /* SubjectToChange */
+    MT, MinSize> state;
 
   const bool IsCOFF;
 
