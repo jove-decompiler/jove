@@ -40,16 +40,23 @@ struct assertion_failure_exception : public assertion_failure_base {
 
 #undef assert
 
-#ifdef NDEBUG
-#define assert(cond) do {} while (false)
-#else
-#define assert(cond)                                                           \
+//
+// an "always" assert always executes, regardless of whether NDEBUG is defined.
+//
+// FIXME record __FILE__, __LINE__, ...
+//
+#define aassert(cond)                                                          \
   do {                                                                         \
     if (unlikely(!(cond))) {                                                   \
       constexpr ::jove::StaticString ____msg{BOOST_PP_STRINGIZE(cond)};        \
       throw ::jove::assertion_failure_exception<____msg>();                    \
     }                                                                          \
   } while (false)
+
+#ifdef NDEBUG
+#define assert(cond) do {} while (false)
+#else
+#define assert(cond) aassert(cond)
 #endif
 
 #endif /* NO_JOVE_ASSERT */
