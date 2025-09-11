@@ -2,7 +2,7 @@
 
 #ifndef JOVE_NO_TBB
 
-#include <oneapi/tbb/global_control.h>    // for finalize()
+#include <oneapi/tbb/global_control.h>
 #include <oneapi/tbb/task_arena.h>
 
 namespace jove {
