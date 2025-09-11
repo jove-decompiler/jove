@@ -46,7 +46,8 @@ struct assertion_failure_exception : public assertion_failure_base {
 #define assert(cond)                                                           \
   do {                                                                         \
     if (unlikely(!(cond))) {                                                   \
-      throw jove::assertion_failure_exception<BOOST_PP_STRINGIZE(cond)>();     \
+      constexpr ::jove::StaticString ____msg{BOOST_PP_STRINGIZE(cond)};        \
+      throw ::jove::assertion_failure_exception<____msg>();                    \
     }                                                                          \
   } while (false)
 #endif
