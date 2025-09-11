@@ -23,10 +23,7 @@ static disabler_t disabler;
 void pre_fork(void) {
   oneapi::tbb::task_scheduler_handle handle{oneapi::tbb::attach{}};
 
-  if (!oneapi::tbb::finalize(handle, std::nothrow))
-    throw std::runtime_error("tbb_hacks::pre_fork() failed");
-
-  // now it's safe to fork().
+  aassert(oneapi::tbb::finalize(handle, std::nothrow));
 }
 
 void post_fork(void) {
