@@ -135,7 +135,7 @@ class recompiler_t {
   jv_state_t<binary_state_t, void, void,
     AreWeMT, /* MultiThreaded  */
     true,    /* LazyInitialization */
-    false,   /* Eager */
+    true,    /* Eager */
     true,    /* BoundsChecking */
     true,    /* SubjectToChange */
     MT, MinSize> state;
