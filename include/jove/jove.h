@@ -110,7 +110,7 @@ struct binary_base_t;
 #include "jove/adjacency_list.h.inc"
 #include "jove/table.h.inc"
 #include "jove/addr_intvl.h.inc"
-#include "jove/ip.h"
+#include "jove/ip.h.inc"
 
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
