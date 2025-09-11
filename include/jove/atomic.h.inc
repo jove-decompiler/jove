@@ -86,3 +86,47 @@ public:
 private:
   std::atomic<std::uint64_t> m_offset;
 };
+
+// this is a dangerous class.
+template <typename T>
+class atomic_unique_ptr {
+  std::atomic<T *> ptr = nullptr;
+
+  void takeFrom(atomic_unique_ptr &other) noexcept {
+    T *const newp = other.ptr.exchange(nullptr, std::memory_order_acquire);
+    T *const oldp = ptr.exchange(newp, std::memory_order_release);
+    delete oldp;
+  }
+
+public:
+  atomic_unique_ptr() noexcept = default;
+  explicit atomic_unique_ptr(T *p) noexcept : ptr(p) {}
+  explicit atomic_unique_ptr(atomic_unique_ptr &&other) noexcept {
+    takeFrom(other);
+  }
+
+  atomic_unique_ptr &operator=(atomic_unique_ptr &&other) noexcept {
+    if (this != &other)
+      takeFrom(other);
+
+    return *this;
+  }
+
+  atomic_unique_ptr(const atomic_unique_ptr &) = delete;
+  atomic_unique_ptr &operator=(const atomic_unique_ptr &) = delete;
+
+  ~atomic_unique_ptr() {
+    delete ptr.load(std::memory_order_relaxed);
+  }
+
+  T *load(std::memory_order order = std::memory_order_acquire) noexcept {
+    return ptr.load(order);
+  }
+
+  bool compare_exchange_strong(T *&expected,
+                               T *desired,
+                               std::memory_order success,
+                               std::memory_order failure) noexcept {
+    return ptr.compare_exchange_strong(expected, desired, success, failure);
+  }
+};
