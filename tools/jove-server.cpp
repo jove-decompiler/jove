@@ -5,7 +5,6 @@
 #include "tcg.h"
 #include "recompile.h"
 #include "fork.h"
-#include "ip.h"
 
 #ifndef JOVE_NO_BACKEND
 

@@ -10,7 +10,6 @@
 #include "jove/racy.h"
 #include "jove/algo.h"
 #include "jove/verbose.h"
-#include "jove/assert.h"
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
@@ -111,6 +110,7 @@ struct binary_base_t;
 #include "jove/adjacency_list.h.inc"
 #include "jove/table.h.inc"
 #include "jove/addr_intvl.h.inc"
+#include "jove/ip.h"
 
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
@@ -145,8 +145,8 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
   BBMap_t() = delete;
   explicit BBMap_t(jv_file_t &jv_file) noexcept
       : sm_(jv_file.get_segment_manager()),
-        map(jv_file.construct<bbmap_t>(boost::interprocess::anonymous_instance)(
-            jv_file.get_segment_manager())) {}
+        map(ip_construct<bbmap_t>(*jv_file.get_segment_manager(),
+                                  jv_file.get_segment_manager())) {}
 
   template <bool MT2>
   explicit BBMap_t(BBMap_t<MT2> &&other) noexcept {
@@ -163,11 +163,8 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
   ~BBMap_t() noexcept {
     auto e_lck_us = this->exclusive_access();
 
-    if (map) {
-      assert(sm_);
-      sm_->destroy_ptr(map.get());
-      map = nullptr;
-    }
+    if (bbmap_t *const bbmap = map.get())
+      ip_destroy(get_segment_manager(), bbmap);
   }
 
   template <bool MT2>
@@ -191,6 +188,12 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
 
   BBMap_t(const BBMap_t &) = delete;
   BBMap_t &operator=(const BBMap_t &) = delete;
+
+  segment_manager_t &get_segment_manager(void) const {
+    segment_manager_t *const sm = sm_.get();
+    assert(sm);
+    return *sm;
+  }
 };
 
 struct allocates_function_t {
@@ -360,8 +363,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
   getDynamicTargets(void) const {
-    if (const void *const p = pDynTargets.Load(IsTSAN && MT ? std::memory_order_acquire
-                                                            : std::memory_order_relaxed)) {
+    if (const void *const p = pDynTargets.Load(MT ? std::memory_order_acquire :
+                                                    std::memory_order_relaxed)) {
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool TheMT      = !!(p_addr & 1u);
     bool TheMinSize = !!(p_addr & 2u);
@@ -623,8 +626,8 @@ struct function_analysis_t {
   unsigned numCallers(void) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.Load(IsTSAN && MT ? std::memory_order_acquire
-                                                   : std::memory_order_relaxed)) {
+    if (void *const p = pCallers.Load(MT ? std::memory_order_acquire
+                                         : std::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
       bool TheMinSize = !!(p_addr & 2u);
@@ -660,8 +663,8 @@ struct function_analysis_t {
                 std::function<void(const caller_t &)> proc) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.Load(IsTSAN && MT ? std::memory_order_acquire
-                                                   : std::memory_order_relaxed)) {
+    if (void *const p = pCallers.Load(MT ? std::memory_order_acquire
+                                         : std::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
       bool TheMinSize = !!(p_addr & 2u);
