@@ -1173,6 +1173,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
   std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
 
+#if 0
   if (MT == AreWeMT && MinSize == AreWeMinSize) {
   rc = RunExecutableToExit(
       "/proc/self/exe", /* FIXME */
@@ -1251,7 +1252,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
       [&](auto Env) {
         InitWithEnviron(Env);
 
-        //Env("JVPATH=" + path_to_jv());
+        Env("JVPATH=" + path_to_jv());
       },
       path_to_stdout, path_to_stderr,
       [&](const char **argv, const char **envp) {
@@ -1260,6 +1261,9 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
         }
       });
   } else {
+#else
+  {
+#endif
     llvm::LLVMContext Context;
 
     llvm_options_t llvm_opts(llvm_options);
