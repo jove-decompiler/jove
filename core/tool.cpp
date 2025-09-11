@@ -162,8 +162,6 @@ int main(int argc, char **argv) {
 
   tool->_name = name;
 
-  llvm::InitLLVM X(argc, argv);
-
   {
 #ifndef JOVE_NO_TBB
   BOOST_SCOPE_DEFER [] {
