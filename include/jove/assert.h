@@ -1,4 +1,5 @@
-/* we like destructors. */
+#include "jove/macros.h"
+
 #include <stdexcept>
 #include <cassert>
 #include <algorithm>
