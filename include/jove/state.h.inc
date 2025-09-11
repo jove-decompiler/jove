@@ -28,15 +28,23 @@ struct jv_state_t {
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
 private:
-  static constexpr bool CanReserve = false;
+  //
+  // Eager implies no chance of dangling references. Similarily, lazy
+  // initialization means that references to state contents will never be
+  // invalidated.
+  //
+  static constexpr bool IsContainerVec = Eager || LazyInitialization;
+  static constexpr bool CanReserve = IsContainerVec;
 
   template <typename T>
-  using ContainerType = std::deque<T>;
+  using ContainerType =
+      std::conditional_t<IsContainerVec, std::vector<T>, std::deque<T>>;
 
   template <typename T>
   using StatePtr = std::conditional_t<
       LazyInitialization,
-      std::conditional_t<MultiThreaded, std::atomic<std::shared_ptr<T>>,
+      std::conditional_t<MultiThreaded,
+                         atomic_unique_ptr<T>,
                          std::unique_ptr<T>>,
       T>;
 
@@ -238,19 +246,22 @@ public:
     StatePtr<T> &x = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
     if constexpr (MultiThreaded) {                                             \
       {                                                                        \
-        std::shared_ptr<T> the_x = x.load(std::memory_order_acquire);          \
-        T *const xp = the_x.get();                                             \
+        T *const xp = x.load(std::memory_order_acquire);                       \
         if (likely(xp))                                                        \
           return *xp;                                                          \
       }                                                                        \
                                                                                \
-      std::shared_ptr<T> new_x = std::make_shared<T>(BOOST_PP_CAT(thing,_NEW_ARGS)); \
-      std::shared_ptr<T> expected;                                             \
-      if (x.compare_exchange_strong(expected, new_x,                           \
+      auto new_x = std::make_unique<T>(BOOST_PP_CAT(thing,_NEW_ARGS));         \
+                                                                               \
+      T *expected = nullptr;                                                   \
+      T *const desired = new_x.get();                                          \
+      if (x.compare_exchange_strong(expected, desired,                         \
                                     std::memory_order_release,                 \
                                     std::memory_order_acquire)) {              \
-        return *new_x;                                                         \
+        new_x.release();                                                       \
+        return *desired;                                                       \
       }                                                                        \
+      assert(expected);                                                        \
       return *expected;                                                        \
     } else {                                                                   \
       T *xp = x.get();                                                         \
