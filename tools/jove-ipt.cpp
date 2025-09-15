@@ -41,12 +41,6 @@
 
 #include <liburing.h>
 
-#include <intel-pt.h>
-#include <libipt-sb.h>
-extern "C" {
-#include "pevent.h"
-}
-
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
