@@ -213,16 +213,20 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> Explorer;
   std::unique_ptr<CodeRecovery<IsToolMT, IsToolMinSize>> Recovery;
 
-  std::unique_ptr<scoped_mmap> child_mapping;
+  struct {
+    std::unique_ptr<scoped_mmap> mapping;
+  } child_pid;
 
-  int get_child_fd(void) const {
-    if (!child_mapping)
-      std::abort();
-    if (!(*child_mapping))
+  int get_child_pid(void) {
+    scoped_mmap *const mm = child_pid.mapping.get();
+
+    if (!mm)
       return -1;
 
-    return __atomic_load_n(reinterpret_cast<int *>(child_mapping->ptr),
-                           __ATOMIC_RELAXED);
+    if (!(*mm))
+      return -1;
+
+    return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
   }
 
 public:
@@ -480,21 +484,11 @@ int RunTool::DoRun(void) {
   // communicating child PID to jove-loop (1)
   //
   if (opts.ChildFd.getNumOccurrences() > 0) {
-    child_mapping = std::make_unique<scoped_mmap>(nullptr, JOVE_PAGE_SIZE,
-                                                  PROT_READ | PROT_WRITE,
-                                                  MAP_SHARED, opts.ChildFd, 0);
+    child_pid.mapping = std::make_unique<scoped_mmap>(
+        nullptr, JOVE_PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
+        opts.ChildFd, 0);
 
-    if (*child_mapping) {
-      __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
-                       __ATOMIC_RELAXED); /* reset */
-
-      ::close(opts.ChildFd);
-    } else {
-      if (IsVerbose())
-        WithColor::warning()
-            << llvm::formatv("failed to mmap child fd: {0} ({1})\n",
-                             strerror(errno), opts.ChildFd);
-    }
+    aassert(child_pid.mapping && *child_pid.mapping);
   }
 
   //
@@ -537,11 +531,7 @@ int RunTool::DoRun(void) {
         jv_file, jv, *Explorer,
         symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
 
-    int ret = 1;
-    ignore_exception([&] {
-      ret = FifoProc<LivingDangerously>(fifo_file_path.c_str());
-    });
-    _exit(ret);
+    _exit(FifoProc<LivingDangerously>(fifo_file_path.c_str()));
   }
 
   scoped_fd pidfd(pidfd_open(fifo_child, 0));
@@ -549,6 +539,10 @@ int RunTool::DoRun(void) {
     int err = errno;
     WithColor::error() << llvm::formatv("pidfd failed: {0}\n", strerror(err));
   }
+
+  for (int no : SignalsToRedirect)
+    setup_to_redirect_signal(no, *this,
+                             std::bind(&RunTool::get_child_pid, this));
 
   auto KillFifoProc = [&](void) -> void {
     if (IsVeryVerbose())
@@ -1087,15 +1081,13 @@ int RunTool::DoRun(void) {
   }
 
   //
-  // communicating child PID to jove-loop (2)
+  // communicate child PID to jove-loop
   //
-  if (child_mapping && *child_mapping) {
-    __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), pid,
-                     __ATOMIC_RELAXED);
+  if (child_pid.mapping && *child_pid.mapping) {
+    assert(get_child_pid() == -1);
 
-    for (int no : SignalsToRedirect)
-      setup_to_redirect_signal(no, *this,
-                               std::bind(&RunTool::get_child_fd, this));
+    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->ptr), pid,
+                     __ATOMIC_RELAXED);
   }
 
   IgnoreCtrlC();
@@ -1195,11 +1187,14 @@ int RunTool::DoRun(void) {
   ret_val = WaitForProcessToExit(pid);
 
   //
-  // communicating child PID to jove-loop (3)
+  // reset child PID
   //
-  if (child_mapping && *child_mapping)
-    __atomic_store_n(reinterpret_cast<int *>(child_mapping->ptr), -1,
+  if (child_pid.mapping && *child_pid.mapping) {
+    assert(get_child_pid() >= 0);
+
+    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->ptr), -1,
                      __ATOMIC_RELAXED); /* reset */
+  }
 
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);

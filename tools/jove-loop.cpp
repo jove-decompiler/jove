@@ -45,16 +45,6 @@ struct binary_state_t {
 
 }
 
-static std::unique_ptr<scoped_mmap> child_mmap;
-
-static int get_child_fd(void) {
-  scoped_mmap *const mm = child_mmap.get();
-  if (!mm || !(*mm))
-    std::abort();
-
-  return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
-}
-
 class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
@@ -339,7 +329,23 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   const bool IsCOFF;
 
-  std::unique_ptr<temp_file> child_file;
+  struct {
+    std::unique_ptr<temp_file>   file;
+    std::unique_ptr<scoped_fd>   mapping_fd;
+    std::unique_ptr<scoped_mmap> mapping;
+  } child_pid;
+
+  int get_child_pid(void) {
+    scoped_mmap *const mm = child_pid.mapping.get();
+
+    if (!mm)
+      return -1;
+
+    if (!(*mm))
+      return -1;
+
+    return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
+  }
 
 public:
   LoopTool()
@@ -347,8 +353,6 @@ public:
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
-
-  std::atomic<pid_t> run_pid;
 };
 
 JOVE_REGISTER_TOOL("loop", LoopTool);
@@ -396,18 +400,28 @@ int LoopTool::Run(void) {
                   fs::path(sysroot) / "usr" / "bin" / "gdbserver",
                   fs::copy_options::overwrite_existing);
 
-  static const uint8_t zeros[JOVE_PAGE_SIZE] = {};
+  static constexpr unsigned CHILD_PID_FILE_NUM_INTS =
+      JOVE_PAGE_SIZE / sizeof(int);
+  static const int child_pid_file_init[CHILD_PID_FILE_NUM_INTS] = {
+      [0 ... CHILD_PID_FILE_NUM_INTS - 1] = 0, [0] = -1};
 
-  child_file = std::make_unique<temp_file>(&zeros[0], sizeof(zeros), "jove.loop");
-  child_file->store();
-  {
-    scoped_fd child_fd(::open(child_file->path().c_str(), O_RDONLY));
-    child_mmap = std::make_unique<scoped_mmap>(
-        nullptr, JOVE_PAGE_SIZE, PROT_READ, MAP_SHARED, child_fd.get(), 0);
-  }
+  child_pid.file = std::make_unique<temp_file>(
+      &child_pid_file_init[0], sizeof(child_pid_file_init), "jove.loop");
+  child_pid.file->store();
+
+  child_pid.mapping_fd = std::make_unique<scoped_fd>(
+      ::open(child_pid.file->path().c_str(), O_RDWR));
+  aassert(child_pid.mapping_fd && *child_pid.mapping_fd);
+
+  child_pid.mapping =
+      std::make_unique<scoped_mmap>(nullptr, JOVE_PAGE_SIZE, PROT_READ,
+                                    MAP_SHARED, child_pid.mapping_fd->get(), 0);
+  aassert(child_pid.mapping && *child_pid.mapping);
+  assert(get_child_pid() == -1);
 
   for (int no : SignalsToRedirect)
-    setup_to_redirect_signal(no, *this, get_child_fd);
+    setup_to_redirect_signal(no, *this,
+                             std::bind(&LoopTool::get_child_pid, this));
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
     pid_t pid;
@@ -436,26 +450,11 @@ int LoopTool::Run(void) {
     //
 run:
     {
-      scoped_fd child_fd(::open(child_file->path().c_str(), O_RDWR));
-      if (child_fd) {
-        scoped_mmap mapping(nullptr, JOVE_PAGE_SIZE, PROT_READ | PROT_WRITE,
-                            MAP_SHARED, child_fd.get(), 0);
-        if (mapping) {
-          int *pChildFd = reinterpret_cast<int *>(mapping.ptr);
-          __atomic_store_n(pChildFd, -1 /* reset */, __ATOMIC_RELAXED);
-        }
-      } else {
-        WithColor::error() << llvm::formatv(
-            "cannot open child fd file at {0}\n", child_file->path());
-      }
-
       pid = RunTool(
           "run",
           [&](auto Arg) {
-            if (child_fd) {
-              Arg("--child-fd");
-              Arg(std::to_string(child_fd.get()));
-            }
+            Arg("--child-fd");
+            Arg(std::to_string(child_pid.mapping_fd->get()));
 
             if (sudo && ::getgid() > 0 && !opts.RunAsRoot) {
               Arg("-g");
@@ -587,10 +586,6 @@ run:
           std::string(), std::string(),
           Tool::RunToolExtraArgs(sudo, opts.PreserveEnvironment));
 
-      IgnoreCtrlC();
-
-      run_pid.store(pid);
-
       {
         int ret = WaitForProcessToExit(pid);
 
@@ -607,9 +602,9 @@ run:
              ret != 'r') || opts.JustRun)
           return ret;
       }
-
-      run_pid.store(0); /* reset */
     }
+
+    assert(get_child_pid() == -1); /* should have been reset by jove run */
 
 skip_run:
     if (!opts.Connect.empty()) { /* remote */
