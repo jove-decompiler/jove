@@ -541,8 +541,7 @@ int RunTool::DoRun(void) {
   }
 
   for (int no : SignalsToRedirect)
-    setup_to_redirect_signal(no, *this,
-                             std::bind(&RunTool::get_child_pid, this));
+    SetupRedirectSignal(no, *this, std::bind(&RunTool::get_child_pid, this));
 
   auto KillFifoProc = [&](void) -> void {
     if (IsVeryVerbose())

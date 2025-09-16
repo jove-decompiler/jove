@@ -420,8 +420,7 @@ int LoopTool::Run(void) {
   assert(get_child_pid() == -1);
 
   for (int no : SignalsToRedirect)
-    setup_to_redirect_signal(no, *this,
-                             std::bind(&LoopTool::get_child_pid, this));
+    SetupRedirectSignal(no, *this, std::bind(&LoopTool::get_child_pid, this));
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
     pid_t pid;

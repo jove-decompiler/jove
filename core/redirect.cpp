@@ -15,10 +15,7 @@ static void RedirectSigHandler(int no) {
   assert(the_tool);
   Tool &tool = *the_tool;
 
-#if 0
-  const char *const sigdesc = strsignal(no);
-  std::string signame("SIG");
-  signame.append(sigabbrev_np(no));
+#if 1
 #endif
 
   pid_t child = get_redirectee();
@@ -39,10 +36,15 @@ static void RedirectSigHandler(int no) {
       tool.interrupted.store(true, std::memory_order_relaxed);
     }
 
-#if 0
-    if (tool.IsVerbose())
+#if 1
+    if (tool.IsVeryVerbose()) {
+      const char *const sigdesc = strsignal(no);
+      std::string signame("SIG");
+      signame.append(sigabbrev_np(no));
+
       tool.HumanOut() << llvm::formatv("redirecting {0} to {1}... <{2}>\n",
                                        signame, child, sigdesc);
+    }
 #endif
 
     if (::kill(child, no) < 0) {
@@ -54,8 +56,8 @@ static void RedirectSigHandler(int no) {
   }
 }
 
-void setup_to_redirect_signal(int no, Tool &tool,
-                              get_redirectee_proc_t get_redirectee_proc) {
+void SetupRedirectSignal(int no, Tool &tool,
+                         get_redirectee_proc_t get_redirectee_proc) {
   the_tool = &tool;
   get_redirectee = get_redirectee_proc;
 
@@ -70,5 +72,4 @@ void setup_to_redirect_signal(int no, Tool &tool,
     throw std::runtime_error(std::string("sigaction failed: ") +
                              strerror(errno));
 }
-
 }
