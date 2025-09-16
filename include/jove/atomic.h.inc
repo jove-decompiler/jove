@@ -3,53 +3,60 @@
 #endif
 
 template <typename T>
-class AtomicOffsetPtr {
+class atomic_offset_ptr {
+  static constexpr uint64_t null = 1u;
+
+  std::atomic<uint64_t> off = null;
+
+  void takeFrom(atomic_offset_ptr &other) noexcept {
+    const uint64_t newo = other.off.exchange(null, std::memory_order_acquire);
+    const uint64_t oldo = off.exchange(newo, std::memory_order_release);
+
+    (void)oldo;
+  }
+
 public:
-  AtomicOffsetPtr() : m_offset(1) {}
-
-  AtomicOffsetPtr(const AtomicOffsetPtr &other) {
-    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
+  atomic_offset_ptr() noexcept = default;
+  atomic_offset_ptr(std::nullptr_t) noexcept {}
+  explicit atomic_offset_ptr(atomic_offset_ptr &&other) noexcept {
+    takeFrom(other);
   }
 
-  AtomicOffsetPtr &operator=(const AtomicOffsetPtr &other) {
-    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
+  atomic_offset_ptr &operator=(atomic_offset_ptr &&other) noexcept {
+    if (this != &other)
+      takeFrom(other);
+
     return *this;
   }
 
-  AtomicOffsetPtr(AtomicOffsetPtr &&other) {
-    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
-    other.Store(nullptr, std::memory_order_relaxed);
-  }
+  atomic_offset_ptr(const atomic_offset_ptr &) = delete;
+  atomic_offset_ptr &operator=(const atomic_offset_ptr &) = delete;
 
-  AtomicOffsetPtr &operator=(AtomicOffsetPtr &&other) {
-    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
-    other.Store(nullptr, std::memory_order_relaxed);
-    return *this;
-  }
+  ~atomic_offset_ptr() noexcept = default;
 
-  T *Load(std::memory_order memoryOrder = std::memory_order_seq_cst) const {
+  T *load(std::memory_order memoryOrder = std::memory_order_seq_cst) const {
     return static_cast<T *>(
         boost::interprocess::ipcdetail::offset_ptr_to_raw_pointer(
-            this, m_offset.load(memoryOrder)));
+            this, off.load(memoryOrder)));
   }
 
-  void Store(T *ptr,
+  void store(T *ptr,
              std::memory_order memoryOrder = std::memory_order_seq_cst) {
-    m_offset.store(
+    off.store(
         boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
             ptr, this),
         memoryOrder);
   }
 
-  bool CompareExchangeStrong(T *&expected, T *desired,
-                             std::memory_order success,
-                             std::memory_order failure) {
+  bool compare_exchange_strong(T *&expected, T *desired,
+                               std::memory_order success,
+                               std::memory_order failure) {
 
     uint64_t expected_off =
         boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
             expected, this);
 
-    bool res = m_offset.compare_exchange_strong(
+    bool res = off.compare_exchange_strong(
         expected_off,
         boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
             desired, this),
@@ -61,30 +68,6 @@ public:
 
     return res;
   }
-
-  bool CompareExchangeWeak(T *&expected, T *desired,
-                           std::memory_order success,
-                           std::memory_order failure) {
-
-    uint64_t expected_off =
-        boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
-            expected, this);
-
-    bool res = m_offset.compare_exchange_weak(
-        expected_off,
-        boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
-            desired, this),
-        success, failure);
-
-    expected = static_cast<T *>(
-        boost::interprocess::ipcdetail::offset_ptr_to_raw_pointer(
-            this, expected_off));
-
-    return res;
-  }
-
-private:
-  std::atomic<std::uint64_t> m_offset;
 };
 
 // this is a dangerous class.

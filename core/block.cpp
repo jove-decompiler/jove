@@ -38,9 +38,9 @@ static bool copy_and_insert_sort(const ip_func_index_vec &old,
 }
 
 bbprop_t::~bbprop_t() noexcept {
-  if (void *const p = pDynTargets.Load(AreWeMT ? std::memory_order_acquire
+  if (void *const p = pDynTargets.load(AreWeMT ? std::memory_order_acquire
                                                : std::memory_order_relaxed)) {
-    pDynTargets.Store(nullptr, std::memory_order_relaxed);
+    pDynTargets.store(nullptr, std::memory_order_relaxed);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     bool MT      = !!(addr & 1u);
@@ -95,7 +95,7 @@ template <bool MT, bool MinSize>
 bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   using OurDynTargets_t = DynTargets_t<MT, MinSize>;
 
-  if (void *const p = pDynTargets.Load(MT ? std::memory_order_acquire
+  if (void *const p = pDynTargets.load(MT ? std::memory_order_acquire
                                           : std::memory_order_relaxed)) {
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool The_MT      = !!(p_addr & 1u);
@@ -132,7 +132,7 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   if constexpr (MT) {
     void *expected = nullptr;
     void *desired = reinterpret_cast<void *>(addr);
-    if (pDynTargets.CompareExchangeStrong(
+    if (pDynTargets.compare_exchange_strong(
             expected, desired,
             MT ? std::memory_order_release : std::memory_order_relaxed,
             MT ? std::memory_order_acquire : std::memory_order_relaxed)) {
@@ -154,7 +154,7 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
     return reinterpret_cast<OurDynTargets_t *>(expected_addr)->Insert(X);
   } else {
     pTheDynTargets->Insert(X);
-    pDynTargets.Store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
+    pDynTargets.store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
     return true;
   }
 }

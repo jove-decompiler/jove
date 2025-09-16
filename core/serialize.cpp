@@ -548,7 +548,7 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
     } else {                                                                   \
       uintptr_t addr = reinterpret_cast<uintptr_t>(pTheDynTargets);            \
       addr |= (jove::IsMT_hack ? 1u : 0u) | (jove::IsMinSize_hack ? 2u : 0u);  \
-      bbprop.pDynTargets.Store(reinterpret_cast<void *>(addr),                 \
+      bbprop.pDynTargets.store(reinterpret_cast<void *>(addr),                 \
                                std::memory_order_relaxed);                     \
       bbprop.sm_ = sm;                                                         \
     }                                                                          \

@@ -354,7 +354,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
     } _return;
   } Term;
 
-  AtomicOffsetPtr<void> pDynTargets;
+  atomic_offset_ptr<void> pDynTargets = nullptr;
   boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
 
   bool Sj = false;
@@ -363,7 +363,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
   getDynamicTargets(void) const {
-    if (const void *const p = pDynTargets.Load(MT ? std::memory_order_acquire :
+    if (const void *const p = pDynTargets.load(MT ? std::memory_order_acquire :
                                                     std::memory_order_relaxed)) {
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool TheMT      = !!(p_addr & 1u);
@@ -386,7 +386,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   }
 
   class Parents_t {
-    AtomicOffsetPtr<const ip_func_index_vec> _p;
+    atomic_offset_ptr<const ip_func_index_vec> _p = nullptr;
 
     friend UnlockTool;
     friend bbprop_t;
@@ -414,14 +414,14 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
     template <bool MT>
     void set(const ip_func_index_vec &x) {
-      _p.Store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
+      _p.store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
     }
 
   public:
     template <bool MT>
     const ip_func_index_vec &get(void) const {
       const ip_func_index_vec *res =
-          _p.Load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
+          _p.load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
       assert(res);
       return *res;
     }
@@ -443,7 +443,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   } Parents;
 
   bool hasDynTarget(void) const {
-    return !!pDynTargets.Load(std::memory_order_relaxed);
+    return !!pDynTargets.load(std::memory_order_relaxed);
   }
 
   template <bool MT, bool MinSize>
@@ -583,7 +583,7 @@ struct function_analysis_t {
 
   std::atomic<bool> Stale = true;
 
-  AtomicOffsetPtr<void> pCallers;
+  atomic_offset_ptr<void> pCallers = nullptr;
 
   bool IsLeaf = false;
   bool IsSj = false;
@@ -619,14 +619,14 @@ struct function_analysis_t {
   }
 
   bool hasCaller(void) const noexcept {
-    return !!pCallers.Load(std::memory_order_relaxed);
+    return !!pCallers.load(std::memory_order_relaxed);
   }
 
   template <bool MT, bool MinSize>
   unsigned numCallers(void) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.Load(MT ? std::memory_order_acquire
+    if (void *const p = pCallers.load(MT ? std::memory_order_acquire
                                          : std::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
@@ -663,7 +663,7 @@ struct function_analysis_t {
                 std::function<void(const caller_t &)> proc) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.Load(MT ? std::memory_order_acquire
+    if (void *const p = pCallers.load(MT ? std::memory_order_acquire
                                          : std::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
@@ -700,9 +700,9 @@ struct function_analysis_t {
     Stale.store(other.Stale.load(std::memory_order_relaxed),
                 std::memory_order_relaxed);
 
-    pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
+    pCallers.store(other.pCallers.load(std::memory_order_relaxed),
                    std::memory_order_relaxed);
-    other.pCallers.Store(nullptr, std::memory_order_relaxed);
+    other.pCallers.store(nullptr, std::memory_order_relaxed);
   }
 
   function_analysis_t &operator=(function_analysis_t &&other) noexcept {
@@ -714,9 +714,9 @@ struct function_analysis_t {
     Stale.store(other.Stale.load(std::memory_order_relaxed),
                 std::memory_order_relaxed);
 
-    pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
+    pCallers.store(other.pCallers.load(std::memory_order_relaxed),
                    std::memory_order_relaxed);
-    other.pCallers.Store(nullptr, std::memory_order_relaxed);
+    other.pCallers.store(nullptr, std::memory_order_relaxed);
     return *this;
   }
 

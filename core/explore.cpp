@@ -210,8 +210,8 @@ on_insn:
   bbprop_2.Size = intvl_2.second;
   bbprop_2.Sj = bbprop_1.Sj;
   bbprop_2.Term = bbprop_1.Term;
-  bbprop_2.pDynTargets.Store(
-      bbprop_1.pDynTargets.Load(std::memory_order_relaxed),
+  bbprop_2.pDynTargets.store(
+      bbprop_1.pDynTargets.load(std::memory_order_relaxed),
       std::memory_order_relaxed);
   bbprop_2.sm_ = jv_file.get_segment_manager();
   bbprop_2.Analysis.Stale.store(true, std::memory_order_relaxed);
@@ -231,7 +231,7 @@ on_insn:
     bbprop_1.Term.Addr = 0;
     bbprop_1.Term._indirect_jump.IsLj = false;
     bbprop_1.Sj = false;
-    bbprop_1.pDynTargets.Store(nullptr, std::memory_order_relaxed);
+    bbprop_1.pDynTargets.store(nullptr, std::memory_order_relaxed);
     bbprop_1.Analysis.Stale.store(true, std::memory_order_relaxed);
 
     //
@@ -675,7 +675,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
 
-      if (callee.Analysis.pCallers.Load(std::memory_order_relaxed))
+      if (callee.Analysis.pCallers.load(std::memory_order_relaxed))
         callee.Analysis.AddCaller<MT, MinSize>(caller_t(b.Idx, T.Addr));
 
       if (maybe_jv) {
