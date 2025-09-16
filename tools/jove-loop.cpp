@@ -357,7 +357,7 @@ public:
 
 JOVE_REGISTER_TOOL("loop", LoopTool);
 
-static const std::array<int, 4> SignalsToRedirect = {
+static const std::array<int, 4> ToRedirect = {
     SIGINT, SIGTERM, SIGUSR1, SIGUSR2
 };
 
@@ -419,8 +419,8 @@ int LoopTool::Run(void) {
   aassert(child_pid.mapping && *child_pid.mapping);
   assert(get_child_pid() == -1);
 
-  for (int no : SignalsToRedirect)
-    SetupRedirectSignal(no, *this, std::bind(&LoopTool::get_child_pid, this));
+  SetupSignalsRedirection(ToRedirect, *this,
+                          std::bind(&LoopTool::get_child_pid, this));
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
     pid_t pid;

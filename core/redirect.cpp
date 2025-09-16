@@ -56,8 +56,8 @@ static void RedirectSigHandler(int no) {
   }
 }
 
-void SetupRedirectSignal(int no, Tool &tool,
-                         get_redirectee_proc_t get_redirectee_proc) {
+void SetupSignalsRedirection(std::span<const int> signals, Tool &tool,
+                             get_redirectee_proc_t get_redirectee_proc) {
   the_tool = &tool;
   get_redirectee = get_redirectee_proc;
 
@@ -68,8 +68,7 @@ void SetupRedirectSignal(int no, Tool &tool,
   sa.sa_flags = SA_RESTART;
   sa.sa_handler = RedirectSigHandler;
 
-  if (::sigaction(no, &sa, nullptr) < 0)
-    throw std::runtime_error(std::string("sigaction failed: ") +
-                             strerror(errno));
+  for (const int no : signals)
+    aassert(!(::sigaction(no, &sa, nullptr) < 0));
 }
 }

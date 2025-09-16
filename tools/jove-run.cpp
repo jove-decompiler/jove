@@ -257,7 +257,7 @@ JOVE_REGISTER_TOOL("run", RunTool);
 
 typedef boost::format fmt;
 
-static const std::array<int, 4> SignalsToRedirect = {
+static const std::array<int, 4> ToRedirect = {
     SIGINT, SIGTERM, SIGUSR1, SIGUSR2
 };
 
@@ -540,8 +540,8 @@ int RunTool::DoRun(void) {
     WithColor::error() << llvm::formatv("pidfd failed: {0}\n", strerror(err));
   }
 
-  for (int no : SignalsToRedirect)
-    SetupRedirectSignal(no, *this, std::bind(&RunTool::get_child_pid, this));
+  SetupSignalsRedirection(ToRedirect, *this,
+                          std::bind(&RunTool::get_child_pid, this));
 
   auto KillFifoProc = [&](void) -> void {
     if (IsVeryVerbose())
