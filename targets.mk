@@ -1,6 +1,8 @@
 PLATFORMS := linux win
 
-ALL_LINUX_TARGETS := i386 x86_64 aarch64 mipsel mips64el
+ALL_TARGETS := i386 x86_64 aarch64 mipsel mips64el
+
+ALL_LINUX_TARGETS := $(ALL_TARGETS)
 ALL_WIN_TARGETS   := i386 x86_64
 
 HOST_TARGET := x86_64
