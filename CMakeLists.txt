@@ -21,9 +21,7 @@ function(jove_add_boost)
   set(BOOST_STACKTRACE_ENABLE_NOOP           OFF CACHE BOOL "" FORCE)
   set(BOOST_STACKTRACE_ENABLE_BASIC          OFF CACHE BOOL "" FORCE)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
-    #
-    # --wrap appears to be broken on MIPS
-    #
+    # lld's --wrap appears to be broken on MIPS (FIXME)
     set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION OFF CACHE BOOL "" FORCE)
   else()
     set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION ON CACHE BOOL "" FORCE)
