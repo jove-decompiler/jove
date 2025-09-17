@@ -179,7 +179,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     ${qemu_build_dir}/libqemu4jove-${arch}.a
     -Wl,--pop-state
 
-    -pthread
     glib-2.0
 
     atomic
@@ -189,21 +188,24 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     ffi
   )
 
-  target_link_libraries(jove-${arch} PRIVATE Boost::system)
-  target_link_libraries(jove-${arch} PRIVATE Boost::filesystem)
-  target_link_libraries(jove-${arch} PRIVATE Boost::serialization)
-  target_link_libraries(jove-${arch} PRIVATE Boost::interprocess)
-  target_link_libraries(jove-${arch} PRIVATE Boost::dll)
-  target_link_libraries(jove-${arch} PRIVATE Boost::graph)
-  target_link_libraries(jove-${arch} PRIVATE Boost::format)
-  target_link_libraries(jove-${arch} PRIVATE Boost::icl)
-  target_link_libraries(jove-${arch} PRIVATE Boost::lockfree)
-  target_link_libraries(jove-${arch} PRIVATE Boost::scope)
-# target_link_libraries(jove-${arch}
-#   PUBLIC
+  #
+  # <3 boost
+  #
+  target_link_libraries(jove-${arch}
+    PRIVATE
+      Boost::system
+      Boost::filesystem
+      Boost::serialization
+      Boost::interprocess
+      Boost::dll
+      Boost::graph
+      Boost::format
+      Boost::icl
+      Boost::lockfree
+      Boost::scope
 #     Boost::stacktrace
 #     Boost::stacktrace_from_exception
-# )
+  )
 
   target_compile_definitions(boost_stacktrace_backtrace PRIVATE
     "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
@@ -215,7 +217,9 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     -Wl,--pop-state
   )
 
-  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$") # [no threads] (FIXME) # lld's --wrap is broken on mips (FIXME)
+    target_link_libraries(jove-${arch} PRIVATE -pthread)
+
     if(JOVE_STATIC_BUILD)
       # this is the magic we need for static-linking
       target_link_options(jove-${arch} PRIVATE  "-Wl,--wrap=__cxa_allocate_exception")
