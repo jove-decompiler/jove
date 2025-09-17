@@ -72,7 +72,6 @@ runtime_cflags = -std=gnu11 \
                  -fno-stack-protector \
                  -fno-stack-check \
                  -fno-delete-null-pointer-checks \
-                 -fwrapv \
                  -fno-strict-overflow \
                  -fno-plt
 
