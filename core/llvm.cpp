@@ -2232,6 +2232,9 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
         //  for __environ would cause the assignment of __environ here to be
         //  overwritten by _jove_do_emulate_copy_relocations. XXX
         //
+        // FIXME can we fix this once and for all by doing
+        // _jove_do_emulate_copy_relocations() in an IFunc resolver?
+        //
         if (RelSym.Name == "__environ") {
           WithColor::note() << "ignoring __environ COPY relocation\n";
           return;
