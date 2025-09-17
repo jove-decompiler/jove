@@ -4,42 +4,35 @@ endif()
 
 option(JOVE_HAVE_MEMFD "memfd_create(2) exists, implies Linux >= 3.17" OFF)
 
+#
 # we are *not* using libc++, so the following should be O.K.
+#
 add_definitions(-DBOOST_STACKTRACE_LIBCXX_RUNTIME_MAY_CAUSE_MEMORY_LEAK)
 
-# Find boost.
 #
-# By default, we build a bundled one and statically-link the library
-# to jove. If you want to link to the system's libboost_-*.so, pass
-# -DJOVE_USE_SYSTEM_BOOST=ON.
-option(JOVE_USE_SYSTEM_BOOST "Use system or vendored boost" OFF)
-if(JOVE_USE_SYSTEM_BOOST)
-  find_package(boost_system 1.85 REQUIRED)
-  find_package(boost_filesystem 1.85 REQUIRED)
-  find_package(boost_serialization 1.85 REQUIRED)
-else()
-  function(jove_add_boost)
-    set(BUILD_SHARED_LIBS OFF)
-    set(BUILD_TESTING OFF)
-    set(BOOST_INCLUDE_LIBRARIES system filesystem serialization interprocess dll graph format icl lockfree stacktrace)
-    set(BOOST_STACKTRACE_ENABLE_BACKTRACE      ON  CACHE BOOL "" FORCE)
-    set(BOOST_STACKTRACE_ENABLE_ADDR2LINE      OFF CACHE BOOL "" FORCE)
-    set(BOOST_STACKTRACE_ENABLE_NOOP           OFF CACHE BOOL "" FORCE)
-    set(BOOST_STACKTRACE_ENABLE_BASIC          OFF CACHE BOOL "" FORCE)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
-      #
-      # --wrap appears to be broken on MIPS
-      #
-      set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION OFF CACHE BOOL "" FORCE)
-    else()
-      set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION ON CACHE BOOL "" FORCE)
-    endif()
-    add_subdirectory(boost EXCLUDE_FROM_ALL)
-    #target_compile_definitions(boost PRIVATE BOOST_NO_RTTI)
-  endfunction()
+# boost
+#
+function(jove_add_boost)
+  set(BUILD_SHARED_LIBS OFF)
+  set(BUILD_TESTING OFF)
+  set(BOOST_INCLUDE_LIBRARIES system filesystem serialization interprocess dll graph format icl lockfree stacktrace)
+  set(BOOST_STACKTRACE_ENABLE_BACKTRACE      ON  CACHE BOOL "" FORCE)
+  set(BOOST_STACKTRACE_ENABLE_ADDR2LINE      OFF CACHE BOOL "" FORCE)
+  set(BOOST_STACKTRACE_ENABLE_NOOP           OFF CACHE BOOL "" FORCE)
+  set(BOOST_STACKTRACE_ENABLE_BASIC          OFF CACHE BOOL "" FORCE)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
+    #
+    # --wrap appears to be broken on MIPS
+    #
+    set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION OFF CACHE BOOL "" FORCE)
+  else()
+    set(BOOST_STACKTRACE_ENABLE_FROM_EXCEPTION ON CACHE BOOL "" FORCE)
+  endif()
+  add_subdirectory(boost EXCLUDE_FROM_ALL)
+  #target_compile_definitions(boost PRIVATE BOOST_NO_RTTI)
+endfunction()
 
-  jove_add_boost()
-endif()
+jove_add_boost()
 
 option(JOVE_USE_SYSTEM_TBB "Use system or vendored TBB" OFF)
 
@@ -62,6 +55,9 @@ if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
   endif()
 endif()
 
+#
+# Intel Processor Trace
+#
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86|i[3-6]86|x86_64)$")
   function(jove_add_ipt)
     set(CMAKE_INCLUDE_CURRENT_DIR OFF)
@@ -84,5 +80,4 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86|i[3-6]86|x86_64)$")
 endif ()
 
 set(JOVE_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-
 add_subdirectory(tools)
