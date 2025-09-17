@@ -15,7 +15,7 @@ else()
 endif()
 
 set(JOVE_TOOL_FLAGS
-  "-fwrapv"
+  "-fno-strict-overflow"
 
   "-D_GNU_SOURCE"
   "-D_FILE_OFFSET_BITS=64"
