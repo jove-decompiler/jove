@@ -2,25 +2,6 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
-static inline std::string taddr2str(taddr_t x, bool zero_padded = true) {
-  std::stringstream stream;
-  stream << "0x";
-  if (zero_padded)
-    stream << std::setfill('0') << std::setw(sizeof(taddr_t) * 2);
-  stream << std::hex << x;
-  return stream.str();
-}
-
-constexpr bool is_taddr_valid(taddr_t Addr) {
-#ifdef NDEBUG
-  // the following is equivalent to Addr != 0UL && Addr != ~0UL
-  return !!((Addr + taddr_t(1)) & taddr_t(~1ull));
-#else
-  // same as the top except also covers uninit_taddr (and one **)
-  return !!((Addr + taddr_t(2)) & taddr_t(~3ull));
-#endif
-}
-
 constexpr unsigned IsMIPSTarget =
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
     1

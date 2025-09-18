@@ -102,6 +102,7 @@ struct jv_base_t;
 template <bool MT, bool MinSize>
 struct binary_base_t;
 
+#include "jove/addr.h.inc"
 #include "jove/terminator.h.inc"
 #include "jove/mt.h.inc"
 #include "jove/possibly_concurrent.h.inc"

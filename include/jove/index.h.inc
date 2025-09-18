@@ -25,15 +25,6 @@ constexpr dynamic_target_t
 constexpr block_t
     invalid_block(invalid_binary_index,
                   invalid_basic_block_index);
-constexpr taddr_t invalid_taddr = std::numeric_limits<taddr_t>::max();
-
-#ifdef NDEBUG
-constexpr taddr_t uninit_taddr = invalid_taddr;
-constexpr bool is_taddr_init(taddr_t) { return true; }
-#else
-constexpr taddr_t uninit_taddr = invalid_taddr - 1;
-constexpr bool is_taddr_init(taddr_t Addr) { return Addr != uninit_taddr; }
-#endif
 
 constexpr bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
