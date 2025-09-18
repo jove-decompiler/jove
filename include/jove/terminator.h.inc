@@ -65,8 +65,8 @@ static inline const char *description_of_terminator(TERMINATOR TermTy) {
 }
 
 struct terminator_info_t {
-  TERMINATOR Type;
-  taddr_t Addr;
+  TERMINATOR Type = TERMINATOR::UNKNOWN;
+  taddr_t Addr = uninit_taddr;
 
   struct {
     struct {
