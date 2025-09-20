@@ -178,11 +178,11 @@ public:
       if constexpr (CanReserve)
         x.reserve(N_B);
 
-      for (binary_index_t BIdx = N; BIdx < N_B - 1; ++BIdx) {
+      for (binary_index_t TheBIdx = N; TheBIdx < BIdx; ++TheBIdx) {
         if constexpr (std::is_void_v<BinaryStateTy>) {
           x.emplace_back();
         } else {
-          x.emplace_back(jv.Binaries.at(BIdx), FunctionStateContainer(), BasicBlockStateContainer());
+          x.emplace_back(jv.Binaries.at(TheBIdx), FunctionStateContainer(), BasicBlockStateContainer());
         }
       }
 
@@ -212,8 +212,8 @@ public:
       if constexpr (CanReserve)
         y.reserve(N_F);
 
-      for (function_index_t FIdx = N; FIdx < N_F - 1; ++FIdx)
-        y.emplace_back(b.Analysis.Functions.at(FIdx), b);
+      for (function_index_t TheFIdx = N; TheFIdx < FIdx; ++TheFIdx)
+        y.emplace_back(b.Analysis.Functions.at(TheFIdx), b);
 
       // we already have a reference to f
       y.emplace_back(f, b);
@@ -237,8 +237,8 @@ public:
       if constexpr (CanReserve)
         y.reserve(N_BB);
 
-      for (basic_block_index_t BBIdx = N; BBIdx < N_BB - 1; ++BBIdx)
-        y.emplace_back(b, basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG));
+      for (basic_block_index_t TheBBIdx = N; TheBBIdx < BBIdx; ++TheBBIdx)
+        y.emplace_back(b, basic_block_of_index<MT>(TheBBIdx, b.Analysis.ICFG));
 
       // we already have bb
       y.emplace_back(b, bb);
