@@ -3,13 +3,18 @@ set -e
 set -o pipefail
 set -x
 
-EXTRACONF="--enable-jove"
+TRIPLE="x86_64-linux-gnu"
+
+OURCFLAGS=\
+"--target=$TRIPLE"
 
 THE_CC=clang-19
 THE_CXX=clang++-19
 THE_AR=llvm-ar-19
 THE_RANLIB=llvm-ranlib-19
 THE_LD=ld.lld-19
+
+EXTRACONF="--enable-jove"
 
 TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user"
 
@@ -52,6 +57,7 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --enable-lto \
   --enable-pie \
   --disable-werror \
+  --extra-cflags="$OURCFLAGS" \
   --disable-docs \
   --enable-tools \
   --disable-install-blobs \

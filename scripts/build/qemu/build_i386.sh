@@ -3,13 +3,18 @@ set -e
 set -o pipefail
 set -x
 
-EXTRACONF="--enable-jove"
+TRIPLE="i686-linux-gnu"
+
+OURCFLAGS=\
+"--target=$TRIPLE"
 
 THE_CC=clang-19
 THE_CXX=clang++-19
 THE_AR=llvm-ar-19
 THE_RANLIB=llvm-ranlib-19
 THE_LD=ld.lld-19
+
+EXTRACONF="--enable-jove"
 
 if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
@@ -37,6 +42,7 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --cxx=$THE_CXX \
   --objcc=$THE_CC \
   --disable-werror \
+  --extra-cflags="$OURCFLAGS" \
   --cross-prefix=i686-linux-gnu- \
   --cpu=i386 \
   --enable-tcg-interpreter \
