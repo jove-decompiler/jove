@@ -165,18 +165,20 @@ public:
   void update(const binary_base_t<MT, MinSize> &b) /* accomodate b */
     requires(!Eager && !std::is_void_v<BinaryStateTy>)
   {
+    const unsigned N = x.size();
+
     const binary_index_t BIdx = index_of_binary<MT>(b, jv);
-    if (BIdx < x.size())
+    if (BIdx < N)
       return; /* no action required */
 
     const unsigned N_B = BIdx + 1;
     if constexpr (LazyInitialization) {
-      x.resize(std::max<unsigned>(N_B, x.size()));
+      x.resize(std::max<unsigned>(N_B, N));
     } else {
       if constexpr (CanReserve)
         x.reserve(N_B);
 
-      for (binary_index_t BIdx = x.size(); BIdx < N_B - 1; ++BIdx) {
+      for (binary_index_t BIdx = N; BIdx < N_B - 1; ++BIdx) {
         if constexpr (std::is_void_v<BinaryStateTy>) {
           x.emplace_back();
         } else {
@@ -197,18 +199,20 @@ public:
               FunctionStateContainer &y) /* accomodate f */
     requires(!Eager && !std::is_void_v<FunctionStateTy>)
   {
+    const unsigned N = y.size();
+
     const function_index_t FIdx = index_of_function_in_binary<MT>(f, b);
-    if (FIdx < y.size())
+    if (FIdx < N)
       return; /* no action required */
 
     const unsigned N_F = FIdx + 1;
     if constexpr (LazyInitialization) {
-      y.resize(std::max<unsigned>(N_F, y.size()));
+      y.resize(std::max<unsigned>(N_F, N));
     } else {
       if constexpr (CanReserve)
         y.reserve(N_F);
 
-      for (function_index_t FIdx = y.size(); FIdx < N_F - 1; ++FIdx)
+      for (function_index_t FIdx = N; FIdx < N_F - 1; ++FIdx)
         y.emplace_back(b.Analysis.Functions.at(FIdx), b);
 
       // we already have a reference to f
@@ -220,18 +224,20 @@ public:
               BasicBlockStateContainer &y) /* accomodate bb */
     requires(!Eager && !std::is_void_v<BasicBlockStateTy>)
   {
+    const unsigned N = y.size();
+
     const basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
-    if (BBIdx < y.size())
+    if (BBIdx < N)
       return; /* no action required */
 
     const unsigned N_BB = BBIdx + 1;
     if constexpr (LazyInitialization) {
-      y.resize(std::max<unsigned>(N_BB, y.size()));
+      y.resize(std::max<unsigned>(N_BB, N));
     } else {
       if constexpr (CanReserve)
         y.reserve(N_BB);
 
-      for (basic_block_index_t BBIdx = y.size(); BBIdx < N_BB - 1; ++BBIdx)
+      for (basic_block_index_t BBIdx = N; BBIdx < N_BB - 1; ++BBIdx)
         y.emplace_back(b, basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG));
 
       // we already have bb
