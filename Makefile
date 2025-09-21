@@ -347,14 +347,14 @@ $(BINDIR)/$(1)/qemu-$(1).bitcode.cut: $(call qemu_softfpu_bitcode,$(1),linux) | 
 	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp.3
 	rm $$@.tmp.3
 
-$(BINDIR)/$(1)/helpers/linux/%.bc: $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
-	$(OUR_LLVM_OPT) -o $$@.tmp $$< -passes=internalize --internalize-public-api-list=helper_$$*
+$(BINDIR)/$(1)/helpers/linux/%.bc: | $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
+	$(OUR_LLVM_OPT) -o $$@.tmp $(BINDIR)/$(1)/qemu-$(1).bitcode.cut -passes=internalize --internalize-public-api-list=helper_$$*
 	$(OUR_LLVM_OPT) -o $$@.dbg -O3 $$@.tmp
 	@rm $$@.tmp
 	$(OUR_LLVM_OPT) -o $$@ --strip-debug $$@.dbg
 
-$(BINDIR)/$(1)/helpers/win/%.bc: $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
-	$(OUR_LLVM_OPT) -o $$@.tmp $$< -passes=internalize --internalize-public-api-list=helper_$$*
+$(BINDIR)/$(1)/helpers/win/%.bc: | $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
+	$(OUR_LLVM_OPT) -o $$@.tmp $(BINDIR)/$(1)/qemu-$(1).bitcode.cut -passes=internalize --internalize-public-api-list=helper_$$*
 	$(OUR_LLVM_OPT) -o $$@.dbg -O3 $$@.tmp
 	@rm $$@.tmp
 	$(OUR_LLVM_OPT) -o $$@ --strip-debug $$@.dbg
