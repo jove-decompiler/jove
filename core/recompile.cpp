@@ -642,8 +642,6 @@ int recompiler_t<MT, MinSize>::go(void) {
     }
   }
 
-  std::vector<dso_t> Q;
-
   Q.reserve(top_sorted.size());
   for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -664,11 +662,27 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // run jove-llvm and llc on all DSOs
   //
+#if 0
   std::for_each(
     maybe_par_unseq,
     Q.begin(),
     Q.end(),
     std::bind(&recompiler_t::worker, this, std::placeholders::_1));
+#else
+  {
+    std::vector<std::thread> workers;
+
+    unsigned num_threads = num_cpus();
+
+    workers.reserve(num_threads);
+    for (unsigned i = 0; i < num_threads; ++i)
+      //workers.emplace_back(&recompiler_t::worker, this);
+      workers.push_back(std::thread(&recompiler_t::worker, this));
+
+    for (std::thread &t : workers)
+      t.join();
+  }
+#endif
 
   auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -1135,7 +1149,18 @@ int recompiler_t<MT, MinSize>::go(void) {
 }
 
 template <bool MT, bool MinSize>
-void recompiler_t<MT, MinSize>::worker(dso_t dso) {
+void recompiler_t<MT, MinSize>::worker(void) {
+  dso_t dso = ({
+    std::lock_guard<std::mutex> lck(Q_mtx);
+
+    if (Q.empty())
+      return;
+
+    dso_t the_dso = Q.back();
+    Q.resize(Q.size() - 1);
+    the_dso;
+  });
+
   int rc;
 
   binary_index_t BIdx = dso_graph[dso].BIdx;

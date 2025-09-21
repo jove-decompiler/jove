@@ -5,10 +5,6 @@
 #include "../qemu/include/jove.h"
 #include "asm-offsets-linux.h" /* FIXME!!! */
 
-static TCGContext *get_tcg_context() {
-  return (TCGContext *)jv_get_tcg_context();
-}
-
 #include "brkpt.h"
 #include "analyze.h"
 #include "win.h"
@@ -104,6 +100,8 @@ typedef boost::format fmt;
   do {                                                                         \
     this->warning(__FILE__, __LINE__);                                         \
   } while (false)
+
+TCGContext *get_tcg_context(void); /* FIXME */
 
 template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {

@@ -15,7 +15,6 @@ extern "C" void tcg_register_thread(void);
 static __THREAD_IF_WE_ARE_MT llvm::object::Binary *jv_Bin;
 static __THREAD_IF_WE_ARE_MT uint64_t jv_end_pc;
 static __THREAD_IF_WE_ARE_MT jove::terminator_info_t jv_ti;
-static __THREAD_IF_WE_ARE_MT unsigned has_register_thread;
 
 extern "C" void *_jv_g2h(uint64_t Addr) {
   if (unlikely(!jv_Bin))
@@ -142,15 +141,27 @@ static const uint8_t starter_bin_bytes[] = {
 #include "qemu-starter.inc"
 };
 
-static std::mutex libqemu_init_mtx;
-static bool did_init_libqemu = false;
+TCGContext *get_tcg_context(void) /* FIXME */ {
+  static __THREAD_IF_WE_ARE_MT bool registered = false;
+
+  if (!registered) {
+    registered = true;
+
+    tcg_register_thread();
+  }
+
+  return tcg_ctx;
+}
 
 tiny_code_generator_t::tiny_code_generator_t() {
   {
-    std::unique_lock<std::mutex> lck(libqemu_init_mtx);
+    static std::mutex mtx;
+    static bool inited = false;
 
-    if (!did_init_libqemu) {
-      did_init_libqemu = true;
+    std::unique_lock<std::mutex> lck(mtx);
+
+    if (!inited) {
+      inited = true;
 
       temp_exe the_exe(&starter_bin_bytes[0],
                        sizeof(starter_bin_bytes),
@@ -180,10 +191,8 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   CPUState *const cs = jv_cpu;
   assert(cs);
 
-  if (!has_register_thread) {
-    has_register_thread = 1;
-    tcg_register_thread();
-  }
+  TCGContext *const s = get_tcg_context();
+  assert(s);
 
   unsigned tb_size = 0;
 
@@ -221,9 +230,6 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   }
 
   tb.cflags |= CF_NOIRQ;
-
-  TCGContext *const s = tcg_ctx;
-  assert(s);
 
   s->cpu = cs;
   s->gen_tb = &tb;

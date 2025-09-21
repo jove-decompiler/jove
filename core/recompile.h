@@ -148,6 +148,8 @@ class recompiler_t {
 
   dso_graph_t dso_graph;
 
+  std::mutex Q_mtx;
+  std::vector<dso_t> Q;
   std::atomic<bool> worker_failed = false;
 
   const std::string &temporary_dir(void) const { return opts.temp_dir; }
@@ -170,7 +172,7 @@ public:
   int go(void);
 
 private:
-  void worker(dso_t dso);
+  void worker(void);
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
   binary_index_t ChooseBinaryWithSoname(const std::string &soname);
