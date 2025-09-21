@@ -1005,9 +1005,9 @@ int recompiler_t<MT, MinSize>::go(void) {
         if (opts.IsVeryVerbose()) {
           Arg("/verbose");
 
-	  Arg("/map:" + chrooted_path.string() + ".link.map");
-	  Arg("/mapinfo:exports");
-	}
+          Arg("/map:" + chrooted_path.string() + ".link.map");
+          Arg("/mapinfo:exports");
+        }
 
         Arg(std::string("/machine:") + (IsTarget32 ? "x86" : "x64"));
 
@@ -1407,7 +1407,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
 #elif defined(TARGET_I386)
             Arg("-mattr=+sse2");
 #elif defined(TARGET_MIPS32)
-	    Arg("-mno-check-zero-division");
+            Arg("-mno-check-zero-division");
 #endif
           },
           std::string(),
