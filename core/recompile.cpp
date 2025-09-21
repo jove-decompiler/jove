@@ -52,7 +52,7 @@ static inline void print_command(const char **argv) {
 
 typedef boost::format fmt;
 
-static std::atomic<bool> Cancel(false);
+static std::atomic<bool> Cancel = false;
 
 static void handle_sigint(int);
 
@@ -187,12 +187,12 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // sanity checks for output path
   //
-  if (fs::exists(fs::path(opts.Output))) {
+  if (fs::exists(path_to_output)) {
     if (opts.IsVerbose())
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts.Output);
   } else {
-    if (!fs::create_directories(opts.Output)) {
+    if (!fs::create_directories(path_to_output)) {
       WithColor::error() << llvm::formatv(
           "failed to create directory at \"{0}\"", opts.Output);
       return 1;
@@ -203,11 +203,11 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // create symlink back to jv
   //
-  if (fs::exists(fs::path(opts.Output) / ".jv")) // delete any stale symlinks
-    fs::remove(fs::path(opts.Output) / ".jv");
+  if (fs::exists(path_to_output / ".jv")) // delete any stale symlinks
+    fs::remove(path_to_output / ".jv");
 
   fs::create_symlink(fs::canonical(get_path_to_jv()),
-                     fs::path(opts.Output) / ".jv");
+                     path_to_output / ".jv");
 #endif
 
   //
@@ -227,7 +227,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     }
   }
 
-  if (Cancel) {
+  if (Cancel.load(std::memory_order_relaxed)) {
     WithColor::note() << "Canceled.\n";
     return 1;
   }
@@ -245,7 +245,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
 
     if (b.is_file())
-      x.chrooted_path = fs::path(opts.Output) / b.path_str();
+      x.chrooted_path = path_to_output / b.path_str();
 
     //
     // what is this binary called as far as dynamic linking goes?
@@ -279,16 +279,16 @@ int recompiler_t<MT, MinSize>::go(void) {
   // create basic directories for sysroot
   //
   {
-    fs::create_directories(fs::path(opts.Output) / "proc");
-    fs::create_directories(fs::path(opts.Output) / "sys");
-    fs::create_directories(fs::path(opts.Output) / "dev");
-    fs::create_directories(fs::path(opts.Output) / "run");
-    fs::create_directories(fs::path(opts.Output) / "tmp");
-    fs::create_directories(fs::path(opts.Output) / "etc");
-    fs::create_directories(fs::path(opts.Output) / "usr" / "bin");
-    fs::create_directories(fs::path(opts.Output) / "usr" / "lib");
-    fs::create_directories(fs::path(opts.Output) / "lib"); /* XXX? */
-    fs::create_directories(fs::path(opts.Output) / "var" / "run");
+    fs::create_directories(path_to_output / "proc");
+    fs::create_directories(path_to_output / "sys");
+    fs::create_directories(path_to_output / "dev");
+    fs::create_directories(path_to_output / "run");
+    fs::create_directories(path_to_output / "tmp");
+    fs::create_directories(path_to_output / "etc");
+    fs::create_directories(path_to_output / "usr" / "bin");
+    fs::create_directories(path_to_output / "usr" / "lib");
+    fs::create_directories(path_to_output / "lib"); /* XXX? */
+    fs::create_directories(path_to_output / "var" / "run");
   }
 
   //
@@ -307,7 +307,8 @@ int recompiler_t<MT, MinSize>::go(void) {
     //
     // we have the binary data in the jv. let's use it
     //
-    fs::path ldso_path = fs::path(temporary_dir()) / "ld.so";
+    fs::path ldso_path(temporary_dir());
+    ldso_path /= "ld.so";
 
     fs::create_directories(chrooted_path.parent_path());
 
@@ -362,7 +363,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   else
   {
     fs::path chrooted_path =
-        fs::path(opts.Output) / "usr" / "lib" / "libjove_rt.so";
+        path_to_output / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy_file(locator().runtime_so(opts.RuntimeMT), chrooted_path,
@@ -373,13 +374,13 @@ int recompiler_t<MT, MinSize>::go(void) {
     // the following
     //
     if (!fs::equivalent(chrooted_path,
-                        fs::path(opts.Output) / "lib" / "libjove_rt.so")) {
-      fs::create_directories(fs::path(opts.Output) / "lib");
+                        path_to_output / "lib" / "libjove_rt.so")) {
+      fs::create_directories(path_to_output / "lib");
 
       try {
         // XXX some dynamic linkers only look in /lib
         fs::copy_file(locator().runtime_so(opts.RuntimeMT),
-                      fs::path(opts.Output) / "lib" / "libjove_rt.so",
+                      path_to_output / "lib" / "libjove_rt.so",
                       fs::copy_options::overwrite_existing);
       } catch (...) {
         ;
@@ -395,17 +396,17 @@ int recompiler_t<MT, MinSize>::go(void) {
 
     {
       fs::path chrooted_path =
-          fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename;
+          path_to_output / "usr" / "lib" / dfsan_rt_filename;
 
       fs::copy_file(locator().dfsan_runtime(), chrooted_path,
                     fs::copy_options::overwrite_existing);
     }
 
-    if (!fs::equivalent(fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename,
-                        fs::path(opts.Output) / "lib" / dfsan_rt_filename)) {
+    if (!fs::equivalent(path_to_output / "usr" / "lib" / dfsan_rt_filename,
+                        path_to_output / "lib" / dfsan_rt_filename)) {
       /* XXX some dynamic linkers only look in /lib */
       fs::path chrooted_path =
-          fs::path(opts.Output) / "lib" / dfsan_rt_filename;
+          path_to_output / "lib" / dfsan_rt_filename;
 
       fs::copy_file(locator().dfsan_runtime(), chrooted_path,
                     fs::copy_options::overwrite_existing);
@@ -416,18 +417,18 @@ int recompiler_t<MT, MinSize>::go(void) {
   // additional stuff for DFSan
   //
   if (opts.DFSan) {
-    fs::create_directories(fs::path(opts.Output) / "jove");
-    fs::create_directories(fs::path(opts.Output) / "dfsan");
+    fs::create_directories(path_to_output / "jove");
+    fs::create_directories(path_to_output / "dfsan");
 
     {
       std::ofstream ofs(
-          (fs::path(opts.Output) / "jove" / "BinaryPathsTable.txt").c_str());
+          (path_to_output / "jove" / "BinaryPathsTable.txt").c_str());
 
       for (const auto &binary : jv.Binaries)
         ofs << binary.Name.c_str() << '\n';
     }
 
-    fs::create_directories(fs::path(opts.Output) / "jove" /
+    fs::create_directories(path_to_output / "jove" /
                            "BinaryBlockAddrTables");
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
@@ -435,7 +436,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       auto &ICFG = binary.Analysis.ICFG;
 
       {
-        std::ofstream ofs((fs::path(opts.Output) / "jove" /
+        std::ofstream ofs((path_to_output / "jove" /
                            "BinaryBlockAddrTables" / std::to_string(BIdx))
                               .c_str());
 
@@ -686,7 +687,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
   auto t2 = std::chrono::high_resolution_clock::now();
 
-  if (worker_failed.load())
+  if (worker_failed.load(std::memory_order_relaxed))
     return 1;
 
   std::chrono::duration<double> s_double = t2 - t1;
@@ -700,7 +701,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   // linker to produce each recompiled DSO, this solves "unable to find library"
   // errors XXX
   //
-  for_each_binary(maybe_par_unseq, jv, [&](auto &b) {
+  for_each_binary(/* maybe_par_unseq, */ jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -739,7 +740,8 @@ int recompiler_t<MT, MinSize>::go(void) {
       // create symlink
       //
       if (binary_filename != x.soname) {
-        fs::path dst = chrooted_path.parent_path() / x.soname;
+        fs::path dst(chrooted_path.parent_path());
+        dst /= x.soname;
         if (fs::exists(dst))
           fs::remove(dst);
 
@@ -764,7 +766,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     });
   });
 
-  for_each_binary(maybe_par_unseq, jv, [&](auto &b) {
+  for_each_binary(/* maybe_par_unseq, */ jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -817,7 +819,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
     const auto &chrooted_path = x.chrooted_path;
 
-    std::string binary_filename = fs::path(b.path_str()).filename().string();
+    std::string binary_filename = fs::path(b.path()).filename().string();
 
     std::string objfp(chrooted_path.string() + ".o");
     std::string mapfp(chrooted_path.string() + ".map");
@@ -1150,6 +1152,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
 template <bool MT, bool MinSize>
 void recompiler_t<MT, MinSize>::worker(void) {
+  for (;;) {
   dso_t dso = ({
     std::lock_guard<std::mutex> lck(Q_mtx);
 
@@ -1190,7 +1193,7 @@ void recompiler_t<MT, MinSize>::worker(void) {
   std::string ldfp(chrooted_path.string() + ".ld");
   std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
-  std::string bytecode_loc = (fs::path(opts.Output) / "dfsan").string();
+  std::string bytecode_loc = (path_to_output / "dfsan").string();
 
   //
   // run jove-llvm
@@ -1311,7 +1314,7 @@ void recompiler_t<MT, MinSize>::worker(void) {
   // check exit code
   //
   if (rc) {
-    worker_failed.store(true);
+    worker_failed.store(true, std::memory_order_relaxed);
     if (opts.IsVerbose()) {
       WithColor::error() << llvm::formatv("jove llvm failed on {0}!\n",
                                           binary_filename);
@@ -1337,12 +1340,12 @@ void recompiler_t<MT, MinSize>::worker(void) {
                   fs::copy_options::overwrite_existing);
   }
 
-  oneapi::tbb::parallel_invoke(
-        [&](void) -> void {
+  std::array<pid_t, 3> pidarr;
+  pidarr[0] =
           //
           // run llvm-dis on bitcode
           //
-          RunExecutableToExit(locator().dis(), [&](auto Arg) {
+          RunExecutable(locator().dis(), [&](auto Arg) {
             nice(10);
 
             Arg(locator().dis());
@@ -1357,12 +1360,11 @@ void recompiler_t<MT, MinSize>::worker(void) {
               print_command(argv);
             }
           });
-        },
-        [&](void) -> void {
+ pidarr[1] =
           //
           // run opt on bitcode to generate stripped ll
           //
-          RunExecutableToExit(locator().opt(), [&](auto Arg) {
+          RunExecutable(locator().opt(), [&](auto Arg) {
             nice(10);
 
             Arg(locator().opt());
@@ -1379,12 +1381,11 @@ void recompiler_t<MT, MinSize>::worker(void) {
               print_command(argv);
             }
           });
-        },
-        [&](void) -> void {
+ pidarr[2] =
           //
           // run llc
           //
-          rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
+          RunExecutable(locator().llc(), [&](auto Arg) {
             Arg(locator().llc());
 
             Arg("-o");
@@ -1442,18 +1443,22 @@ void recompiler_t<MT, MinSize>::worker(void) {
               print_command(argv);
             }
           });
-        }
-      );
+
+ int rc0 = WaitForProcessToExit(pidarr[0]);
+ int rc1 = WaitForProcessToExit(pidarr[1]);
+ int rc2 = WaitForProcessToExit(pidarr[2]);
 
   //
   // check exit code
   //
-  if (rc) {
-    worker_failed = true;
+  if (rc2) {
+    worker_failed.store(true, std::memory_order_relaxed);
+
     WithColor::error() << llvm::formatv("llc failed for {0}\n",
                                         binary_filename);
 
     return;
+  }
   }
 }
 
@@ -1468,7 +1473,7 @@ void recompiler_t<MT, MinSize>::write_dso_graphviz(
 }
 
 void handle_sigint(int no) {
-  Cancel.store(true);
+  Cancel.store(true, std::memory_order_relaxed);
 }
 
 template <bool MT, bool MinSize>
@@ -1479,11 +1484,13 @@ recompiler_t<MT, MinSize>::ChooseBinaryWithSoname(const std::string &soname) {
     return invalid_binary_index;
 
   binary_index_t Res = invalid_binary_index;
-  fs::path exe_parent = fs::path(jv.Binaries.at(0).path()).parent_path();
+  fs::path exe_parent(jv.Binaries.at(0).path());
+  exe_parent = exe_parent.parent_path();
   const auto &BIdxSet = (*it).second;
   for (binary_index_t BIdx : BIdxSet) {
     auto &otherb = jv.Binaries.at(BIdx);
-    fs::path parent = fs::path(otherb.path()).parent_path();
+    fs::path parent(otherb.path());
+    parent = parent.parent_path();
     if (exe_parent == parent) {
       Res = BIdx; /* in same dir */
       break;

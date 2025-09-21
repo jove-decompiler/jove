@@ -107,6 +107,8 @@ class recompiler_t {
   const llvm_options_t llvm_options; /* created from opts */
   const analyzer_options_t analyzer_options;
 
+  const boost::filesystem::path path_to_output;
+
   disas_t &disas;
   tiny_code_generator_t &TCG;
 
@@ -163,6 +165,7 @@ public:
                locator_t &locator_)
       : jv(jv), opts(opts), llvm_options(opts.to_llvm_options()),
         analyzer_options(opts.to_analyzer_options()),
+        path_to_output(opts.Output),
         disas(disas),
         TCG(TCG),
         locator_(locator_), state(jv),
