@@ -112,9 +112,6 @@ extern "C" void jv_illegal_op(uint64_t PC) {
   throw jove::illegal_op_exception(PC);
 }
 
-
-extern CPUState *jv_cpu;
-
 namespace jove {
 
 int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
@@ -153,27 +150,27 @@ TCGContext *get_tcg_context(void) /* FIXME */ {
   return tcg_ctx;
 }
 
+static CPUState *get_cpu_state(void) {
+  (void)get_tcg_context();
+
+  return thread_cpu;
+}
+
 tiny_code_generator_t::tiny_code_generator_t() {
-  {
-    static std::mutex mtx;
-    static bool inited = false;
+  static std::mutex mtx;
+  static bool inited = false;
 
-    std::unique_lock<std::mutex> lck(mtx);
+  std::unique_lock<std::mutex> lck(mtx);
 
-    if (!inited) {
-      inited = true;
+  if (!inited) {
+    inited = true;
 
-      temp_exe the_exe(&starter_bin_bytes[0],
-                       sizeof(starter_bin_bytes),
-                       "qemu-starter-" TARGET_ARCH_NAME);
-      the_exe.store();
+    temp_exe the_exe(&starter_bin_bytes[0], sizeof(starter_bin_bytes),
+                     "qemu-starter-" TARGET_ARCH_NAME);
+    the_exe.store();
 
-      jv_init_libqemu(the_exe.path().c_str());
-    }
+    jv_init_libqemu(the_exe.path().c_str());
   }
-
-  CPUState *const cs = jv_cpu;
-  cs->tcg_cflags |= CF_PARALLEL; /* XXX */
 }
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
@@ -188,8 +185,9 @@ void tiny_code_generator_t::dump_ops(FILE *out) {
 
 std::pair<unsigned, terminator_info_t>
 tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
-  CPUState *const cs = jv_cpu;
+  CPUState *const cs = get_cpu_state();
   assert(cs);
+  cs->tcg_cflags |= CF_PARALLEL; /* XXX */
 
   TCGContext *const s = get_tcg_context();
   assert(s);
