@@ -54,9 +54,8 @@ static void crash_signal_handler(int no) {
   setpriority(PRIO_PROCESS, 0, 7);
 
   for (;;) {
-    if (robust_write(STDERR_FILENO, msg, len) != len ||
-        robust_write(STDOUT_FILENO, msg, len) != len)
-      dump_to_somewhere(msg);
+    if (robust_write(STDERR_FILENO, msg, len) != len)
+      robust_write(STDOUT_FILENO, msg, len);
 
     do {} while (sleep(1) < 0 && errno == EINTR);
   }
