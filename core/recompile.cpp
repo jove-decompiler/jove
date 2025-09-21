@@ -1303,7 +1303,7 @@ void recompiler_t<MT, MinSize>::worker(void) {
     llvm_opts.Output = bcfp;
     llvm_opts.BinaryIndex = std::to_string(BIdx);
 
-    llvm_t llvm(jv, llvm_opts, analyzer_options, TCG, Context, locator());
+    llvm_t llvm(jv, llvm_opts, analyzer_options, disas, TCG, Context, locator());
     rc = llvm.go();
   }
 

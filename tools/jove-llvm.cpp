@@ -199,6 +199,7 @@ public:
 JOVE_REGISTER_TOOL("llvm", LLVMTool);
 
 int LLVMTool::Run(void) {
+  disas_t disas;
   tiny_code_generator_t TCG;
 
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
@@ -252,7 +253,7 @@ int LLVMTool::Run(void) {
   analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
 
   llvm::LLVMContext Context;
-  llvm_t llvm(jv, llvm_options, analyzer_options, TCG, Context, locator());
+  llvm_t llvm(jv, llvm_options, analyzer_options, disas, TCG, Context, locator());
   return llvm.go();
 }
 

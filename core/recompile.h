@@ -107,6 +107,7 @@ class recompiler_t {
   const llvm_options_t llvm_options; /* created from opts */
   const analyzer_options_t analyzer_options;
 
+  disas_t &disas;
   tiny_code_generator_t &TCG;
 
   locator_t &locator_;
@@ -157,10 +158,13 @@ class recompiler_t {
 
 public:
   recompiler_t(const jv_t &jv, const recompiler_options_t &opts,
+               disas_t &disas,
                tiny_code_generator_t &TCG,
                locator_t &locator_)
       : jv(jv), opts(opts), llvm_options(opts.to_llvm_options()),
-        analyzer_options(opts.to_analyzer_options()), TCG(TCG),
+        analyzer_options(opts.to_analyzer_options()),
+        disas(disas),
+        TCG(TCG),
         locator_(locator_), state(jv),
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
     if (IsCOFF) {

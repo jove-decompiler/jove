@@ -443,6 +443,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
       B::is_coff(*Bin);
     });
 
+    disas_t disas;
     tiny_code_generator_t TCG;
     llvm::LLVMContext Context;
 
@@ -464,7 +465,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     fs::create_directory(sysroot_dir);
 
     rc = ({
-    recompiler_t recompiler(jv, recompiler_opts, TCG, locator());
+    recompiler_t recompiler(jv, recompiler_opts, disas, TCG, locator());
     recompiler.go();
     });
 

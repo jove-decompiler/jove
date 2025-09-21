@@ -166,6 +166,7 @@ public:
 JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
 int RecompileTool::Run(void) {
+  disas_t disas;
   tiny_code_generator_t TCG;
 
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
@@ -204,7 +205,7 @@ int RecompileTool::Run(void) {
 
   options.temp_dir = temporary_dir();
 
-  recompiler_t recompiler(jv, options, TCG, locator());
+  recompiler_t recompiler(jv, options, disas, TCG, locator());
   return recompiler.go();
 }
 

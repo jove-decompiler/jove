@@ -268,6 +268,7 @@ class llvm_t {
   std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
   helpers_context_t helpers;
 
+  disas_t &disas;
   tiny_code_generator_t &TCG;
 
   llvm::DataLayout DL;
@@ -285,8 +286,6 @@ class llvm_t {
 
   std::vector<unordered_set<std::string_view>> bin_paths_vec;
   llvm::GlobalVariable *binNamesTable;
-
-  disas_t disas;
 
   unordered_set<uint64_t> ConstantRelocationLocs;
   uint64_t libcEarlyInitAddr = 0;
@@ -436,12 +435,13 @@ class llvm_t {
 public:
   llvm_t(const jv_t &jv, const llvm_options_t &llvm_options,
          const analyzer_options_t &analyzer_options,
+         disas_t &disas,
          tiny_code_generator_t &TCG,
          llvm::LLVMContext &Context,
          locator_t &locator_)
       : jv(jv), opts(llvm_options), analyzer_options(analyzer_options),
         locator_(locator_), Context(Context),
-        state(jv), TCG(TCG), DL("") {}
+        state(jv), disas(disas), TCG(TCG), DL("") {}
 
   int go(void);
 
