@@ -232,9 +232,8 @@ int main(int argc, char **argv) {
   } catch (const std::exception &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
-    WithColor::error() << llvm::formatv("std::exception thrown: {0}\n{1}",
-                                        x.what(),
-                                        boost::stacktrace::to_string(trace));
+    llvm::errs() << llvm::formatv("{0}\n{1}", x.what(),
+                                  boost::stacktrace::to_string(trace));
   } catch (...) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
