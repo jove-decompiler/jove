@@ -60,7 +60,7 @@ std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
 
   llvm::object::Binary &Bin = *TheBin;
 
-  bool Suitable = is_elf(Bin) || is_coff(Bin);
+  bool Suitable = is_elf(Bin) || is_coff(Bin); /* FIXME this is not enough */
   if (!Suitable) {
     std::string Desc;
 
