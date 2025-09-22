@@ -655,6 +655,7 @@ struct function_analysis_t {
   }
 
   template <bool MT, bool MinSize>
+  [[clang::always_inline]]
   unsigned numCallers(const jv_base_t<MT, MinSize> &) const noexcept {
     return numCallers<MT, MinSize>();
   }
@@ -663,6 +664,7 @@ struct function_analysis_t {
   bool AddCaller(const caller_t &) noexcept;
 
   template <bool MT, bool MinSize>
+  [[clang::always_inline]]
   bool AddCaller(const jv_base_t<MT, MinSize> &,
                  const caller_t &caller) noexcept {
     return AddCaller<MT, MinSize>(caller);
