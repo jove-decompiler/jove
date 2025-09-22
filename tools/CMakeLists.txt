@@ -121,7 +121,6 @@ set(JOVE_SOURCES
     ../core/tcg.cpp
     ../core/temp.cpp
     ../core/tool.cpp # has to come before all the tools
-    ../core/triple.cpp
     ../core/util.cpp
     ../core/vdso.cpp
     ../core/win.cpp

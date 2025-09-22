@@ -37,6 +37,24 @@ TargetNameOfArchType(llvm::Triple::ArchType TheTripleArchType) {
   throw std::runtime_error("unrecognized llvm::Triple::ArchType!");
 }
 
-llvm::Triple getTargetTriple(bool IsCOFF = false);
+static constexpr llvm::Triple getTargetTriple(bool IsCOFF = false) {
+  llvm::Triple res;
+
+  res.setObjectFormat(IsCOFF ? llvm::Triple::COFF : llvm::Triple::ELF);
+  res.setOS(IsCOFF ? llvm::Triple::Win32 : llvm::Triple::Linux);
+
+  llvm::Triple::EnvironmentType Env =
+#if defined(TARGET_MIPS64)
+      llvm::Triple::GNUABI64
+#else
+      llvm::Triple::GNU
+#endif
+      ;
+
+  res.setEnvironment(Env);
+  res.setArch(TripleArchType);
+
+  return res;
+}
 
 }
