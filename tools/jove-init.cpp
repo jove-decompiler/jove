@@ -237,7 +237,7 @@ int InitTool::Run(void) {
 
   if (IsVerbose()) {
     for (const std::string &binary_path : binary_paths)
-      llvm::errs() << "binary path: " << binary_path << '\n';
+      llvm::errs() << llvm::formatv("  \"{0}\"\n", binary_path);
   }
 
   const unsigned N = binary_paths.size() + 3;
