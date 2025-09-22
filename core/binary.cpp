@@ -19,8 +19,7 @@ void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
   using OurDynTargets_t = DynTargets_t<MT, MinSize>;
   using OtherDynTargets_t = DynTargets_t<!MT, MinSize>;
 
-  segment_manager_t *const sm = sm_.get();
-  assert(sm);
+  segment_manager_t &sm = get_segment_manager();
 
   for_each_basic_block_in_binary(maybe_par_unseq, *this, [&](bb_t bb) {
     bbprop_t &bbprop = this->ICFG[bb];
@@ -30,9 +29,8 @@ void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
       return;
 
     {
-      segment_manager_t *const bbprop_sm = bbprop.sm_.get();
-      assert(bbprop_sm);
-      assert(bbprop_sm == sm);
+      segment_manager_t &bbprop_sm = get_segment_manager();
+      assert(&bbprop_sm == &sm);
     }
 
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
@@ -48,7 +46,7 @@ void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
 
     static_assert(alignof(OurDynTargets_t) >= 4);
     void *mem =
-        sm->allocate_aligned(sizeof(OurDynTargets_t), alignof(OurDynTargets_t));
+        sm.allocate_aligned(sizeof(OurDynTargets_t), alignof(OurDynTargets_t));
     assert(mem);
 
     uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(
@@ -60,7 +58,7 @@ void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
                              std::memory_order_relaxed);
 
     pOtherDynTargets->~OtherDynTargets_t();
-    sm->deallocate(pOtherDynTargets);
+    sm.deallocate(pOtherDynTargets);
   });
 }
 
@@ -69,15 +67,14 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
   using OurCallers_t = Callers_t<MT, MinSize>;
   using OtherCallers_t = Callers_t<!MT, MinSize>;
 
-  segment_manager_t *const sm = sm_.get();
-  assert(sm);
+  segment_manager_t &sm = get_segment_manager();
 
   for_each_function_in_binary(maybe_par_unseq, *this, [&](function_t &f) {
     void *const p = f.Analysis.pCallers.load(std::memory_order_relaxed);
     if (!p)
       return;
 
-    assert(f.Analysis.get_segment_manager() == sm);
+    assert(&f.Analysis.get_segment_manager() == &sm);
 
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool TheMT      = !!(p_addr & 1u);
@@ -92,7 +89,7 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
 
     static_assert(alignof(OurCallers_t) >= 4);
     void *mem =
-        sm->allocate_aligned(sizeof(OurCallers_t), alignof(OurCallers_t));
+        sm.allocate_aligned(sizeof(OurCallers_t), alignof(OurCallers_t));
     assert(mem);
 
     uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(
@@ -104,7 +101,7 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
                               std::memory_order_relaxed);
 
     pOtherCallers->~OtherCallers_t();
-    sm->deallocate(pOtherCallers);
+    sm.deallocate(pOtherCallers);
   });
 }
 

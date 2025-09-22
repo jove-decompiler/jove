@@ -550,7 +550,6 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
       addr |= (jove::IsMT_hack ? 1u : 0u) | (jove::IsMinSize_hack ? 2u : 0u);  \
       bbprop.pDynTargets.store(reinterpret_cast<void *>(addr),                 \
                                std::memory_order_relaxed);                     \
-      bbprop.sm_ = sm;                                                         \
     }                                                                          \
     return;                                                                    \
   }
@@ -686,17 +685,16 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
   out.hack_interprocess_graphs();
 
-  // XXX
+  // FIXME?
   using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;
   for_each_basic_block(maybe_par_unseq, out,
                        [&](auto &b, bb_t bb) {
                          auto &ICFG = b.Analysis.ICFG;
                          bbprop_t &bbprop = ICFG[bb];
 
-                         assert(b.EmptyFIdxVec);
-                         bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
-
-                         bbprop.sm_ = jv_file.get_segment_manager();
+                         ip_func_index_vec *const pEmptyFIdxVec = b.EmptyFIdxVec.get().get();
+                         assert(pEmptyFIdxVec);
+                         bbprop.Parents.template set<false>(*pEmptyFIdxVec);
                        });
 }
 

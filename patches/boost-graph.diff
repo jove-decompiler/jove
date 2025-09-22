@@ -482,7 +482,7 @@ index 113143a7..7c750c54 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index 5358fdba..13a9b30b 100644
+index 5358fdba..9fbab2c6 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
 @@ -323,40 +323,60 @@ namespace detail
@@ -866,7 +866,14 @@ index 5358fdba..13a9b30b 100644
              typedef typename OutEdgeIterTraits::difference_type OutEdgeIterDiff;
  
              typedef out_edge_iter< OutEdgeIter, vertex_descriptor,
-@@ -2420,75 +2454,79 @@ namespace detail
+@@ -2413,82 +2447,89 @@ namespace detail
+             typedef typename EdgeIterTraits::iterator_category EdgeIterCat;
+             typedef typename EdgeIterTraits::difference_type EdgeIterDiff;
+ 
+             typedef undirected_edge_iter< EdgeIter, edge_descriptor,
+                 EdgeIterDiff >
+                 UndirectedEdgeIter; // also used for bidirectional
+ 
              typedef adj_list_edge_iterator< vertex_iterator, out_edge_iterator,
                  graph_type >
                  DirectedEdgeIter;
@@ -880,6 +887,8 @@ index 5358fdba..13a9b30b 100644
              struct seq_stored_vertex
              {
                  seq_stored_vertex() {}
++                template<class... _AllocArg>
++                seq_stored_vertex(_AllocArg&&... AllocArg) : m_property(std::forward<_AllocArg>(AllocArg)...), m_out_edges(std::forward<_AllocArg>(AllocArg)...) {}
                  seq_stored_vertex(const VertexProperty& p) : m_property(p) {}
                  OutEdgeList m_out_edges;
                  VertexProperty m_property;
@@ -889,7 +898,7 @@ index 5358fdba..13a9b30b 100644
              {
 -                bidir_seq_stored_vertex() {}
 +                template<class... _AllocArg>
-+                bidir_seq_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...)  {}
++                bidir_seq_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...)  {}
                  bidir_seq_stored_vertex(const VertexProperty& p) : m_property(p)
                  {
                  }
@@ -902,8 +911,9 @@ index 5358fdba..13a9b30b 100644
              {
 -                rand_stored_vertex() {}
 +                template<class... _AllocArg>
-+                rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...) {}
++                rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
                  rand_stored_vertex(const VertexProperty& p) : m_property(p) {}
++                rand_stored_vertex() = default;
                  OutEdgeList m_out_edges;
                  VertexProperty m_property;
              };
@@ -911,7 +921,7 @@ index 5358fdba..13a9b30b 100644
              {
 -                bidir_rand_stored_vertex() {}
 +                template<class... _AllocArg>
-+                bidir_rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...) {}
++                bidir_rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
                  bidir_rand_stored_vertex(const VertexProperty& p)
                  : m_property(p)
                  {

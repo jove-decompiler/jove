@@ -7,14 +7,6 @@
 namespace jove {
 
 template <bool MT, bool MinSize>
-function_t::function_t(binary_base_t<MT, MinSize> &b,
-                       function_index_t Idx) noexcept
-    : BIdx(b.Idx /* could be invalid */), Idx(Idx),
-      Analysis(b.get_segment_manager()) {}
-
-function_t::function_t(segment_manager_t *sm) noexcept : Analysis(sm) {}
-
-template <bool MT, bool MinSize>
 bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   using OurCallers_t = Callers_t<MT, MinSize>;
 
@@ -34,8 +26,7 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   //
   // otherwise...
   //
-  segment_manager_t *const sm = sm_.get();
-  assert(sm);
+  segment_manager_t &sm = get_segment_manager();
 
   static_assert(alignof(OurCallers_t) >= 4);
   unsigned align = alignof(OurCallers_t);
@@ -43,9 +34,9 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
     align = std::max<unsigned>(align,
                                boost::unordered::detail::foa::cacheline_size);
 
-  void *mem = sm->allocate_aligned(sizeof(OurCallers_t), align);
+  void *mem = sm.allocate_aligned(sizeof(OurCallers_t), align);
   assert(mem);
-  OurCallers_t *const pTheCallers = new (mem) OurCallers_t(sm);
+  OurCallers_t *const pTheCallers = new (mem) OurCallers_t(&sm);
 
   uintptr_t addr = reinterpret_cast<uintptr_t>(pTheCallers);
   assert(addr);
@@ -63,7 +54,7 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
     }
 
     pTheCallers->~OurCallers_t();
-    sm->deallocate(pTheCallers);
+    sm.deallocate(pTheCallers);
 
     uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
     bool The_MT      = !!(expected_addr & 1u);
@@ -91,6 +82,8 @@ function_analysis_t::~function_analysis_t() noexcept {
     bool MinSize = !!(addr & 2u);
     addr &= ~3ULL;
 
+    segment_manager_t &sm = get_segment_manager();
+
 #define MT_POSSIBILTIES                                                        \
     ((true))                                                                   \
     ((false))
@@ -106,9 +99,8 @@ function_analysis_t::~function_analysis_t() noexcept {
     using OurCallers_t = Callers_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),   \
                                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;  \
     assert(addr);                                                              \
-    assert(sm_);                                                               \
     reinterpret_cast<OurCallers_t *>(addr)->~OurCallers_t();                   \
-    sm_->deallocate(reinterpret_cast<OurCallers_t *>(addr));                   \
+    sm.deallocate(reinterpret_cast<OurCallers_t *>(addr));                     \
     addr = 0;                                                                  \
   }
 
@@ -130,7 +122,7 @@ function_analysis_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
 
     Res = this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
     if (likely(!is_call_graph_index_valid(Res))) {
-      Res = RCG.index_of_add_vertex(jv.get_segment_manager());
+      Res = RCG.index_of_add_vertex(&jv.get_segment_manager());
       this->ReverseCGVertIdxHolder.Idx.store(Res, std::memory_order_relaxed);
 
       dynamic_target_t X = target_of_function(*this);
@@ -154,10 +146,6 @@ function_analysis_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, product)                                             \
-  template function_t::function_t(                                             \
-      binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \
-                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,               \
-      function_index_t Idx);                                                   \
   template ip_call_graph_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::vertex_descriptor \
   function_analysis_t::ReverseCGVert(                                          \
       jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \

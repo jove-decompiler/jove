@@ -1434,7 +1434,7 @@ protected:
     try {
       bool IsNewBlock = false;
 
-      static bbprop_t dummy_bbprop;
+      static bbprop_t dummy_bbprop(&jv.get_segment_manager());
       std::reference_wrapper<bbprop_t> the_new_bbprop(dummy_bbprop);
 
       auto obp = [&](bb_t the_bb,

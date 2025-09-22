@@ -73,7 +73,7 @@ void jv_base_t<MT, MinSize>::LookupAndCacheHash(
   std::string_view sv(path);
 
   if constexpr (MT) {
-    ip_string ips(get_segment_manager());
+    ip_string ips(&get_segment_manager());
     to_ips(ips, sv);
 
     this->cached_hashes.try_emplace_or_visit(
@@ -85,7 +85,7 @@ void jv_base_t<MT, MinSize>::LookupAndCacheHash(
   } else {
     auto it = this->cached_hashes.find(sv);
     if (it == this->cached_hashes.end()) {
-      ip_string ips(get_segment_manager());
+      ip_string ips(&get_segment_manager());
       to_ips(ips, sv);
 
       bool succ = this->cached_hashes
@@ -221,7 +221,7 @@ jv_base_t<MT, MinSize>::Add(jv_file_t &jv_file,
 
   binary_t &b_ = this->Binaries.at(Res);
 
-  ip_binary_index_set ResSet(get_segment_manager());
+  ip_binary_index_set ResSet(&get_segment_manager());
   ResSet.insert(Res);
 
   bool isNewName = false;
@@ -303,13 +303,13 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     return std::make_pair(invalid_binary_index, false);
   }
 
-  ip_binary_index_set ResSet(get_segment_manager());
+  ip_binary_index_set ResSet(&get_segment_manager());
   ResSet.insert(Res);
 
   bool isNewName = false;
   std::string_view name_sv(name);
   if constexpr (MT) {
-    ip_string name_ips(get_segment_manager());
+    ip_string name_ips(&get_segment_manager());
     to_ips(name_ips, name_sv);
 
     isNewName = this->name_to_binaries.try_emplace_or_visit(
@@ -318,7 +318,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
   } else {
     auto it = this->name_to_binaries.find(name_sv);
     if (it == this->name_to_binaries.end()) {
-      ip_string name_ips(get_segment_manager());
+      ip_string name_ips(&get_segment_manager());
       to_ips(name_ips, name_sv);
 
       isNewName = this->name_to_binaries
@@ -517,7 +517,7 @@ void jv_base_t<MT, MinSize>::fixup(jv_file_t& jv_file) {
 template <bool MT, bool MinSize>
 jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
                                   jv_file_t &jv_file) noexcept
-    : sm_(jv_file.get_segment_manager()),
+    : psm(jv_file.get_segment_manager()),
       Binaries(jv_file),
       Analysis(std::move(other.Analysis)),
       hash_to_binary(std::move(other.hash_to_binary)),

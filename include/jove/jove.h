@@ -140,12 +140,12 @@ typedef boost::interprocess::map<
 
 template <bool MT>
 struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
-  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+  boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
   boost::interprocess::offset_ptr<bbmap_t> map = nullptr;
 
   BBMap_t() = delete;
   explicit BBMap_t(jv_file_t &jv_file) noexcept
-      : sm_(jv_file.get_segment_manager()),
+      : psm(jv_file.get_segment_manager()),
         map(ip_construct<bbmap_t>(*jv_file.get_segment_manager(),
                                   jv_file.get_segment_manager())) {}
 
@@ -154,10 +154,10 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
     auto e_lck_us = this->exclusive_access();
     auto e_lck = other.exclusive_access();
 
-    std::swap(sm_, other.sm_);
+    std::swap(psm, other.psm);
     std::swap(map, other.map);
 
-    assert(sm_);
+    assert(psm);
     assert(map);
   }
 
@@ -178,10 +178,10 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
     auto e_lck_us = this->exclusive_access();
     auto e_lck = other.exclusive_access();
 
-    std::swap(sm_, other.sm_);
+    std::swap(psm, other.psm);
     std::swap(map, other.map);
 
-    assert(sm_);
+    assert(psm);
     assert(map);
 
     return *this;
@@ -191,9 +191,9 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
   BBMap_t &operator=(const BBMap_t &) = delete;
 
   segment_manager_t &get_segment_manager(void) const {
-    segment_manager_t *const sm = sm_.get();
-    assert(sm);
-    return *sm;
+    segment_manager_t *const the_sm = psm.get();
+    assert(the_sm);
+    return *the_sm;
   }
 };
 
@@ -356,7 +356,13 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   } Term;
 
   atomic_offset_ptr<void> pDynTargets = nullptr;
-  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+  boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
+
+  segment_manager_t &get_segment_manager(void) const {
+    segment_manager_t *const the_psm = psm.get();
+    assert(the_psm);
+    return *the_psm;
+  }
 
   bool Sj = false;
   bb_analysis_t Analysis;
@@ -459,7 +465,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   void InvalidateAnalysis(jv_base_t<MT, MinSize> &,
                           binary_base_t<MT, MinSize> &);
 
-  explicit bbprop_t() noexcept = default;
+  explicit bbprop_t() = delete;
+  explicit bbprop_t(segment_manager_t *psm) noexcept : psm(psm) {}
 
   explicit bbprop_t(bbprop_t &&other) noexcept = default;
   bbprop_t &operator=(bbprop_t &&other) noexcept = default;
@@ -557,7 +564,10 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
 }
 
 struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
-  dynamic_target_t X;
+  dynamic_target_t X = invalid_dynamic_target;
+
+  ip_call_graph_node_properties_t() noexcept = default;
+  ip_call_graph_node_properties_t(segment_manager_t *) noexcept {}
 };
 
 template <bool MT>
@@ -577,7 +587,7 @@ template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 
 struct function_analysis_t {
-  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+  boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
 
   tcg_global_set_t args;
   tcg_global_set_t rets;
@@ -613,10 +623,10 @@ struct function_analysis_t {
     }
   } ReverseCGVertIdxHolder;
 
-  segment_manager_t *get_segment_manager(void) const {
-    segment_manager_t *const sm = sm_.get();
-    assert(sm);
-    return sm;
+  segment_manager_t &get_segment_manager(void) const {
+    segment_manager_t *const the_psm = psm.get();
+    assert(the_psm);
+    return *the_psm;
   }
 
   bool hasCaller(void) const noexcept {
@@ -690,11 +700,11 @@ struct function_analysis_t {
   ip_call_graph_base_t<MT>::vertex_descriptor
   ReverseCGVert(jv_base_t<MT, MinSize> &);
 
-  explicit function_analysis_t(segment_manager_t *sm) noexcept : sm_(sm) {}
+  explicit function_analysis_t(segment_manager_t *psm) noexcept : psm(psm) {}
   explicit function_analysis_t() = delete;
 
   explicit function_analysis_t(function_analysis_t &&other) noexcept
-      : sm_(other.sm_),
+      : psm(other.psm),
         args(other.args),
         rets(other.rets),
         ReverseCGVertIdxHolder(std::move(other.ReverseCGVertIdxHolder)) {
@@ -707,7 +717,7 @@ struct function_analysis_t {
   }
 
   function_analysis_t &operator=(function_analysis_t &&other) noexcept {
-    sm_ = other.sm_;
+    psm = other.psm;
     args = other.args;
     rets = other.rets;
     ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
@@ -742,7 +752,7 @@ struct function_t {
 
   function_analysis_t Analysis;
 
-  segment_manager_t *get_segment_manager(void) const {
+  segment_manager_t &get_segment_manager(void) const {
     return Analysis.get_segment_manager();
   }
 
@@ -751,8 +761,11 @@ struct function_t {
   }
 
   template <bool MT, bool MinSize>
-  explicit function_t(binary_base_t<MT, MinSize> &, function_index_t) noexcept;
-  explicit function_t(segment_manager_t *) noexcept; /* XXX used by serialize */
+  function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noexcept
+      : BIdx(b.Idx /* could be invalid */), Idx(Idx),
+        Analysis(&b.get_segment_manager()) {}
+  explicit function_t(segment_manager_t *psm) noexcept // XXX used by serialize
+      : Analysis(psm) {}
   explicit function_t() = delete;
 
   explicit function_t(function_t &&) noexcept = default;
@@ -769,7 +782,7 @@ struct binary_analysis_t {
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
   using bb_vec_t = std::vector<bb_t>;
 
-  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+  boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
 
   function_index_t EntryFunction = invalid_function_index;
 
@@ -793,7 +806,7 @@ struct binary_analysis_t {
   binary_analysis_t &operator=(const binary_analysis_t &) = delete;
 
   explicit binary_analysis_t(jv_file_t &jv_file) noexcept
-      : sm_(jv_file.get_segment_manager()),
+      : psm(jv_file.get_segment_manager()),
         Functions(jv_file),
         ICFG(jv_file),
         objdump_thinks(jv_file.get_segment_manager()) {
@@ -802,7 +815,7 @@ struct binary_analysis_t {
 
   template <bool MT2>
   explicit binary_analysis_t(binary_analysis_t<MT2, MinSize> &&other) noexcept
-      : sm_(other.sm_),
+      : psm(other.psm),
         EntryFunction(std::move(other.EntryFunction)),
         Functions(std::move(other.Functions)),
         ICFG(std::move(other.ICFG)),
@@ -821,7 +834,7 @@ struct binary_analysis_t {
         return *this;
     }
 
-    sm_ = other.sm_;
+    psm = other.psm;
     EntryFunction = other.EntryFunction;
     Functions = std::move(other.Functions);
     ICFG = std::move(other.ICFG);
@@ -844,10 +857,10 @@ struct binary_analysis_t {
                    MT>
       objdump_thinks;
 
-  segment_manager_t *get_segment_manager(void) const {
-    segment_manager_t *const sm = sm_.get();
-    assert(sm);
-    return sm;
+  segment_manager_t &get_segment_manager(void) const {
+    segment_manager_t *const the_psm = psm.get();
+    assert(the_psm);
+    return *the_psm;
   }
 
 private:
@@ -929,7 +942,7 @@ struct binary_base_t {
     return !Name.empty() && Name.front() == '[' && Name.back() == ']';
   }
 
-  segment_manager_t *get_segment_manager(void) const {
+  segment_manager_t &get_segment_manager(void) const {
     return Analysis.get_segment_manager();
   }
 
@@ -1024,7 +1037,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT, MinSize> &b,
 
   auto &ICFG = b.Analysis.ICFG;
 
-  basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_segment_manager());
+  basic_block_index_t Idx = ICFG.index_of_add_vertex(&b.get_segment_manager());
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
   bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
@@ -1155,7 +1168,7 @@ struct jv_base_t {
   using binary_t = binary_base_t<MT, MinSize>;
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
-  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+  boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
 
   //
   // references to binary_t will never be invalidated.
@@ -1219,13 +1232,14 @@ struct jv_base_t {
 
   void clear(bool everything = false);
 
-  segment_manager_t *get_segment_manager(void) const {
-    assert(sm_);
-    return sm_.get();
+  segment_manager_t &get_segment_manager(void) const {
+    segment_manager_t *const the_psm = psm.get();
+    assert(the_psm);
+    return *the_psm;
   }
 
   explicit jv_base_t(jv_file_t &jv_file) noexcept
-      : sm_(jv_file.get_segment_manager()),
+      : psm(jv_file.get_segment_manager()),
         Binaries(jv_file),
         Analysis(jv_file),
         hash_to_binary(jv_file.get_segment_manager()),
@@ -1234,7 +1248,7 @@ struct jv_base_t {
 
   explicit jv_base_t(jv_base_t<MT, MinSize> &&other,
                      jv_file_t &jv_file) noexcept
-      : sm_(jv_file.get_segment_manager()),
+      : psm(jv_file.get_segment_manager()),
         Binaries(std::move(other.Binaries)),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),

@@ -43,34 +43,45 @@ bbprop_t::~bbprop_t() noexcept {
     pDynTargets.store(nullptr, std::memory_order_relaxed);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
-    bool MT      = !!(addr & 1u);
-    bool MinSize = !!(addr & 2u);
+
+    const unsigned tag = addr & 0x3u;
+    const bool MT      = !!(addr & 1u);
+    const bool MinSize = !!(addr & 2u);
+
     addr &= ~3ULL;
 
-#define MT_POSSIBILTIES                                                        \
-    ((true))                                                                   \
-    ((false))
-#define MINSIZE_POSSIBILTIES                                                   \
-    ((true))                                                                   \
-    ((false))
+    segment_manager_t &sm = get_segment_manager();
 
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+#define MT_POSSIBILTIES  \
+    (0)                  \
+    (1)
+#define MINSIZE_POSSIBILTIES \
+    (0)                      \
+    (1)
 
-#define DYNTARGETS_CASE(r, product)                                            \
-  if (MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&                   \
-      MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {                   \
-    using OurDynTargets_t =                                                    \
-        DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                 \
-                     GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;                \
-    assert(addr);                                                              \
-    assert(sm_);                                                               \
-    reinterpret_cast<OurDynTargets_t *>(addr)->~OurDynTargets_t();             \
-    sm_->deallocate(reinterpret_cast<OurDynTargets_t *>(addr));                \
-    addr = 0;                                                                  \
+#define DYNTARGETS_ENTRY(r, product) \
+  [(BOOST_PP_SEQ_ELEM(0, product) |  \
+   (BOOST_PP_SEQ_ELEM(1, product) << 1))] = &&BOOST_PP_CAT(do_,BOOST_PP_CAT(BOOST_PP_SEQ_ELEM(0, product),BOOST_PP_SEQ_ELEM(1, product))) ,
+
+    static const void *const table[4] = {
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DYNTARGETS_ENTRY, (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+    };
+
+    goto *table[tag];
+
+#define DYNTARGETS_CASE(r, product)                                                           \
+  BOOST_PP_CAT(do_,BOOST_PP_CAT(BOOST_PP_SEQ_ELEM(0, product),BOOST_PP_SEQ_ELEM(1, product))) : {\
+    using TheDynTargets_t =                                        \
+        DynTargets_t<BOOST_PP_SEQ_ELEM(0, product),                \
+                     BOOST_PP_SEQ_ELEM(1, product)>;               \
+    reinterpret_cast<TheDynTargets_t *>(addr)->~TheDynTargets_t(); \
+    sm.deallocate(reinterpret_cast<TheDynTargets_t *>(addr));      \
+    goto out;                                                      \
   }
 
-    BOOST_PP_SEQ_FOR_EACH_PRODUCT(DYNTARGETS_CASE,
-                                  (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DYNTARGETS_CASE, (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+
+out:
   }
 }
 
@@ -80,7 +91,7 @@ void bbprop_t::Parents_t::insert(function_index_t FIdx,
   {
     const ip_func_index_vec &FIdxVec = get<MT>();
 
-    ip_func_index_vec copy(b.get_segment_manager());
+    ip_func_index_vec copy(&b.get_segment_manager());
     if (!copy_and_insert_sorted(FIdxVec, copy, FIdx))
       return;
 
@@ -111,8 +122,7 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   //
   // otherwise...
   //
-  segment_manager_t *const sm = sm_.get();
-  assert(sm);
+  segment_manager_t &sm = get_segment_manager();
 
   static_assert(alignof(OurDynTargets_t) >= 4);
   unsigned align = alignof(OurDynTargets_t);
@@ -120,10 +130,10 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
     align = std::max<unsigned>(align,
                                boost::unordered::detail::foa::cacheline_size);
 
-  void *mem = sm->allocate_aligned(sizeof(OurDynTargets_t), align);
+  void *mem = sm.allocate_aligned(sizeof(OurDynTargets_t), align);
   assert(mem);
 
-  OurDynTargets_t *const pTheDynTargets = new (mem) OurDynTargets_t(sm);
+  OurDynTargets_t *const pTheDynTargets = new (mem) OurDynTargets_t(&sm);
 
   uintptr_t addr = reinterpret_cast<uintptr_t>(pTheDynTargets);
   assert(addr);
@@ -141,7 +151,7 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
     }
 
     pTheDynTargets->~OurDynTargets_t();
-    sm->deallocate(pTheDynTargets);
+    sm.deallocate(pTheDynTargets);
 
     uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
     bool The_MT      = !!(expected_addr & 1u);

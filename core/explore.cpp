@@ -213,7 +213,6 @@ on_insn:
   bbprop_2.pDynTargets.store(
       bbprop_1.pDynTargets.load(std::memory_order_relaxed),
       std::memory_order_relaxed);
-  bbprop_2.sm_ = jv_file.get_segment_manager();
   bbprop_2.Analysis.Stale.store(true, std::memory_order_relaxed);
   //bbprop_2.InvalidateAnalysis();
 
@@ -574,7 +573,6 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
-    bbprop.sm_ = jv_file.get_segment_manager();
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
     bbprop.Term._conditional_jump.String = T._conditional_jump.String;
