@@ -7,8 +7,6 @@
 
 #ifndef JOVE_NO_BACKEND
 
-#include <oneapi/tbb/parallel_invoke.h>
-
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/filtered_graph.hpp>
