@@ -7,6 +7,7 @@
 #include "tcg.h"
 #include "win.h"
 #include "hash.h"
+#include "signals.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -239,14 +240,12 @@ int InitTool::Run(void) {
       llvm::errs() << "binary path: " << binary_path << '\n';
   }
 
-  jv.clear(); /* point of no return */
-
-  //jv.hash_to_binary.reserve(2048);
-  //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
-
   const unsigned N = binary_paths.size() + 3;
 
-  init_binaries(N, jv_file, jv.Binaries);
+  block_signals([&] {
+    jv.clear(); /* point of no return */
+    init_binaries(N, jv_file, jv.Binaries);
+  });
 
   //
   // add them
