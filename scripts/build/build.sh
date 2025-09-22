@@ -25,7 +25,7 @@ else
 fi
 
 #
-# Retry function for building. Why? because clang-19 segfaults :(
+# retry N times
 #
 retry() {
   local command="$1"
