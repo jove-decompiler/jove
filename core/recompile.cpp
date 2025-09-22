@@ -3,6 +3,7 @@
 #include "triple.h"
 #include "recompile.h"
 #include "llvm.h"
+#include "path.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -1483,12 +1484,12 @@ recompiler_t<MT, MinSize>::ChooseBinaryWithSoname(const std::string &soname) {
 
   binary_index_t Res = invalid_binary_index;
   fs::path exe_parent(jv.Binaries.at(0).path());
-  exe_parent = exe_parent.parent_path();
+  dotdot(exe_parent);
   const auto &BIdxSet = (*it).second;
   for (binary_index_t BIdx : BIdxSet) {
     auto &otherb = jv.Binaries.at(BIdx);
     fs::path parent(otherb.path());
-    parent = parent.parent_path();
+    dotdot(parent);
     if (exe_parent == parent) {
       Res = BIdx; /* in same dir */
       break;
