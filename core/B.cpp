@@ -7,31 +7,6 @@
 namespace jove {
 namespace B {
 
-static llvm::StringRef
-getObjectFormatTypeName(llvm::Triple::ObjectFormatType Kind) {
-  switch (Kind) {
-  case llvm::Triple::UnknownObjectFormat:
-    return "";
-  case llvm::Triple::COFF:
-    return "coff";
-  case llvm::Triple::ELF:
-    return "elf";
-  case llvm::Triple::GOFF:
-    return "goff";
-  case llvm::Triple::MachO:
-    return "macho";
-  case llvm::Triple::Wasm:
-    return "wasm";
-  case llvm::Triple::XCOFF:
-    return "xcoff";
-  case llvm::Triple::DXContainer:
-    return "dxcontainer";
-  case llvm::Triple::SPIRV:
-    return "spirv";
-  }
-  llvm_unreachable("unknown object format type");
-}
-
 std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
   static std::conditional_t<AreWeMT, std::mutex, std::monostate> ContextMtx;
   static std::unique_ptr<llvm::LLVMContext> Context;
@@ -60,21 +35,23 @@ std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
 
   llvm::object::Binary &Bin = *TheBin;
 
-  bool Suitable = is_elf(Bin) || is_coff(Bin); /* FIXME this is not enough */
-  if (!Suitable) {
-    std::string Desc;
+  std::string Desc;
+  const bool Suitable = is_elf(Bin) || is_coff(Bin);
+  if (auto *Obj = llvm::dyn_cast<llvm::object::ObjectFile>(&Bin)) {
+    if (Suitable && Obj->getArch() == TripleArchType)
+      return std::move(TheBin);
 
-    if (auto *Obj = llvm::dyn_cast<llvm::object::ObjectFile>(&Bin)) {
-      llvm::Triple TT = Obj->makeTriple();
-      Desc = TT.str();
-    } else {
-      Desc = std::to_string(Bin.getType());
-    }
-
-    throw std::runtime_error("unexpected binary type (" + Desc + ")");
+    Desc = Obj->makeTriple().str();
+  } else {
+    Desc = "ID#" + std::to_string(Bin.getType());
   }
 
-  return std::move(TheBin);
+  std::string Msg = "unexpected binary type (" + Desc + ")";
+  if (auto *Obj = llvm::dyn_cast<llvm::object::ObjectFile>(&Bin))
+    Msg.append(", did you mean jove-" +
+               std::string(TargetNameOfArchType(Obj->getArch())) + "?");
+
+  throw std::runtime_error(Msg);
 }
 
 }
