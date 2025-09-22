@@ -36,14 +36,6 @@ using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
 struct UnlockTool;
 
-struct __do_nothing_t {
-  template <typename... Args>
-  __do_nothing_t (Args&&...) noexcept {}
-
-  void unlock(void) const {}
-  void lock(void) const {}
-};
-
 template <bool Spin>
 using ip_base_mt_rw_choose_mutex =
     std::conditional_t<Spin, boost::unordered::detail::foa::rw_spinlock,
@@ -71,15 +63,10 @@ struct ip_base_rw_accessible {
   mutable mutex_type mtx;
 
   using mt_shared_lock_guard = ip_base_mt_rw_choose_sharable_lock_guard<Spin>;
+  using mt_exclusive_lock_guard = ip_base_mt_rw_choose_exclusive_lock_guard<Spin>;
 
-  using shared_lock_guard =
-      std::conditional_t<MT, mt_shared_lock_guard, __do_nothing_t>;
-
-  using mt_exclusive_lock_guard =
-      ip_base_mt_rw_choose_exclusive_lock_guard<Spin>;
-
-  using exclusive_lock_guard =
-      std::conditional_t<MT, mt_exclusive_lock_guard, __do_nothing_t>;
+  using shared_lock_guard = std::conditional_t<MT, mt_shared_lock_guard, nop_t>;
+  using exclusive_lock_guard = std::conditional_t<MT, mt_exclusive_lock_guard, nop_t>;
 
   shared_lock_guard shared_access() const {
     return shared_lock_guard{mtx};
@@ -125,17 +112,10 @@ struct ip_mt_base_rw_accessible {
   mutable mutex_type mtx;
 
   using mt_shared_lock_guard = ip_base_mt_rw_choose_sharable_lock_guard<Spin>;
+  using mt_exclusive_lock_guard = ip_base_mt_rw_choose_exclusive_lock_guard<Spin>;
 
-  template <bool MT>
-  using shared_lock_guard =
-      std::conditional_t<MT, mt_shared_lock_guard, __do_nothing_t>;
-
-  using mt_exclusive_lock_guard =
-      ip_base_mt_rw_choose_exclusive_lock_guard<Spin>;
-
-  template <bool MT>
-  using exclusive_lock_guard =
-      std::conditional_t<MT, mt_exclusive_lock_guard, __do_nothing_t>;
+  template <bool MT> using shared_lock_guard = std::conditional_t<MT, mt_shared_lock_guard, nop_t>;
+  template <bool MT> using exclusive_lock_guard = std::conditional_t<MT, mt_exclusive_lock_guard, nop_t>;
 
   template <bool MT> shared_lock_guard<MT> shared_access() const {
     return shared_lock_guard<MT>{mtx};
@@ -192,7 +172,7 @@ struct ip_mt_base_accessible {
 
   template <bool MT>
   using exclusive_lock_guard =
-      std::conditional_t<MT, mt_exclusive_lock_guard, __do_nothing_t>;
+      std::conditional_t<MT, mt_exclusive_lock_guard, nop_t>;
 
   template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
     return exclusive_lock_guard<MT>{mtx};

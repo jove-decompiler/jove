@@ -13,7 +13,7 @@ std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
 
   std::unique_ptr<llvm::object::Binary> TheBin;
   {
-    std::conditional_t<AreWeMT, std::unique_lock<std::mutex>, __do_nothing_t>
+    std::conditional_t<AreWeMT, std::unique_lock<std::mutex>, nop_t>
         lck(ContextMtx);
 
     llvm::LLVMContext *pContext = Context.get();

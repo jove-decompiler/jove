@@ -104,6 +104,7 @@ struct binary_base_t;
 
 #include "jove/addr.h.inc"
 #include "jove/terminator.h.inc"
+#include "jove/nop.h.inc"
 #include "jove/mt.h.inc"
 #include "jove/possibly_concurrent.h.inc"
 #include "jove/index.h.inc"

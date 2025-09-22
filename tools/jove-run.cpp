@@ -656,8 +656,7 @@ int RunTool::DoRun(void) {
             strerror(errno));
 #endif
 
-  using ScopedMayMount =
-      std::conditional_t<WillChroot, ScopedMount, __do_nothing_t>;
+  using ScopedMayMount = std::conditional_t<WillChroot, ScopedMount, nop_t>;
 
   __BEGIN_MOUNTS__
 

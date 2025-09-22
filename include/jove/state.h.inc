@@ -70,11 +70,11 @@ private:
 
   using shared_lock_guard =
       std::conditional_t<MultiThreaded, std::shared_lock<std::shared_mutex>,
-                         __do_nothing_t>;
+                         nop_t>;
 
   using exclusive_lock_guard =
       std::conditional_t<MultiThreaded, std::unique_lock<std::shared_mutex>,
-                         __do_nothing_t>;
+                         nop_t>;
 
   shared_lock_guard shared_access() const { return shared_lock_guard{mtx}; }
   exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{mtx}; }

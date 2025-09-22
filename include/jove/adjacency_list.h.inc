@@ -97,13 +97,13 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 #define VERT_SHARED_ACCESS(ShouldLock, Mutex)                                  \
   typename std::conditional<ShouldLock && MT,                                  \
                             typename VertexProperty::mt_shared_lock_guard,     \
-                            __do_nothing_t>::type                              \
+                            nop_t>::type                                       \
   UNIQUE_VAR_NAME(__s_lck)(Mutex)
 
 #define VERT_EXCLUSIVE_ACCESS(ShouldLock, Mutex)                               \
   typename std::conditional<ShouldLock && MT,                                  \
                             typename VertexProperty::mt_exclusive_lock_guard,  \
-                            __do_nothing_t>::type                              \
+                            nop_t>::type                                       \
   UNIQUE_VAR_NAME(__e_lck)(Mutex)
 
   template <typename... Args>
