@@ -6,9 +6,9 @@
 
 namespace jove {
 
-static bool copy_and_insert_sort(const ip_func_index_vec &old,
-                                 ip_func_index_vec &out,
-                                 function_index_t FIdx) {
+static bool copy_and_insert_sorted(const ip_func_index_vec &old,
+                                   ip_func_index_vec &out,
+                                   function_index_t FIdx) {
   auto it = std::lower_bound(old.cbegin(), old.cend(), FIdx);
 
   //
@@ -81,7 +81,7 @@ void bbprop_t::Parents_t::insert(function_index_t FIdx,
     const ip_func_index_vec &FIdxVec = get<MT>();
 
     ip_func_index_vec copy(b.get_segment_manager());
-    if (!copy_and_insert_sort(FIdxVec, copy, FIdx))
+    if (!copy_and_insert_sorted(FIdxVec, copy, FIdx))
       return;
 
     set<MT>(b.FIdxVecs.Add(boost::move(copy)));
