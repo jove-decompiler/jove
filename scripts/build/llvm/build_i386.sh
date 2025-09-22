@@ -9,6 +9,7 @@ OURCFLAGS=\
 "--target=$TRIPLE"\
 " -gline-tables-only"\
 " -gz=none"\
+" -gsplit-dwarf"\
 " -gdwarf-4"
 
 if [ ! -f build.ninja ]; then

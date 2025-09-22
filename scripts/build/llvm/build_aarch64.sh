@@ -12,6 +12,7 @@ OURCFLAGS=\
 " -gdwarf-4"\
 " -g1"\
 " -gz=none"\
+" -gsplit-dwarf"\
 " -ggdb"
 
 if [ ! -f build.ninja ]; then

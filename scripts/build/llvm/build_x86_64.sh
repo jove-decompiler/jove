@@ -12,6 +12,7 @@ OURCFLAGS=\
 " -mno-omit-leaf-frame-pointer"\
 " -ggdb"\
 " -gz=none"\
+" -gsplit-dwarf"\
 " -gdwarf-4"
 
 cmake -G Ninja \
