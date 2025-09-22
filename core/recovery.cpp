@@ -96,7 +96,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
 
   if (Ambig)
     CallerBinary.FixAmbiguousIndirectJump(
-        TermAddr, E, *state.for_binary(CallerBinary).Bin, jv_file, jv);
+        TermAddr, E, *state.for_binary(CallerBinary).Bin, jv);
 
   callee.InvalidateAnalysis();
   ICFG[bb].InvalidateAnalysis(jv, CallerBinary);
@@ -207,7 +207,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
 
   if (Ambig)
     CallerBinary.FixAmbiguousIndirectJump(
-        TermAddr, E, *state.for_binary(CallerBinary).Bin, jv_file, jv);
+        TermAddr, E, *state.for_binary(CallerBinary).Bin, jv);
 
 #if 0
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);

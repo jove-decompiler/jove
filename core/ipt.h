@@ -1720,7 +1720,7 @@ protected:
       } else if (FrBIdx != ToBIdx) {
         handle_indirect_call();
         fr_b.FixAmbiguousIndirectJump(FrTermAddr, explorer,
-                                      *state.for_binary(fr_b).Bin, jv_file, jv);
+                                      *state.for_binary(fr_b).Bin, jv);
       } else {
         assert(FrBIdx == ToBIdx);
 

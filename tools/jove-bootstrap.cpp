@@ -1409,7 +1409,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (!TermAddr)
           break;
 
-        if (b.FixAmbiguousIndirectJump(TermAddr, *E, *state.for_binary(b).ObjectFile, jv_file, jv))
+        if (b.FixAmbiguousIndirectJump(TermAddr, *E,
+                                       *state.for_binary(b).ObjectFile, jv))
           ++NumChanged;
       }
     });

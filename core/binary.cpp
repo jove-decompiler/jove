@@ -116,7 +116,6 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
     taddr_t TermAddr,
     explorer_t<MT, MinSize> &E,
     llvm::object::Binary &Bin,
-    jv_file_t &jv_file,
     jv_base_t<MT, MinSize> &jv) {
   std::vector<taddr_t> SuccAddrVec;
 

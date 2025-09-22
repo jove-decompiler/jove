@@ -910,7 +910,6 @@ struct binary_base_t {
   bool FixAmbiguousIndirectJump(taddr_t TermAddr,
                                 explorer_t<MT, MinSize> &,
                                 llvm::object::Binary &,
-                                jv_file_t &,
                                 jv_base_t<MT, MinSize> &);
 
   std::string_view data(void) const {
