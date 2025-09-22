@@ -69,7 +69,7 @@ int InitTool::rtld_trace_loaded_objects(const char *prog, std::string &out) {
 
   int rc = RunExecutableToExit(
       prog,
-      [&](auto Arg) { Arg(prog); },
+      process::no_args,
       [&](auto Env) { Env("LD_TRACE_LOADED_OBJECTS=1"); },
       path_to_stdout,
       path_to_stderr);
