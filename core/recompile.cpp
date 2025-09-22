@@ -1346,7 +1346,6 @@ void recompiler_t<MT, MinSize>::worker(void) {
           // run llvm-dis on bitcode
           //
           RunExecutable(locator().dis(), [&](auto Arg) {
-            nice(10);
 
             Arg(locator().dis());
             Arg("-o");
@@ -1356,17 +1355,16 @@ void recompiler_t<MT, MinSize>::worker(void) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVerbose()) {
+            if (opts.IsVerbose())
               print_command(argv);
-            }
+
+            nice(10);
           });
  pidarr[1] =
           //
           // run opt on bitcode to generate stripped ll
           //
           RunExecutable(locator().opt(), [&](auto Arg) {
-            nice(10);
-
             Arg(locator().opt());
             Arg("-o");
             Arg(ll_strip_fp);
@@ -1377,9 +1375,10 @@ void recompiler_t<MT, MinSize>::worker(void) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVerbose()) {
+            if (opts.IsVerbose())
               print_command(argv);
-            }
+
+            nice(10);
           });
  pidarr[2] =
           //
@@ -1439,9 +1438,8 @@ void recompiler_t<MT, MinSize>::worker(void) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVerbose()) {
+            if (opts.IsVerbose())
               print_command(argv);
-            }
           });
 
  int rc0 = WaitForProcessToExit(pidarr[0]);
