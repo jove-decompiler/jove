@@ -8,6 +8,7 @@ TRIPLE="i686-linux-gnu"
 OURCFLAGS=\
 "--target=$TRIPLE"\
 " -gline-tables-only"\
+" -gz=none"\
 " -gdwarf-4"
 
 if [ ! -f build.ninja ]; then

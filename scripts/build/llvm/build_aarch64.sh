@@ -11,6 +11,7 @@ OURCFLAGS=\
 " -O3"\
 " -gdwarf-4"\
 " -g1"\
+" -gz=none"\
 " -ggdb"
 
 if [ ! -f build.ninja ]; then
