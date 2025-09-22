@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <ranges>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -1442,14 +1443,13 @@ void recompiler_t<MT, MinSize>::worker(void) {
               print_command(argv);
           });
 
- int rc0 = WaitForProcessToExit(pidarr[0]);
- int rc1 = WaitForProcessToExit(pidarr[1]);
- int rc2 = WaitForProcessToExit(pidarr[2]);
+  std::array<int, 3> rcarr;
+  std::ranges::transform(pidarr, rcarr.begin(), WaitForProcessToExit);
 
   //
   // check exit code
   //
-  if (rc2) {
+  if (rcarr[2]) {
     worker_failed.store(true, std::memory_order_relaxed);
 
     WithColor::error() << llvm::formatv("llc failed for {0}\n",
