@@ -388,6 +388,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   }
 
   template <bool MT, bool MinSize>
+  [[clang::always_inline]]
   boost::optional<const DynTargets_t<MT, MinSize> &>
   getDynamicTargets(const jv_base_t<MT, MinSize> &) const {
     return getDynamicTargets<MT, MinSize>();
