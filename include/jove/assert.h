@@ -18,6 +18,8 @@ struct StaticString {
   char value[N];
 };
 
+template <size_t N> StaticString(const char (&)[N]) -> StaticString<N>;
+
 struct assertion_failure_base {
   virtual ~assertion_failure_base() {}
 
