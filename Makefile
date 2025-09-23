@@ -63,6 +63,9 @@ runtime_cflags = -std=gnu11 \
                  -Wno-missing-prototypes \
                  -Wno-missing-variable-declarations \
                  -Wno-gnu-zero-variadic-macro-arguments \
+                 -Wno-macro-redefined \
+                 -Wno-c++-compat \
+                 -Wno-padded \
                  -O3 \
                  -g \
                  -ggdb \
