@@ -7,12 +7,10 @@ TRIPLE="aarch64-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"\
-" -fPIE"\
 " -O3"\
 " -gdwarf-4"\
 " -g1"\
 " -gz=none"\
-" -gsplit-dwarf"\
 " -ggdb"
 
 if [ ! -f build.ninja ]; then
@@ -30,7 +28,6 @@ cmake -G Ninja \
   -D CMAKE_CXX_COMPILER=$(which clang++-19) \
   -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
   -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
-  -D "CMAKE_ASM_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=AArch64" \
   -D "JOVE_TARGETS_TO_BUILD=aarch64" \
   -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
@@ -55,7 +52,7 @@ cmake -G Ninja \
   -D LLVM_ENABLE_BACKTRACES=OFF \
   -D LLVM_ENABLE_THREADS=ON \
   -D LLVM_ENABLE_EH=ON \
-  -D LLVM_ENABLE_PIC=ON \
+  -D LLVM_ENABLE_PIC=OFF \
   -D LLVM_ENABLE_LTO=THIN \
   -D JOVE_STATIC_BUILD=ON \
   -D LLVM_BUILD_DOCS=OFF \

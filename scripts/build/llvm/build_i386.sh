@@ -7,10 +7,11 @@ TRIPLE="i686-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"\
-" -gline-tables-only"\
+" -O3"\
+" -gdwarf-4"\
+" -g1"\
 " -gz=none"\
-" -gsplit-dwarf"\
-" -gdwarf-4"
+" -ggdb"
 
 if [ ! -f build.ninja ]; then
 
@@ -24,8 +25,8 @@ cmake -G Ninja \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
   -D CMAKE_C_COMPILER=$(which clang-19) \
   -D CMAKE_CXX_COMPILER=$(which clang++-19) \
-  -D "CMAKE_C_FLAGS=$OURCFLAGS" \
-  -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
+  -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
+  -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=X86" \
   -D "JOVE_TARGETS_TO_BUILD=i386" \
   -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
@@ -51,7 +52,7 @@ cmake -G Ninja \
   -D LLVM_BUILD_32_BITS=ON \
   -D LLVM_ENABLE_BINDINGS=OFF \
   -D LLVM_ENABLE_EH=ON \
-  -D LLVM_ENABLE_PIC=ON \
+  -D LLVM_ENABLE_PIC=OFF \
   -D JOVE_STATIC_BUILD=ON \
   -D LLVM_BUILD_DOCS=OFF \
   -D LLVM_BINUTILS_INCDIR=/usr/include \

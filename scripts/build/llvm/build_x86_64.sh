@@ -5,15 +5,15 @@ set -x
 
 if [ ! -f build.ninja ]; then
 
+TRIPLE="x86_64-linux-gnu"
+
 OURCFLAGS=\
-" -O2"\
-" -g"\
-" -fno-omit-frame-pointer"\
-" -mno-omit-leaf-frame-pointer"\
-" -ggdb"\
+"--target=$TRIPLE"\
+" -O3"\
+" -gdwarf-4"\
+" -g1"\
 " -gz=none"\
-" -gsplit-dwarf"\
-" -gdwarf-4"
+" -ggdb"
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -46,7 +46,7 @@ cmake -G Ninja \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
-      -D LLVM_ENABLE_PIC=ON \
+      -D LLVM_ENABLE_PIC=OFF \
       -D JOVE_STATIC_BUILD=ON \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D LLVM_ENABLE_LTO=OFF \
@@ -63,5 +63,5 @@ if test "$#" -ge 1 ; then
     exit 1
   fi
 else
-  ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/lib/LLVMgold.so llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+  ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
 fi

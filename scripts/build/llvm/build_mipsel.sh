@@ -8,9 +8,10 @@ TRIPLE="mipsel-linux-gnu"
 OURCFLAGS=\
 "--target=$TRIPLE"\
 " -Oz"\
+" -gdwarf-4"\
 " -g1"\
-" -ggdb"\
-" -gdwarf-4"
+" -gz=none"\
+" -ggdb"
 
 if [ ! -f build.ninja ]; then
 

@@ -6,7 +6,15 @@ set -x
 TRIPLE="x86_64-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"
+" --target=$TRIPLE"\
+" -g"\
+" -ggdb"\
+" -gz=none"\
+" -gdwarf-4"
+
+OURLDFLAGS=\
+" -no-pie"\
+" -fuse-ld=lld"
 
 THE_CC=clang-19
 THE_CXX=clang++-19
@@ -14,26 +22,28 @@ THE_AR=llvm-ar-19
 THE_RANLIB=llvm-ranlib-19
 THE_LD=ld.lld-19
 
+CLANGVER=19
+
 EXTRACONF="--enable-jove"
 
 TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user"
+BUILDLIST="libqemu4jove-aarch64.a libqemu4jove-i386.a libqemu4jove-mips64el.a libqemu4jove-mips.a libqemu4jove-mipsel.a libqemu4jove-x86_64.a"
 
 if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
     if test "$#" = 2 ; then
       TARGETLIST="$2-linux-user"
+      BUILDLIST="qemu-$2 qemu-$2.bitcode"
     else
       TARGETLIST="x86_64-linux-user"
+      BUILDLIST="qemu-x86_64 qemu-x86_64.bitcode"
     fi
   elif test "$1" = "_softfpu" ; then
     EXTRACONF="--enable-jove-helpers"
     TARGETLIST="x86_64-linux-user"
-    THE_CC=$(pwd)/../../llvm-project/build/llvm/bin/clang
-    THE_CXX=$(pwd)/../../llvm-project/build/llvm/bin/clang++
-    THE_AR=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ar
-    THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
-    THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
+    BUILDLIST="qemu-x86_64 qemu-x86_64.bitcode libfpu_soft-x86_64-linux-user.a"
+    CLANGVER=16
     if test "$2" = "_win" ; then
       : # EXTRACONF+=" --enable-ms-bitfields"
     fi
@@ -41,6 +51,12 @@ if test "$#" -ge 1 ; then
     exit 1
   fi
 fi
+
+THE_CC=clang-$CLANGVER
+THE_CXX=clang++-$CLANGVER
+THE_AR=llvm-ar-$CLANGVER
+THE_RANLIB=llvm-ranlib-$CLANGVER
+THE_LD=ld.lld-$CLANGVER
 
 if [ ! -f build.ninja ]; then
 
@@ -50,32 +66,36 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --host-cc=$THE_CC \
   --cxx=$THE_CXX \
   --objcc=$THE_CC \
+  --disable-werror \
+  --extra-cflags="$OURCFLAGS" \
+  --extra-ldflags="$OURLDFLAGS" \
   --cpu=x86_64 \
   --enable-tcg-interpreter \
   --enable-tcg \
   --disable-plugins \
   --enable-lto \
-  --enable-pie \
-  --disable-werror \
-  --extra-cflags="$OURCFLAGS" \
+  --disable-pie \
+  --disable-tools \
   --disable-docs \
-  --enable-tools \
   --disable-install-blobs \
   --disable-qom-cast-debug \
   --disable-vhost-kernel \
   --disable-vhost-net \
-  --enable-vhost-user \
+  --disable-vhost-user \
   --disable-vhost-user-blk-server \
   --disable-vhost-crypto \
   --disable-vhost-vdpa \
   --disable-plugins \
-  --disable-capstone \
   --disable-stack-protector \
   --disable-capstone \
   --disable-libdw \
+  --disable-tpm \
+  --disable-keyring \
+  --disable-passt \
+  --disable-selinux \
   --enable-trace-backends=nop \
   $EXTRACONF
 
 fi
 
-ninja
+ninja $BUILDLIST
