@@ -30,6 +30,7 @@ set(JOVE_TOOL_FLAGS
   "-Werror=format"
   "-Werror=return-stack-address"
   "-Werror=return-type"
+  "-Wno-deprecated-declarations"
   "-Wno-bit-int-extension"
   "-Wno-bitwise-instead-of-logical"
   "-Wno-c99-designator"
