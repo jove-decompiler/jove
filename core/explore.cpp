@@ -522,7 +522,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
         //
         if (IsVerbose()) {
           llvm::errs() << llvm::formatv(
-              "objdump says really bad, no further @ {0}:{1:x}\n",
+              "no further @ {0}:{1:x}, out-of-bounds address (objdump)\n",
               b.Name.c_str(), T._none.NextPC);
 #if 0
           llvm::errs() << llvm::formatv(
