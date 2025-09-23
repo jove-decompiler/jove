@@ -91,16 +91,16 @@ struct terminator_info_t {
       taddr_t NextPC;
     } _indirect_call;
 
+    [[no_unique_address]]
     struct {
-      /* deliberately left empty */
     } _indirect_jump;
 
+    [[no_unique_address]]
     struct {
-      /* deliberately left empty */
     } _return;
 
+    [[no_unique_address]]
     struct {
-      /* deliberately left empty */
     } _unreachable;
 
     struct {

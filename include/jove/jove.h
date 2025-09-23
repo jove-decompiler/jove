@@ -348,12 +348,21 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 #endif
     } _conditional_jump;
 
+    [[no_unique_address]]
     struct {
     } _indirect_call;
 
     struct {
       bool Returns = false;
     } _return;
+
+    [[no_unique_address]]
+    struct {
+    } _unreachable;
+
+    [[no_unique_address]]
+    struct {
+    } _none;
   } Term;
 
   atomic_offset_ptr<void> pDynTargets = nullptr;
