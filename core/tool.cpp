@@ -162,6 +162,7 @@ int main(int argc, char **argv) {
 
   tool->_name = name;
 
+  std::string message;
   {
 #ifndef JOVE_NO_TBB
   BOOST_SCOPE_DEFER [] {
@@ -219,7 +220,7 @@ int main(int argc, char **argv) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
     const bool smartterm = tool->is_smart_terminal();
-    llvm::errs() << llvm::formatv(
+    message = llvm::formatv(
       "==================================================\n"
       "{2}JOVE ASSERTION FAILURE{3} ({4}{0}{5})\n{1}"
       "==================================================\n",
@@ -228,12 +229,12 @@ int main(int argc, char **argv) {
       smartterm ? __ANSI_BOLD_RED : "",
       smartterm ? __ANSI_NORMAL_COLOR : "",
       smartterm ? __ANSI_YELLOW : "",
-      smartterm ? __ANSI_NORMAL_COLOR : "");
+      smartterm ? __ANSI_NORMAL_COLOR : "").str();
   } catch (const std::exception &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
-    llvm::errs() << llvm::formatv("{0}\n{1}", x.what(),
-                                  boost::stacktrace::to_string(trace));
+    message = llvm::formatv("{0}\n{1}", x.what(),
+                            boost::stacktrace::to_string(trace)).str();
   } catch (...) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
@@ -247,6 +248,9 @@ int main(int argc, char **argv) {
   // if we get here, an exception occurred. some thing may be in an "undefined"
   // state. At this point, behave as though `execve("/usr/bin/true")` occurred.
   //
+  llvm::errs() << message;
+  llvm::errs().flush();
+
   _exit(1);
   return 1;
 }
