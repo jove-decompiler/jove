@@ -444,10 +444,10 @@ $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
 
 $(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
 
 .PHONY: all-helpers-$(1)-mk
 all-helpers-$(1)-mk: | $(call qemu_softfpu_bitcode,$(1),linux)
@@ -457,10 +457,10 @@ all-helpers-$(1)-mk: | $(call qemu_softfpu_bitcode,$(1),linux)
 	rm $(BINDIR)/$(1)/all_helpers.txt
 
 $(BINDIR)/$(1)/env_init.linux: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),linux)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),linux)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
 
 $(BINDIR)/$(1)/env_init.win: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),win)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),win)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
