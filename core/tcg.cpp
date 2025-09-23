@@ -194,12 +194,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
 
   unsigned tb_size = 0;
 
-  jv_ti.Type = TERMINATOR::UNKNOWN;
-  jv_ti.Addr = ~0UL;
-
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
-  jv_ti._conditional_jump.String = false;
-#endif
+  jv_ti = {};
 
   int max_insns = 64;
   TranslationBlock tb;
