@@ -1344,9 +1344,7 @@ int RunTool::FifoProc(const char *const fifo_path) {
     if (unlikely(ch == exited_char))
       return 0; /* if we see this, the app has exited. */
 
-    assert(Recovery);
     shared_data.recovered_ch.store(ch, std::memory_order_relaxed);
-
     auto do_recover = [&](void) -> std::string {
 //
 // paranoid (raw) macro which locks a shared mutex. this is meant to defend
@@ -1369,16 +1367,16 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &Caller.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Caller.BBIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Callee.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Callee.FIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
         }
 
         if (IsVerbose())
@@ -1405,13 +1403,13 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &IndBr.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &IndBr.BBIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Addr, sizeof(taddr_t));
-          assert(ret == sizeof(taddr_t));
+          aassert(ret == sizeof(taddr_t));
         }
 
         if (IsVerbose())
@@ -1439,16 +1437,16 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &IndCall.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &IndCall.BBIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Callee.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Callee.Addr, sizeof(taddr_t));
-          assert(ret == sizeof(taddr_t));
+          aassert(ret == sizeof(taddr_t));
         }
 
         if (IsVerbose())
@@ -1479,16 +1477,16 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &IndCall.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &IndCall.BBIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Callee.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Callee.Offset, sizeof(taddr_t));
-          assert(ret == sizeof(taddr_t));
+          aassert(ret == sizeof(taddr_t));
         }
 
         if (IsVerbose())
@@ -1514,10 +1512,10 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &NewABI.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &NewABI.FIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
         }
 
         if (IsVerbose())
@@ -1537,10 +1535,10 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &Call.BIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           ret = robust_read(recover_fd.get(), &Call.BBIdx, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
         }
 
         if (IsVerbose())
@@ -1559,12 +1557,12 @@ int RunTool::FifoProc(const char *const fifo_path) {
           ssize_t ret;
 
           ret = robust_read(recover_fd.get(), &PathLen, sizeof(uint32_t));
-          assert(ret == sizeof(uint32_t));
+          aassert(ret == sizeof(uint32_t));
 
           Path.resize(PathLen);
 
           ret = robust_read(recover_fd.get(), &Path[0], PathLen);
-          assert(ret == PathLen);
+          aassert(ret == PathLen);
         }
 
         if (IsVerbose())

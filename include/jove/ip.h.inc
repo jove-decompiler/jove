@@ -8,7 +8,7 @@
 template <typename T, typename... Args>
 T *ip_construct(segment_manager_t &sm, Args &&...args) {
   void *mem = sm.allocate_aligned(sizeof(T), alignof(T));
-  assert(mem);
+  aassert(mem);
 
   return new (mem) T(std::forward<Args>(args)...);
 }
