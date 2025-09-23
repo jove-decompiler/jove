@@ -220,6 +220,9 @@ size_t jvDefaultInitialSize(void);
 
 #include "jove/atomic.h.inc"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic warning "-Wpadded"
+
 struct bb_analysis_t {
   struct {
     /* let def_B be the set of variables defined (i.e. definitely */
@@ -1334,6 +1337,8 @@ public:
   void fixup(jv_file_t &);
   void fixup_binary(jv_file_t &, const binary_index_t);
 };
+
+#pragma GCC diagnostic pop
 
 #include "jove/convenience.h.inc"
 #include "jove/state.h.inc"
