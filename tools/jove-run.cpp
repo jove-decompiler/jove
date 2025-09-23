@@ -9,6 +9,7 @@
 #include "fork.h"
 #include "mmap.h"
 #include "redirect.h"
+#include "signals.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -1567,8 +1568,7 @@ int RunTool::FifoProc(const char *const fifo_path) {
         }
 
         if (IsVerbose())
-          HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n",
-                                           Path);
+          HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n", Path);
 
         ___recovering___();
         return Recovery->RecoverForeignBinary(Path.c_str());
@@ -1582,7 +1582,10 @@ int RunTool::FifoProc(const char *const fifo_path) {
     };
 
     try {
-      HumanOut() << do_recover() << '\n';
+      std::string message;
+      block_signals([&] { message = do_recover(); });
+
+      HumanOut() << message << '\n';
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
