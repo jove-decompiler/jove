@@ -35,13 +35,21 @@ struct assertion_failure_exception : public assertion_failure_base {
 
 #endif
 
-#ifndef NO_JOVE_ASSERT
-
 #ifndef assert
 #error "this should come after assert() has already been defined"
 #endif
-
 #undef assert
+
+#ifdef NO_JOVE_ASSERT
+#define aassert(cond)                                                          \
+  do {                                                                         \
+    if (unlikely(!(cond)))                                                     \
+      __assert_fail(BOOST_PP_STRINGIZE(cond), __FILE__, __LINE__,              \
+                                       __PRETTY_FUNCTION__);                   \
+                                                                               \
+  } while (false)
+#define assert(cond) aassert(cond)
+#else
 
 //
 // an "always" assert always executes, regardless of whether NDEBUG is defined.
