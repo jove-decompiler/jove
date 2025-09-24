@@ -254,8 +254,10 @@ int main(int argc, char **argv) {
   llvm::errs() << message;
   llvm::errs().flush();
 
-  _exit(1);
-  return 1;
+  for (;;)
+    _exit(1);
+
+  __builtin_unreachable();
 }
 
 namespace fs = boost::filesystem;
