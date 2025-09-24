@@ -205,6 +205,8 @@ int main(int argc, char **argv) {
 #endif
   jove::setup_crash_handler();
 
+  const bool smartterm = tool->is_smart_terminal();
+
   try {
 #if 0 /* FIXME */
     return tool->Run();
@@ -219,7 +221,6 @@ int main(int argc, char **argv) {
   } catch (const jove::assertion_failure_base &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
-    const bool smartterm = tool->is_smart_terminal();
     message = llvm::formatv(
       "==================================================\n"
       "{2}JOVE ASSERTION FAILURE{3} ({4}{0}{5})\n{1}"
@@ -233,8 +234,10 @@ int main(int argc, char **argv) {
   } catch (const std::exception &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
-    message = llvm::formatv("{0}\n{1}", x.what(),
-                            boost::stacktrace::to_string(trace)).str();
+    message = llvm::formatv("{2}{0}{3}\n{1}", x.what(),
+                            boost::stacktrace::to_string(trace),
+                            smartterm ? __ANSI_BOLD_RED : "",
+                            smartterm ? __ANSI_NORMAL_COLOR : "").str();
   } catch (...) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
