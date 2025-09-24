@@ -1,35 +1,51 @@
 #include "jove.macros.h"
 
-# define SETUP_GPX64(cp_reg, ra_save)			\
-		move ra_save, $31; /* Save old ra.  */	\
-		.set noreorder;				\
-		bal 10f; /* Find addr of .cpsetup.  */	\
-		nop;					\
-10:							\
-		.set reorder;				\
-		.cpsetup $31, cp_reg, 10b;		\
-		move $31, ra_save
-
-asm(".text\n"
+asm(".set push\n"
+    ".set noreorder\n"
+    ".text\n"
     _ASM_FN_PROLOGUE(_jove_start) "\n"
 
-    STRINGXV(SETUP_GPX64($0,$0))  "\n"
+    "bal 0f"           "\n"
+    ".word 0x00000000" "\n"
+
+    ".dword _jove_start1 - _jove_start" "\n"
+
+"0:\n"
+    "ld $a2, ($ra)"     "\n"
+    "daddu $a2, $ra"    "\n"
+    "dsubu $a2, $a2, 8" "\n"
+    "move $t9, $a2"     "\n"
+    "bal _jove_start1"  "\n"
+    ".word 0x00000000"  "\n"
+
+    ".dword _jove_begin - _jove_start1" "\n"
+
+    _ASM_FN_EPILOGUE(_jove_start) "\n"
+    ".set pop"                    "\n");
+
+asm(".set push\n"
+    ".set noreorder\n"
+    ".text\n"
+    _ASM_FN_PROLOGUE(_jove_start1) "\n"
+    ".cpload $t9" "\n"
+
+    "ld $a2, ($ra)"     "\n"
+    "daddu $a2, $ra"    "\n"
+    "daddu $a2, $a2, 8" "\n"
+    "move $t9, $a2"     "\n"
 
     /* The return address register is set to zero so that programs
        that search backword through stack frames recognize the last
        stack frame. */
-    "move $ra, $0"                "\n"
+    "move $ra, $0"        "\n"
 
-    "move $a2, $v0"               "\n"
-    "move $a3, $sp"               "\n"
+    "move $a2, $v0"       "\n"
+    "move $a3, $sp"       "\n"
 
-    "dla $t9, _jove_begin"        "\n"
-    "jalr $t9"                    "\n"
-    "nop"                         "\n"
+    "jalr $t9"         "\n"
+    ".word 0x00000000" "\n"
 
-    "break"                       "\n"
+    "break"               "\n"
 
-    _ASM_FN_EPILOGUE(_jove_start) "\n"
-    ".previous");
-
-# undef SETUP_GPX64
+    _ASM_FN_EPILOGUE(_jove_start1) "\n"
+    ".set pop"            "\n");
