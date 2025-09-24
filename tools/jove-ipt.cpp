@@ -72,7 +72,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::list<std::string> Envs;
     cl::opt<std::string> Decoder;
     cl::opt<bool> Chdir;
-    cl::alias ChdirAlias;
     cl::opt<std::string> MMapPages;
     cl::alias MMapPagesAlias;
     cl::opt<std::string> AuxPages;
@@ -105,11 +104,8 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                   cl::desc("Select decoder (reference, afl, simple)."),
                   cl::init("reference"), cl::cat(JoveCategory)),
 
-          Chdir("change-dir", cl::desc("chdir(2) into temporary directory."),
-                cl::init(true), cl::cat(JoveCategory)),
-
-          ChdirAlias("c", cl::desc("Alias for --change-dir"),
-                     cl::aliasopt(Chdir), cl::cat(JoveCategory)),
+          Chdir("should-cd", cl::desc("chdir(2) into temporary directory."),
+                cl::cat(JoveCategory)),
 
           MMapPages("mmap-pages",
                     cl::desc("Number of mmap pages for trace data"),
