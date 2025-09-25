@@ -11,6 +11,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 
+#include "jove/assert.h"
+
 namespace obj = llvm::object;
 namespace fs = boost::filesystem;
 
