@@ -74,6 +74,8 @@ static const unsigned nr64_old_mmap = VERY_UNIQUE_NUM();
 static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "jove/assert.h"
+
 namespace jove {
 
 template <bool MT, bool MinSize>
@@ -665,7 +667,7 @@ protected:
       }
     }
 
-    if constexpr (IsVeryVerbose()) {
+    if constexpr (IsVerbose()) {
       std::string as(addr_intvl2str(intvl));
 
       fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\n", as.c_str(),
@@ -950,6 +952,9 @@ protected:
             filename = "//anon";
           } else {
             // do we know the path?
+            if (payload->str[0]) {
+              filename = payload->str;
+            } else {
             auto it = pstate.fdmap.find(fd);
             if (it == pstate.fdmap.end()) {
               if constexpr (IsVeryVerbose()) {
@@ -961,6 +966,7 @@ protected:
               break;
             } else {
               filename = (*it).second.path.c_str();
+            }
             }
           }
 
@@ -1073,6 +1079,11 @@ protected:
 
           const char *const beg = &payload->str[0];
           const char *const end = &payload->str[n];
+
+#if 0
+          if constexpr (IsVeryVerbose())
+            hexdump(stderr, beg, end - beg);
+#endif
 
           const char *const pathname = beg;
 

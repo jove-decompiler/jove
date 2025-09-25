@@ -767,7 +767,7 @@ int IPTTool::Analyze(void) {
     ptdump_argv.push_back(const_cast<char *>(x.c_str()));
   ptdump_argv.push_back(nullptr);
 
-  auto run = [&](const auto &pair) -> void {
+  auto process_aux = [&](const auto &pair) -> void {
         const std::string &aux_filename = pair.second;
         if (!fs::exists(pair.second)) {
           WithColor::warning() << llvm::formatv("\"{0}\" disappeared!\n", pair.second);
@@ -786,22 +786,24 @@ int IPTTool::Analyze(void) {
 
 #define simple_ipt_t reference_ipt_t /* FIXME */
 
-        auto run = [&]<IPT_PARAMETERS_DCL>(void) {
+        auto run = [&]<IPT_PARAMETERS_DCL>(void) -> void {
+          assert(!Ran);
+
           try {
 #define SELECT_DECODER_AND_EXPLORE(...)                                        \
   do {                                                                         \
     if (opts.Decoder == "reference") {                                         \
       reference_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                    \
-      Ran = true;                                                              \
       ipt.explore();                                                           \
+      Ran = true;                                                              \
     } else if (opts.Decoder == "afl") {                                        \
       afl_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                          \
-      Ran = true;                                                              \
       ipt.explore();                                                           \
+      Ran = true;                                                              \
     } else if (opts.Decoder == "simple") {                                     \
       simple_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                       \
-      Ran = true;                                                              \
       ipt.explore();                                                           \
+      Ran = true;                                                              \
     } else {                                                                   \
       WithColor::error() << llvm::formatv("unknown decoder \"{0}\"\n",         \
                                           opts.Decoder);                       \
@@ -872,13 +874,45 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       };
 
   if (opts.MT) {
-    if (opts.Serial)
+    if (opts.Serial) {
       std::for_each(aux_filenames.begin(),
-                    aux_filenames.end(), run);
-    else
-      std::for_each(maybe_par_unseq,
-                    aux_filenames.begin(),
-                    aux_filenames.end(), run);
+                    aux_filenames.end(), process_aux);
+    } else {
+      std::vector<unsigned> Q(aux_filenames.size());
+      std::iota(Q.begin(), Q.end(), 0);
+
+      std::mutex Q_mtx;
+
+      std::function<void(void)> worker = [&](void) -> void {
+        for (;;) {
+          const unsigned Idx = ({
+            std::lock_guard<std::mutex> lck(Q_mtx);
+
+            if (Q.empty())
+              return;
+
+            binary_index_t Idx = Q.back();
+            Q.resize(Q.size() - 1);
+            Idx;
+          });
+
+          process_aux(aux_filenames.at(Idx));
+        }
+      };
+
+      {
+        std::vector<std::thread> workers;
+
+        unsigned num_threads = num_cpus();
+
+        workers.reserve(num_threads);
+        for (unsigned i = 0; i < num_threads; ++i)
+          workers.push_back(std::thread(worker));
+
+        for (std::thread &t : workers)
+          t.join();
+      }
+    }
   } else {
     auto integrate_jv = [&](void) -> void {
       for (binary_index_t BIdx = 0; BIdx < N; ++BIdx) {
@@ -892,7 +926,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
     };
 
     std::vector<pid_t> pidvec;
-    for (const auto &pair : aux_filenames) {
+    for (const auto &aux_filename : aux_filenames) {
       if (!opts.Serial) {
         pid_t pid = jove::fork();
         if (pid) {
@@ -901,7 +935,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
         }
       }
 
-      run(pair);
+      process_aux(aux_filename);
       integrate_jv();
 
       if (!opts.Serial) {
