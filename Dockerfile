@@ -210,6 +210,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 
 ADD . /jove/
 RUN patch -p0 -d / -i /jove/patches/meson.diff
+RUN patch -p1 -d /jove/linux -i /jove/patches/linux.diff
 RUN patch -p1 -d /jove/wine -i /jove/patches/wine.diff
 RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
