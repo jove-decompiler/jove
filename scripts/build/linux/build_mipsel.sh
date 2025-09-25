@@ -22,7 +22,7 @@ if test "$#" = 1 ; then
     make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=mips malta_defconfig
     alter_config
     fi
-    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=mips lib/jove.o lib/crc32.o
+    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=mips lib/jove.o
 
     exit 0
   fi
