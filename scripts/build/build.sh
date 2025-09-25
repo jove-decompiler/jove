@@ -200,7 +200,7 @@ printf "%s\n" "${cmds[@]}" \
   | parallel -j "$PARALLEL_JOBS" -v --lb --halt soon,fail=1
 
 #
-# final make steps (2)
+# final make steps (4)
 #
 retry "make -C $jove_path --output-sync all-helpers-mk env-inits softfpu -j$(nproc)"
 retry "make -C $jove_path --output-sync -j$(nproc)"
