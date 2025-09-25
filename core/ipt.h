@@ -876,15 +876,15 @@ protected:
         using sys_uint_t = std::conditional_t<Is64, uint64_t, uint32_t>;
 #endif
 
-#define RIGHT_PROCESS_GET                                                      \
+#define ___right_process_get___                                                \
   auto &pstate = pid_map[pid];                                                 \
   auto &AddressSpace = pstate.addrspace
 
-#define IS_RIGHT_PROCESS_GET                                                   \
+#define ___is_right_process_get___                                             \
   assert(~pid != 0u);                                                          \
   if (!IsRightProcess(pid))                                                    \
     break;                                                                     \
-  RIGHT_PROCESS_GET
+  ___right_process_get___
         //
         // we can assume that the syscall successfully completed (XXX except
         // exec)
@@ -896,9 +896,9 @@ protected:
         switch (nr) {
         case nr_for(munmap): {
 #if 0
-          IS_RIGHT_PROCESS_GET;
+          ___is_right_process_get___;
 #else
-          RIGHT_PROCESS_GET;
+          ___right_process_get___;
 #endif
 
           auto addr = arg0;
@@ -925,9 +925,9 @@ protected:
           is_pgoff = true;
         case nr_for(mmap): {
 #if 0
-          IS_RIGHT_PROCESS_GET;
+          ___is_right_process_get___;
 #else
-          RIGHT_PROCESS_GET;
+          ___right_process_get___;
 #endif
 
           const auto addr  = arg0;
@@ -976,7 +976,7 @@ protected:
         }
 
         case nr_for(close): {
-          IS_RIGHT_PROCESS_GET;
+          ___is_right_process_get___;
 
           auto fd = arg0;
 
@@ -989,7 +989,7 @@ protected:
 
         case nr_for(openat):
         case nr_for(open): {
-          IS_RIGHT_PROCESS_GET;
+          ___is_right_process_get___;
 
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "open(\"%s\") = %ld\n", payload->str, (long)ret);
@@ -1002,7 +1002,7 @@ protected:
           fd_pos = arg3;
 
         case nr_for(read): {
-          IS_RIGHT_PROCESS_GET;
+          ___is_right_process_get___;
 
           auto fd = arg0;
 
