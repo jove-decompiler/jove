@@ -670,8 +670,8 @@ protected:
     if constexpr (IsVerbose()) {
       std::string as(addr_intvl2str(intvl));
 
-      fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\n", as.c_str(),
-              jv.Binaries.at(BIdx).Name.c_str(), off, src);
+      fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\t%u\n", as.c_str(),
+              jv.Binaries.at(BIdx).Name.c_str(), off, src, (unsigned)pid);
     }
 
     intvl_map_clear(AddressSpace, intvl);
@@ -736,24 +736,11 @@ protected:
       const struct pev_record_fork *fork = event.record.fork;
       assert(fork);
 
-      auto pid = get_pid();
-
       if constexpr (IsVeryVerbose())
-        fprintf(stderr, "%016" PRIx64 "\tfork (from %u) %u/%u, %u/%u\n", offset,
-                pid, fork->pid, fork->tid, fork->ppid, fork->ptid);
+        fprintf(stderr, "%016" PRIx64 "\tfork %u/%u, %u/%u\n", offset,
+                fork->pid, fork->tid, fork->ppid, fork->ptid);
 
-      if (pid == 0)
-        break;
-
-      if (!IsRightProcess(pid))
-        break;
-
-      if constexpr (IsVeryVerbose())
-        fprintf(stderr, "our pid: %u\n", (unsigned)fork->pid);
-
-      pid_map[fork->pid] = pid_map[pid];
-
-      assert(pid_map[fork->pid].IsOurs);
+      pid_map[fork->pid] = pid_map[fork->ppid];
       break;
     }
 
@@ -871,10 +858,9 @@ protected:
         const auto arg4 = JOVE_MISALIGNED_LOAD(hdr.args[4]);
         const auto arg5 = JOVE_MISALIGNED_LOAD(hdr.args[5]);
 
-#if 0
-        constexpr bool Is64 = std::is_same_v<T, struct augmented_syscall_payload64>;
-        using sys_uint_t = std::conditional_t<Is64, uint64_t, uint32_t>;
-#endif
+        using int_ret_t = std::conditional_t<
+            std::is_same_v<T, struct augmented_syscall_payload64>, int64_t,
+            int32_t>;
 
 #define ___right_process_get___                                                \
   auto &pstate = pid_map[pid];                                                 \
@@ -1043,6 +1029,7 @@ protected:
 
         case nr_for(execve):
         case nr_for(execveat): {
+#if 1
           if (ret == 1) {
             // XXX exec never returns 1; we use this value to just say that an
             // exec is being attempted. the exec will be reported even if it
@@ -1074,7 +1061,7 @@ protected:
             }
             break;
           }
-
+#endif
           const uint64_t n = payload->hdr.str_len;
 
           const char *const beg = &payload->str[0];
@@ -1154,6 +1141,7 @@ protected:
             fprintf(stderr, " \"%s\"", pathname);
             for (const char *arg : argvec)
               fprintf(stderr, " \"%s\"", arg);
+            fprintf(stderr, " = %ld", (long)((int_ret_t)ret));
             fprintf(stderr, "\n");
           }
 
@@ -1217,9 +1205,11 @@ protected:
     }
 
     case PERF_RECORD_MMAP: {
+#if 0
       if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) ==
           PERF_RECORD_MISC_KERNEL)
         break;
+#endif
 
       const struct pev_record_mmap *mmap = event.record.mmap;
       assert(mmap);
@@ -1231,18 +1221,21 @@ protected:
     }
 
     case PERF_RECORD_MMAP2: {
+#if 0
       if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) ==
           PERF_RECORD_MISC_KERNEL)
         break;
+#endif
 
       const struct pev_record_mmap2 *mmap2 = event.record.mmap2;
       assert(mmap2);
 
-      auto pid = get_pid();
+      //
+      // NOTE: mmap2->pid != get_pid()
+      //
+      auto pid = mmap2->pid;
       if (pid <= 1) /* ignore kernel/init */
         break;
-
-      assert(mmap2->pid == pid);
 
       //
       // we want to consider all MMAP2 records because on a succesful exec they
