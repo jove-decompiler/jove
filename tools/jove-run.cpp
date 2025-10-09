@@ -532,7 +532,12 @@ int RunTool::DoRun(void) {
         jv_file, jv, *Explorer,
         symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
 
-    _exit(FifoProc<LivingDangerously>(fifo_file_path.c_str()));
+    int rc = 1;
+    ignore_exception([&] {
+      rc = FifoProc<LivingDangerously>(fifo_file_path.c_str());
+    });
+
+    _exit(rc);
   }
 
   scoped_fd pidfd(pidfd_open(fifo_child, 0));

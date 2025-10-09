@@ -219,7 +219,13 @@ int ServerTool::Serve(const int connection_socket) {
     //
     if (!jove::fork()) {
       ConnectionProcArgs args(data_socket, addr, addrlen);
-      _exit(ConnectionProc(args));
+
+      int rc = 1;
+      ignore_exception([&] {
+        rc = ConnectionProc(args);
+      });
+
+      _exit(rc);
     }
 
     ::close(data_socket);
