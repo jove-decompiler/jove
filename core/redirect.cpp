@@ -24,35 +24,36 @@ static void RedirectSigHandler(int no) {
     tool.HumanOut() << llvm::formatv(
         "received {0} but no app to redirect to!\n", signame);
 #endif
-  } else {
-    //
-    // redirect the signal.
-    //
-    if (no == SIGINT) {
+    return;
+  }
+
+  //
+  // redirect the signal.
+  //
+  if (no == SIGINT) {
 #if 0
-      if (tool.IsVerbose())
-        tool.HumanOut() << "Received SIGINT. Cancelling..\n";
+    if (tool.IsVerbose())
+      tool.HumanOut() << "Received SIGINT. Cancelling..\n";
 #endif
-      tool.interrupted.store(true, std::memory_order_relaxed);
-    }
+    tool.interrupted.store(true, std::memory_order_relaxed);
+  }
 
 #if 1
-    if (tool.IsVeryVerbose()) {
-      const char *const sigdesc = strsignal(no);
-      std::string signame("SIG");
-      signame.append(sigabbrev_np(no));
+  if (tool.IsVeryVerbose()) {
+    const char *const sigdesc = strsignal(no);
+    std::string signame("SIG");
+    signame.append(sigabbrev_np(no));
 
-      tool.HumanOut() << llvm::formatv("redirecting {0} to {1}... <{2}>\n",
-                                       signame, child, sigdesc);
-    }
+    tool.HumanOut() << llvm::formatv("redirecting {0} to {1}... <{2}>\n",
+                                     signame, child, sigdesc);
+  }
 #endif
 
-    if (::kill(child, no) < 0) {
+  if (::kill(child, no) < 0) {
 #if 0
-      int err = errno;
-      tool.HumanOut() << llvm::formatv("failed to redirect {0}\n", signame);
+    int err = errno;
+    tool.HumanOut() << llvm::formatv("failed to redirect {0}\n", signame);
 #endif
-    }
   }
 }
 
