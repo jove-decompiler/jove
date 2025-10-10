@@ -1044,7 +1044,7 @@ protected:
 
         case nr_for(execve):
         case nr_for(execveat): {
-#if 1
+#if 0
           if (ret == 1) {
             // XXX exec never returns 1; we use this value to just say that an
             // exec is being attempted. the exec will be reported even if it
