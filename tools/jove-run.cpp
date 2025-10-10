@@ -10,6 +10,7 @@
 #include "mmap.h"
 #include "redirect.h"
 #include "signals.h"
+#include "align.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -200,7 +201,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           {}
   } opts;
 
-  static constexpr unsigned shared_region_size = 1024;
+  static constexpr unsigned shared_region_size = align_up<unsigned>(sizeof(shared_data_t), JOVE_PAGE_SIZE);
 
   boost::interprocess::mapped_region shared_mem;
   boost::interprocess::managed_external_buffer shared_buff;
