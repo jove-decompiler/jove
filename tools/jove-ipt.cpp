@@ -19,6 +19,7 @@
 #include "objdump.h"
 #include "reflink.h"
 #include "fork.h"
+#include "align.h"
 #include "augmented_raw_syscalls.h"
 
 #include <tbb/flow_graph.h>
@@ -28,6 +29,8 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/scope/defer.hpp>
+#include <boost/interprocess/anonymous_shared_memory.hpp>
+#include <boost/interprocess/managed_external_buffer.hpp>
 
 #include <oneapi/tbb/parallel_pipeline.h>
 #include <oneapi/tbb/parallel_for_each.h>
@@ -55,6 +58,10 @@ struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
+};
+
+struct shared_data_t {
+  boost::concurrent_flat_set<unsigned> truncated;
 };
 
 }
@@ -173,6 +180,12 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   AddOptions_t AddOptions;
 
+  static constexpr unsigned shared_region_size = align_up<unsigned>(sizeof(shared_data_t), JOVE_PAGE_SIZE);
+
+  boost::interprocess::mapped_region shared_mem;
+  boost::interprocess::managed_external_buffer shared_buff;
+  shared_data_t &shared_data;
+
   const bool IsCOFF;
 
   std::string perf_path;
@@ -196,6 +209,9 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 public:
   IPTTool()
       : opts(JoveCategory),
+        shared_mem(boost::interprocess::anonymous_shared_memory(shared_region_size)),
+        shared_buff(boost::interprocess::create_only, shared_mem.get_address(), shared_region_size),
+        shared_data(*shared_buff.construct<shared_data_t>(boost::interprocess::anonymous_instance)()),
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
@@ -767,6 +783,8 @@ int IPTTool::Analyze(void) {
     ptdump_argv.push_back(const_cast<char *>(x.c_str()));
   ptdump_argv.push_back(nullptr);
 
+  auto &truncated = shared_data.truncated;
+
   auto process_aux = [&](const auto &pair) -> void {
         const std::string &aux_filename = pair.second;
         if (!fs::exists(pair.second)) {
@@ -788,22 +806,20 @@ int IPTTool::Analyze(void) {
 
         auto run = [&]<IPT_PARAMETERS_DCL>(void) -> void {
           assert(!Ran);
+          Ran = true;
 
-          try {
+          if (catch_the<truncated_aux_exception>([&] {
 #define SELECT_DECODER_AND_EXPLORE(...)                                        \
   do {                                                                         \
     if (opts.Decoder == "reference") {                                         \
       reference_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                    \
       ipt.explore();                                                           \
-      Ran = true;                                                              \
     } else if (opts.Decoder == "afl") {                                        \
       afl_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                          \
       ipt.explore();                                                           \
-      Ran = true;                                                              \
     } else if (opts.Decoder == "simple") {                                     \
       simple_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                       \
       ipt.explore();                                                           \
-      Ran = true;                                                              \
     } else {                                                                   \
       WithColor::error() << llvm::formatv("unknown decoder \"{0}\"\n",         \
                                           opts.Decoder);                       \
@@ -818,8 +834,8 @@ int IPTTool::Analyze(void) {
                   const_cast<uint8_t *>(aux.data_begin()), \
                   const_cast<uint8_t *>(aux.data_end()), \
                   sb_filename, \
-                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0), \
-                  true
+                  true, /* gathered_bins */ \
+                  false /* ignore_trunc_aux */
 
             if constexpr (MT) {
               assert(mt_Explorer);
@@ -831,10 +847,8 @@ int IPTTool::Analyze(void) {
 
 #undef THE_IPT_ARGS
 #undef SELECT_DECODER_AND_EXPLORE
-          } catch (const truncated_aux_exception &) {
-            if (IsVerbose())
-              WithColor::warning()
-                  << llvm::formatv("truncated aux (cpu {0})\n", cpu);
+          })) {
+            truncated.insert(cpu);
           }
         };
 
@@ -861,16 +875,18 @@ int IPTTool::Analyze(void) {
 
 #define GENERATE_RUN(r, product)                                               \
   if (BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_COMPARISON, product,                \
-                              IPT_PARAMETERS))                            \
+                              IPT_PARAMETERS)) {                               \
     run.template operator()<                                                   \
         BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_TEMPLATE_ARG, product,            \
-                                IPT_PARAMETERS)>();
+                                IPT_PARAMETERS)>();                            \
+    return;                                                                    \
+  }
 
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
 
 #undef GENERATE_RUN
 
-        assert(Ran);
+        aassert(false && "impossible options");
       };
 
   if (opts.MT) {
@@ -949,6 +965,22 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       for (pid_t pid : pidvec) {
         WaitForProcessToExit(pid);
       }
+    }
+  }
+
+  if (IsVerbose()) {
+    if (!truncated.empty()) {
+      std::string desc;
+      truncated.cvisit_all([&](unsigned cpu) {
+        if (!desc.empty())
+          desc.push_back(',');
+        desc.push_back('#');
+        desc.append(std::to_string(cpu));
+      });
+
+      WithColor::warning() << llvm::formatv(
+          "aux file{0} truncated (cpu{0} {1})\n",
+          truncated.size() > 1 ? "s" : "", desc);
     }
   }
 
