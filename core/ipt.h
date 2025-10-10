@@ -609,7 +609,8 @@ protected:
                const uint64_t len,
                const uint64_t off,
                const char *const filename,
-               const char *const src) {
+               const char *const src,
+               uint64_t tsc = UINT64_MAX) {
     namespace fs = boost::filesystem;
 
     auto &pstate = pid_map[pid];
@@ -669,9 +670,19 @@ protected:
 
     if constexpr (IsVerbose()) {
       std::string as(addr_intvl2str(intvl));
+      std::string ts;
 
-      fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\t%u\n", as.c_str(),
-              jv.Binaries.at(BIdx).Name.c_str(), off, src, (unsigned)pid);
+      if constexpr (IsVeryVerbose()) {
+        if (~tsc) {
+          ts.push_back('\t');
+          ts.push_back('@');
+          ts.append(std::to_string(tsc));
+        }
+      }
+
+      fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\t%u%s\n", as.c_str(),
+              jv.Binaries.at(BIdx).Name.c_str(), off, src, (unsigned)pid,
+              ts.c_str());
     }
 
     intvl_map_clear(AddressSpace, intvl);
@@ -700,6 +711,10 @@ protected:
     auto get_cpu = [&](void) -> unsigned {
       assert(event.sample.cpu);
       return *event.sample.cpu;
+    };
+
+    auto get_tsc = [&](void) -> uint64_t {
+      return event.sample.tsc;
     };
 
     bool is_pgoff = false;
@@ -957,7 +972,7 @@ protected:
           }
 
           assert(filename);
-          on_mmap(offset, pid, ret, len, off, filename, "mmap(2)");
+          on_mmap(offset, pid, ret, len, off, filename, "mmap(2)", get_tsc());
           break;
         }
 
@@ -1142,6 +1157,14 @@ protected:
             for (const char *arg : argvec)
               fprintf(stderr, " \"%s\"", arg);
             fprintf(stderr, " = %ld", (long)((int_ret_t)ret));
+            if constexpr (IsVeryVerbose()) {
+              std::string ts;
+              ts.push_back('\t');
+              ts.push_back('@');
+              ts.append(std::to_string(get_tsc()));
+
+              fprintf(stderr, "%s", ts.c_str());
+            }
             fprintf(stderr, "\n");
           }
 
@@ -1216,7 +1239,7 @@ protected:
       assert(mmap->pid == get_pid());
 
       on_mmap(offset, mmap->pid, mmap->addr, mmap->len, mmap->pgoff,
-              mmap->filename, "MMAP");
+              mmap->filename, "MMAP", get_tsc());
       break;
     }
 
@@ -1247,7 +1270,7 @@ protected:
 #endif
 
       on_mmap(offset, mmap2->pid, mmap2->addr, mmap2->len, mmap2->pgoff,
-              mmap2->filename, "MMAP2");
+              mmap2->filename, "MMAP2", get_tsc());
       break;
     }
 
@@ -1800,7 +1823,6 @@ public:
         const uint8_t *const aux_begin,
         const uint8_t *const aux_end,
         const char *sb_filename,
-        unsigned verbose,
         bool gathered_bins = false,
         bool ignore_trunc_aux = false)
       : ptdump_argc(ptdump_argc),
