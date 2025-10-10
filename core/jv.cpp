@@ -48,7 +48,7 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   if (!st.st_size)
     throw std::runtime_error(std::string("HashNeedsUpdate: empty file: ") + path);
 
-  if (mtime.sec == st.st_mtim.tv_sec &&
+  if (mtime.sec  == st.st_mtim.tv_sec &&
       mtime.nsec == st.st_mtim.tv_nsec)
     return;
 
