@@ -46,6 +46,16 @@ static inline bool catch_exception(std::function<void(void)> f) {
   return ignore_exception(f);
 }
 
+template <typename T>
+static inline bool catch_the(std::function<void(void)> f) {
+  try {
+    f();
+    return false;
+  } catch (const T &) {}
+
+  return true;
+}
+
 // assigns x to y, returns x != y (before the assignment)
 template <typename T> static inline bool updateVariable(T &x, const T &y) {
   if (x != y) {
