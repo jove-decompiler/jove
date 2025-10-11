@@ -15,6 +15,7 @@
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/Utils/ModuleUtils.h>
 
 #include <string>
 #include <regex>
@@ -44,6 +45,8 @@ class KnifeTool : public Tool {
 
     cl::opt<bool> PrintExternal;
     cl::opt<bool> EraseExternal;
+
+    cl::opt<bool> MakeInternalizedUsed;
 
     cl::opt<std::string> PrintOnly;
 
@@ -100,10 +103,13 @@ class KnifeTool : public Tool {
                     cl::desc("Erase definitions of specified external functions"),
                     cl::cat(JoveCategory)),
 
+          MakeInternalizedUsed("make-internalized-used",
+                    cl::desc("Mark functions whose linkage is being set to internal as used"),
+                    cl::cat(JoveCategory)),
+
           PrintOnly("print-only",
                    cl::desc("Print all external functions matching regex"),
                    cl::value_desc("regex"), cl::cat(JoveCategory))
-
           {}
 
   } opts;
@@ -295,6 +301,9 @@ int KnifeTool::Run(void) {
       } else {
         if (IsVerbose())
           llvm::outs() << llvm::formatv("making {0} internal\n", name);
+
+        if (opts.MakeInternalizedUsed)
+          llvm::appendToUsed(M, {&GV});
 
         GV.setLinkage(llvm::GlobalValue::InternalLinkage);
       }
