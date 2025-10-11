@@ -2967,6 +2967,8 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportFunction(llvm::StringRef Name) {
   F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
   F->addFnAttr(llvm::Attribute::NonLazyBind);
 
+  assert(F->getName() == Name);
+
   return F;
 }
 
@@ -3065,8 +3067,14 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
                        : Name.str();
 
   if (auto *F = Module->getFunction(nm)) {
-    assert(F->empty());
-    return llvm::ConstantExpr::getPtrToInt(F, WordType());
+    if (F->empty()) {
+      return llvm::ConstantExpr::getPtrToInt(F, WordType());
+    } else {
+      if (F->hasInternalLinkage())
+        F->setName("_jove_" + F->getName().str()); /* prepend prefix */
+      else
+        die("ImportedFunctionAddress: cannot declare extern " + F->getName().str());
+    }
   }
 
   //
