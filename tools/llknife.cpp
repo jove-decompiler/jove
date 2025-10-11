@@ -272,12 +272,20 @@ int KnifeTool::Run(void) {
 
       std::string name = GV.getName().str();
       if (std::regex_match(name, external_re)) {
+#if 0
         if (IsVerbose())
           llvm::outs() << llvm::formatv("making {0} external\n", name);
 
         GV.setLinkage(llvm::GlobalValue::ExternalLinkage);
+#else
+        if (IsVerbose()) {
+          if (!GV.hasExternalLinkage())
+            WithColor::warning() << llvm::formatv(
+                "{0} isn't external. it is {1}\n", name, GV.getLinkage());
+        }
+#endif
       } else {
-        if (IsVeryVerbose())
+        if (IsVerbose())
           llvm::outs() << llvm::formatv("making {0} internal\n", name);
 
         GV.setLinkage(llvm::GlobalValue::InternalLinkage);
