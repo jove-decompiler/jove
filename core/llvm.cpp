@@ -2875,10 +2875,15 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
   } else {
     if (IsCode) {
       if (auto *F = Module->getFunction(RelSym.Name)) {
-        if (!F->empty())
-          die("SymbolAddress: Function " + F->getName().str() + " not empty!");
+        if (F->empty()) {
+          return llvm::ConstantExpr::getPtrToInt(F, WordType());
+        } else if (!F->empty()) {
+          if (opts.IsVerbose())
+            CURIOSITY("SymbolAddress: Function " + F->getName().str() +
+                      " not empty!");
 
-        return llvm::ConstantExpr::getPtrToInt(F, WordType());
+          F->setName("_jove_" + F->getName().str());
+        }
       }
 
       //
