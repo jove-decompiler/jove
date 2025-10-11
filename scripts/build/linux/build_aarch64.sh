@@ -22,7 +22,7 @@ if test "$#" = 1 ; then
     make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=arm64 defconfig
     alter_config
     fi
-    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=arm64 lib/jove.o
+    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=arm64 lib/jove.o lib/string.o arch/arm64/lib/strlen.o
 
     exit 0
   fi
