@@ -40,6 +40,7 @@ class KnifeTool : public Tool {
 
     cl::opt<bool> EraseCtorsAndDtors;
     cl::opt<std::string> OnlyExternal;
+    cl::opt<std::string> OnlyMakeExternal;
 
     cl::opt<bool> PrintExternal;
     cl::opt<bool> EraseExternal;
@@ -84,6 +85,10 @@ class KnifeTool : public Tool {
                     cl::cat(JoveCategory)),
 
           OnlyExternal("only-external",
+                   cl::desc("Force everything not matching regex to be internal globals"),
+                   cl::value_desc("regex"), cl::cat(JoveCategory)),
+
+          OnlyMakeExternal("only-make-external",
                    cl::desc("Force everything matching regex to be only external globals"),
                    cl::value_desc("regex"), cl::cat(JoveCategory)),
 
@@ -257,8 +262,11 @@ int KnifeTool::Run(void) {
     ForVimDiff();
   } else if (opts.EraseCtorsAndDtors.getNumOccurrences() > 0) {
     EraseCtorsAndDtors();
-  } else if (opts.OnlyExternal.getNumOccurrences() > 0) {
-    std::regex external_re(opts.OnlyExternal);
+  } else if (opts.OnlyExternal.getNumOccurrences() > 0 ||
+             opts.OnlyMakeExternal.getNumOccurrences() > 0) {
+    const bool Make = opts.OnlyMakeExternal.getNumOccurrences() > 0;
+
+    std::regex external_re(Make ? opts.OnlyMakeExternal : opts.OnlyExternal);
 
     auto isIntrinsicGlobal = [](const llvm::GlobalValue &GV) {
       return GV.getName().startswith("llvm.");
@@ -272,18 +280,18 @@ int KnifeTool::Run(void) {
 
       std::string name = GV.getName().str();
       if (std::regex_match(name, external_re)) {
-#if 0
-        if (IsVerbose())
-          llvm::outs() << llvm::formatv("making {0} external\n", name);
+        if (Make) {
+          if (IsVerbose())
+            llvm::outs() << llvm::formatv("making {0} external\n", name);
 
-        GV.setLinkage(llvm::GlobalValue::ExternalLinkage);
-#else
+          GV.setLinkage(llvm::GlobalValue::ExternalLinkage);
+        }
+
         if (IsVerbose()) {
           if (!GV.hasExternalLinkage())
             WithColor::warning() << llvm::formatv(
                 "{0} isn't external. it is {1}\n", name, GV.getLinkage());
         }
-#endif
       } else {
         if (IsVerbose())
           llvm::outs() << llvm::formatv("making {0} internal\n", name);
