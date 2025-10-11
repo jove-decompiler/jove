@@ -2878,11 +2878,10 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
         if (F->empty()) {
           return llvm::ConstantExpr::getPtrToInt(F, WordType());
         } else if (!F->empty()) {
-          if (opts.IsVerbose())
-            CURIOSITY("SymbolAddress: Function " + F->getName().str() +
-                      " not empty!");
-
-          F->setName("_jove_" + F->getName().str());
+          if (F->hasInternalLinkage())
+            F->setName("_jove_" + F->getName().str()); /* prepend prefix */
+          else
+            die("SymbolAddress: cannot declare extern " + F->getName().str());
         }
       }
 
