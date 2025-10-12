@@ -471,6 +471,7 @@ protected:
         exeOnly;
 
     bool IsOurs = false;
+    bool ExecAttempted = false;
 
     process_state_t() noexcept {
       if constexpr (ExeOnly) {
@@ -752,10 +753,21 @@ protected:
       assert(fork);
 
       if constexpr (IsVeryVerbose())
-        fprintf(stderr, "%016" PRIx64 "\tfork %u/%u, %u/%u\n", offset,
+        fprintf(stderr, "%016" PRIx64 "\tfork %u/%u, %u/%u", offset,
                 fork->pid, fork->tid, fork->ppid, fork->ptid);
 
-      pid_map[fork->pid] = pid_map[fork->ppid];
+      const auto &the_old = pid_map[fork->ppid];
+      auto       &the_new = pid_map[fork->pid];
+
+      the_new = the_old;
+
+      if constexpr (IsVeryVerbose()) {
+        if (the_new.ExecAttempted)
+          fprintf(stderr, "\t(exec did not finish before fork)\n");
+        fprintf(stderr, "\n");
+      }
+
+      the_new.ExecAttempted = false;
       break;
     }
 
@@ -1044,39 +1056,57 @@ protected:
 
         case nr_for(execve):
         case nr_for(execveat): {
-#if 0
           if (ret == 1) {
             // XXX exec never returns 1; we use this value to just say that an
-            // exec is being attempted. the exec will be reported even if it
-            // fails.
-            //
-            // we do this here because the MMAP records come before the exec
-            // has completed
+            // exec is being attempted. we do this here because the MMAP
+            // records come before the exec has completed
             if constexpr (IsVeryVerbose())
-              fprintf(stderr, "(enter exec)\n");
+              fprintf(stderr, "(exec attempted)\t%u\n", (unsigned)pid);
 
             auto it = pid_map.find(pid);
             if (it != pid_map.end()) {
               auto &pstate = (*it).second;
+
+              aassert(!pstate.ExecAttempted);
+
               pstate.addrspace_sav = pstate.addrspace;
               pstate.addrspace.clear(); /* entering exec */
+              pstate.ExecAttempted = true;
             }
             break;
-          }
-          if (static_cast<int>(ret) == -1) {
+          } else if (static_cast<int_ret_t>(ret) < 0) {
             // exec failed, undo our clear of the address space
             if constexpr (IsVeryVerbose())
-              fprintf(stderr, "(exec failed)\n");
+              fprintf(stderr, "(exec failed)\t%u\n", (unsigned)pid);
 
             auto it = pid_map.find(pid);
             if (it != pid_map.end()) {
               auto &pstate = (*it).second;
+
+              aassert(pstate.ExecAttempted);
+
               pstate.addrspace = pstate.addrspace_sav;
               pstate.addrspace_sav.clear();
+              pstate.ExecAttempted = false;
             }
             break;
           }
-#endif
+
+          if (ret != 0) {
+            if constexpr (IsVeryVerbose())
+              fprintf(stderr, "exec()=%" PRIi32 " %" PRIu32 "\t%" PRIi64 " %" PRIu64"\n", (int32_t)pid, (uint32_t)pid, (int64_t)pid, (uint64_t)pid);
+          }
+
+          aassert(ret == 0); /* exec succeeded */
+
+          {
+            auto it = pid_map.find(pid);
+            if (it != pid_map.end()) {
+              auto &pstate = (*it).second;
+              pstate.ExecAttempted = false;
+            }
+          }
+
           const uint64_t n = payload->hdr.str_len;
 
           const char *const beg = &payload->str[0];
