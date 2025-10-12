@@ -11,20 +11,21 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/sendfile.h>
+#include <sys/syscall.h>
 
 namespace jove {
 
 template <bool IsRead>
 static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
+  static constexpr unsigned sysno = IsRead ? SYS_read : SYS_write;
+
   uint8_t *const _buf = (uint8_t *)buf;
 
   unsigned n = 0;
   do {
     unsigned left = count - n;
 
-    ssize_t ret = IsRead ? ::read(fd, &_buf[n], left) :
-                          ::write(fd, &_buf[n], left);
-
+    ssize_t ret = ::syscall(sysno, fd, &_buf[n], left);
     if (unlikely(ret == 0))
       return -EIO;
 
