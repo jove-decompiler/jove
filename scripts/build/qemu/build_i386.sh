@@ -17,12 +17,6 @@ OURLDFLAGS=\
 " -latomic"\
 " -fuse-ld=lld"
 
-THE_CC=clang-19
-THE_CXX=clang++-19
-THE_AR=llvm-ar-19
-THE_RANLIB=llvm-ranlib-19
-THE_LD=ld.lld-19
-
 CLANGVER=19
 
 EXTRACONF="--enable-jove"

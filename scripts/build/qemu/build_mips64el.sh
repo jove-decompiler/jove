@@ -22,12 +22,6 @@ EXTRACONF="--enable-jove"
 
 BUILDLIST="libqemu4jove-mips64el.a"
 
-THE_CC=clang-19
-THE_CXX=clang++-19
-THE_AR=llvm-ar-19
-THE_RANLIB=llvm-ranlib-19
-THE_LD=ld.lld-19
-
 if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
