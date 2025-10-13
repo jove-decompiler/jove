@@ -180,7 +180,6 @@ set(JOVE_SOURCES
     jove-unserialize.cpp
     jove-unstub.cpp
     jv2xml.cpp
-    llknife.cpp
     tcgdump.cpp
 )
 
