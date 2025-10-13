@@ -255,7 +255,7 @@ ___SYSCALL4(256, epoll_wait, int, epfd, struct epoll_event __user *, events, int
 ___SYSCALL5(257, remap_file_pages, unsigned long, start, unsigned long, size, unsigned long, prot, unsigned long, pgoff, unsigned long, flags)
 ___SYSCALL1(258, set_tid_address, int __user *, tidptr)
 ___SYSCALL3(259, timer_create, const clockid_t, which_clock, struct sigevent __user *, timer_event_spec, timer_t __user *, created_timer_id)
-___SYSCALL4(260, timer_settime32, timer_t, timer_id, int, flags, struct old_itimerspec32 __user *, new, struct old_itimerspec32 __user *, old)
+___SYSCALL4(260, timer_settime32, timer_t, timer_id, int, flags, struct old_itimerspec32 __user *, _new, struct old_itimerspec32 __user *, old)
 ___SYSCALL2(261, timer_gettime32, timer_t, timer_id, struct old_itimerspec32 __user *, setting)
 ___SYSCALL1(262, timer_getoverrun, timer_t, timer_id)
 ___SYSCALL1(263, timer_delete, timer_t, timer_id)
