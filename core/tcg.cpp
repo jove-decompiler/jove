@@ -113,7 +113,46 @@ extern "C" void jv_illegal_op(uint64_t PC) {
   throw jove::illegal_op_exception(PC);
 }
 
+extern "C" {
+
+struct jove_init_rec {
+  int32_t priority;   // same as the i32 field in llvm.global_ctors
+  void (*func)(void); // constructor function
+  void *data;         // optional associated data (often null)
+};
+
+extern const struct jove_init_rec __jove_global_ctors_begin[];
+extern const struct jove_init_rec __jove_global_ctors_end[];
+extern const struct jove_init_rec __jove_global_dtors_begin[];
+extern const struct jove_init_rec __jove_global_dtors_end[];
+
+}
+
 namespace jove {
+
+static int by_priority(const void *a, const void *b) {
+  const struct jove_init_rec *A = (const struct jove_init_rec *)a;
+  const struct jove_init_rec *B = (const struct jove_init_rec *)b;
+
+  if (A->priority < B->priority) return -1;
+  if (A->priority > B->priority) return  1;
+  return 0;
+}
+
+static void run_all_qemu_ctors(void) {
+  size_t n = (size_t)(__jove_global_ctors_end - __jove_global_ctors_begin);
+  struct jove_init_rec *tmp = (struct jove_init_rec *)
+      __builtin_alloca(n * sizeof(struct jove_init_rec));
+  for (size_t i = 0; i < n; ++i)
+    tmp[i] = __jove_global_ctors_begin[i];
+  qsort(tmp, n, sizeof(tmp[0]), by_priority);
+
+  for (size_t i = 0; i < n; ++i) {
+    if (tmp[i].func)
+      tmp[i].func();
+  }
+}
+
 
 int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
   TCGContext *const s = tcg_ctx;
@@ -165,6 +204,8 @@ tiny_code_generator_t::tiny_code_generator_t() {
 
   if (!inited) {
     inited = true;
+
+    run_all_qemu_ctors();
 
     temp_exe the_exe(&starter_bin_bytes[0], sizeof(starter_bin_bytes),
                      "qemu-starter-" TARGET_ARCH_NAME);

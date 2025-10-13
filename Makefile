@@ -24,6 +24,8 @@ OUR_LLVM_CXX := $(OUR_LLVM_BIN_DIR)/clang++
 OUR_LLVM_OPT := $(OUR_LLVM_BIN_DIR)/opt
 OUR_LLVM_LLD_LINK := $(OUR_LLVM_BIN_DIR)/lld-link
 
+OUR_LLKNIFE := llknife-16
+
 jove_tool = $(OUR_LLVM_BIN_DIR)/jove-$(1)
 
 JOVE_GITVER := $(shell git log -n1 --format="%h")
@@ -214,25 +216,25 @@ $(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
 # starter bitcode
 #
 $(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@.tmp -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.st.syms
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@.tmp -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.st.syms
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|_tls_index)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@.tmp -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.mt.syms
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@.tmp -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.mt.syms
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|_tls_index)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
@@ -242,23 +244,23 @@ $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 # runtime bitcode
 #
 $(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --only-external '_{1,2}jove_.*'
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp --only-external '_{1,2}jove_.*'
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --only-external '_{1,2}jove_.*'
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp --only-external '_{1,2}jove_.*'
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --only-external '(_{1,2}jove_.*|_tls_index|_tls_used|_DllMainCRTStartup)'
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp --only-external '(_{1,2}jove_.*|_tls_index|_tls_used|_DllMainCRTStartup)'
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
-	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --only-external '(_{1,2}jove_.*|_tls_index|_tls_used|_DllMainCRTStartup)'
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD -MF $$@.d -MT $$@ $$<
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp --only-external '(_{1,2}jove_.*|_tls_index|_tls_used|_DllMainCRTStartup)'
 	rm $$@.tmp
 
 #
@@ -276,8 +278,8 @@ $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
                                    $(BINDIR)/$(1)/jove_rt_dll.callconv.%.syms \
                                    $(BINDIR)/$(1)/jove_rt_dll.dllexport.%.syms
-	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.$$*.syms
-	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.$$*.syms
+	$(OUR_LLKNIFE) -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.$$*.syms
+	$(OUR_LLKNIFE) -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.$$*.syms
 	$(OUR_LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
 	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
 
@@ -287,14 +289,14 @@ $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o \
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.st.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.mt.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.st.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.mt.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.st.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.st.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.mt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.st.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.mt.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.st.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.mt.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.st.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.st.bc.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.mt.bc.d)
 -include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/linux/$(h).d))
 -include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/win/$(h).d))
 
@@ -335,9 +337,10 @@ helper_cflags = $(call runtime_cflags,$(1)) \
                 -DCONFIG_USER_ONLY \
                 -DNDEBUG
 
-CARBON_EXTRACT := /usr/local/bin/carbon-extract
+CARBON_EXTRACT := carbon-extract
 
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
+qemu_build_dir = $(QEMU_DIR)/$(1)_build
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
 qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_TARGET)_carbon_build_$(1)
 qemu_softfpu_build_dir = $(QEMU_DIR)/$(1)_softfpu_$(2)_build
@@ -362,12 +365,12 @@ $(BINDIR)/$(1)/helpers/win/%.ll: $(BINDIR)/$(1)/helpers/win/%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(1)/qemu-$(1).bitcode.cut: $(call qemu_softfpu_bitcode,$(1),linux) | $(call softfpu_bitcode,$(1),linux)
-	$(call jove_tool,$(1)) llknife -v -o $(BINDIR)/$(1)/softfpu.externals.txt -i $(call softfpu_bitcode,$(1),linux) --print-external
-	$(call jove_tool,$(1)) llknife -v -o $$@.tmp.1 -i $(call qemu_softfpu_bitcode,$(1),linux) --erase-external $(BINDIR)/$(1)/softfpu.externals.txt
+	$(OUR_LLKNIFE) -v -o $(BINDIR)/$(1)/softfpu.externals.txt -i $(call softfpu_bitcode,$(1),linux) --print-external
+	$(OUR_LLKNIFE) -v -o $$@.tmp.1 -i $(call qemu_softfpu_bitcode,$(1),linux) --erase-external $(BINDIR)/$(1)/softfpu.externals.txt
 	rm $(BINDIR)/$(1)/softfpu.externals.txt
-	$(call jove_tool,$(1)) llknife -v -o $$@.tmp.2 -i $$@.tmp.1 --erase-ctors-and-dtors
+	$(OUR_LLKNIFE) -v -o $$@.tmp.2 -i $$@.tmp.1 --erase-ctors-and-dtors
 	rm $$@.tmp.1
-	$(call jove_tool,$(1)) llknife -v -o $$@.tmp.3 -i $$@.tmp.2 --only-make-external 'helper_.*'
+	$(OUR_LLKNIFE) -v -o $$@.tmp.3 -i $$@.tmp.2 --only-make-external 'helper_.*'
 	rm $$@.tmp.2
 	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp.3
 	rm $$@.tmp.3
@@ -474,7 +477,7 @@ $(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 .PHONY: all-helpers-$(1)-mk
 all-helpers-$(1)-mk: | $(call qemu_softfpu_bitcode,$(1),linux)
 	printf '%s_HELPERS := ' '$(1)' > $(BINDIR)/$(1)/all_helpers.mk
-	$(call jove_tool,$(1)) llknife -v -o $(BINDIR)/$(1)/all_helpers.txt -i $(call qemu_softfpu_bitcode,$(1),linux) --print-only 'helper_.*'
+	$(OUR_LLKNIFE) -v -o $(BINDIR)/$(1)/all_helpers.txt -i $(call qemu_softfpu_bitcode,$(1),linux) --print-only 'helper_.*'
 	sed 's/^helper_//' < $(BINDIR)/$(1)/all_helpers.txt | tr '\n' ' ' >> $(BINDIR)/$(1)/all_helpers.mk
 	rm $(BINDIR)/$(1)/all_helpers.txt
 

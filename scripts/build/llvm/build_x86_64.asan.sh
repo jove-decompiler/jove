@@ -54,6 +54,7 @@ cmake -G Ninja \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
       -D LLVM_ENABLE_PIC=OFF \
+      -D LLVM_ENABLE_LTO=THIN \
       -D JOVE_STATIC_BUILD=OFF \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D JOVE_USE_SYSTEM_TBB=OFF \

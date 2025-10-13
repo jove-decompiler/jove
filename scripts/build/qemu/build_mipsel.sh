@@ -20,7 +20,7 @@ CLANGVER=19
 
 EXTRACONF="--enable-jove"
 
-BUILDLIST="libqemu4jove-mipsel.a"
+BUILDLIST="qemu4jove-mipsel.cut.bc"
 
 if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
@@ -41,6 +41,7 @@ THE_CC=clang-$CLANGVER
 THE_CXX=clang++-$CLANGVER
 THE_AR=llvm-ar-$CLANGVER
 THE_RANLIB=llvm-ranlib-$CLANGVER
+THE_LINK=llvm-link-$CLANGVER
 THE_LD=ld.lld-$CLANGVER
 
 if [ ! -f build.ninja ]; then
@@ -80,6 +81,9 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --disable-passt \
   --disable-selinux \
   --enable-trace-backends=nop \
+  --disable-malloc-trim \
+  -Dllvm_ar=$THE_AR \
+  -Dllvm_link=$THE_LINK \
   $EXTRACONF
 
 fi

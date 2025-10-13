@@ -1,3 +1,18 @@
+llvm_map_components_to_libnames(llvm_libs
+  AllTargetsAsmParsers
+  AllTargetsCodeGens
+  AllTargetsDescs
+  AllTargetsDisassemblers
+  AllTargetsInfos
+  BitReader
+  Core
+  MCDisassembler
+  Object
+  Support
+  Target
+  Passes
+)
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
@@ -172,12 +187,20 @@ set(JOVE_SOURCES
 function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   string(TOUPPER "${arch}" uc_arch)
 
-  add_llvm_tool(jove-${arch} ${JOVE_SOURCES})
+  add_llvm_executable(jove-${arch} ${JOVE_SOURCES})
+
+  target_link_libraries(jove-${arch} PRIVATE ${llvm_libs})
+
+# set_source_files_properties(jove-off2addr.cpp
+#   PROPERTIES COMPILE_FLAGS "-Xclang -fdump-record-layouts"
+# )
 
   target_link_libraries(jove-${arch} PRIVATE
     -Wl,--push-state,--whole-archive
-    ${qemu_build_dir}/libqemu4jove-${arch}.a
+    ${qemu_build_dir}/qemu4jove-${arch}.cut.bc
     -Wl,--pop-state
+
+    ${qemu_build_dir}/libqemu4jove-${arch}-native.a
 
     glib-2.0
 
@@ -292,18 +315,6 @@ set(CMAKE_CXX_EXTENSIONS ON)
 include_directories(../include)
 include_directories(../lib)
 include_directories(../core)
-
-#
-# LLVM components needed
-#
-set(LLVM_LINK_COMPONENTS
-  ${LLVM_TARGETS_TO_BUILD}
-  object
-  passes
-  objcarcopts
-  coroutines
-  symbolize
-)
 
 #
 # create target for each architecture

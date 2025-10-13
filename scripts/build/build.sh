@@ -61,6 +61,7 @@ llvm_path=$jove_path/llvm-project
 wine_path=$jove_path/wine
 linux_path=$jove_path/linux
 carbc_path=$jove_path/carbon-copy
+llknife_path=$jove_path/llknife
 
 #
 # fresh symlinks
@@ -78,6 +79,15 @@ pushd .
 cd $carbc_path
 mkdir -p build && cd build
 retry $build_scripts_path/carbon-copy/build.sh
+popd
+
+#
+# llknife
+#
+pushd .
+cd $llknife_path
+mkdir -p build19 && cd build19
+retry $build_scripts_path/llknife/build19.sh
 popd
 
 #
@@ -181,6 +191,11 @@ printf "%s\n" "${cmds[@]}" \
 # gather build commands into array (3)
 #
 cmds=()
+
+#
+# llknife (our LLVM version)
+#
+cmds+=("pushd \"$llknife_path\" && mkdir -p build16 && cd build16 && retry \"$build_scripts_path/llknife/build16.sh\" && popd")
 
 #
 # qemu _softfpu (needs clang compiler built from command above)
