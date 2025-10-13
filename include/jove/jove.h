@@ -1095,9 +1095,7 @@ struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
   explicit adds_binary_t() noexcept = default;
-  explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {
-    assert(is_binary_index_valid(BIdx));
-  }
+  explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {}
 
   // adds new binary, stores index
   template <bool MT, bool MinSize>
