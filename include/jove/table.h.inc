@@ -58,12 +58,12 @@ struct table_t {
     return reinterpret_cast<const T *>(storage_)[i];
   }
 
-  T &at(std::size_t i) noexcept {
+  T &at(std::size_t i) {
     assert(i < size());
     return this->operator[](i);
   }
 
-  const T &at(std::size_t i) const noexcept {
+  const T &at(std::size_t i) const {
     assert(i < size());
     return this->operator[](i);
   }
