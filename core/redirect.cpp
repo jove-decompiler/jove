@@ -1,4 +1,5 @@
 #include "redirect.h"
+#include "sys.h"
 
 #include <llvm/Support/FormatVariadic.h>
 
@@ -49,7 +50,7 @@ static void RedirectSigHandler(int no) {
   }
 #endif
 
-  if (::kill(child, no) < 0) {
+  if (_jove_sys_kill(child, no) < 0) {
 #if 0
     int err = errno;
     tool.HumanOut() << llvm::formatv("failed to redirect {0}\n", signame);
