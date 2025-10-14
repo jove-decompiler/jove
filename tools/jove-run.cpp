@@ -250,7 +250,7 @@ public:
   std::atomic<bool> FileSystemRestored = false;
 
   template <bool LivingDangerously>
-  int FifoProc(const char *const fifo_file_path);
+  int FifoChild(const char *const fifo_file_path);
 
   void DropPrivileges(void);
 };
@@ -303,7 +303,7 @@ static void *recover_proc(const char *fifo_path);
 #if 0
 static std::atomic<bool> InterruptSleep = false;
 #endif
-static std::atomic<bool> StopFifoProc = false;
+static std::atomic<bool> StopFifoChild = false;
 static std::atomic<bool> DeathHandlerVerbose = false;
 
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
@@ -503,18 +503,25 @@ int RunTool::DoRun(void) {
       if (DeathHandlerVerbose.load(std::memory_order_relaxed))
         WithColor::note() << "death_handler\n";
 
-      StopFifoProc.store(true, std::memory_order_relaxed);
+      StopFifoChild.store(true, std::memory_order_relaxed);
     };
 
     struct sigaction sa;
-    sa.sa_handler = death_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0; /* no SA_RESTART here, so that open() will return EINTR */
+
+    //
+    // Graceful termination
+    //
+    sa.sa_handler = death_handler;
     if (sigaction(SIGTERM, &sa, NULL) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv(
-          "failed to set FifoProc SIGTERM death handler: {0}\n", strerror(err));
+          "failed to set FifoChild SIGTERM death handler: {0}\n", strerror(err));
     } else {
+      //
+      // non-Graceful termination
+      //
       if (::prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
         int err = errno;
         if (IsVerbose())
@@ -523,6 +530,15 @@ int RunTool::DoRun(void) {
       }
     }
 
+    //
+    // ignore Ctrl+C
+    //
+    sa.sa_handler = SIG_IGN;
+    sigaction(SIGINT, &sa, NULL);
+
+    //
+    // create stuff
+    //
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     if (opts.Symbolize)
@@ -535,7 +551,7 @@ int RunTool::DoRun(void) {
 
     int rc = 1;
     ignore_exception([&] {
-      rc = FifoProc<LivingDangerously>(fifo_file_path.c_str());
+      rc = FifoChild<LivingDangerously>(fifo_file_path.c_str());
     });
 
     _exit(rc);
@@ -550,14 +566,14 @@ int RunTool::DoRun(void) {
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&RunTool::get_child_pid, this));
 
-  auto KillFifoProc = [&](void) -> void {
+  auto KillFifoChild = [&](void) -> void {
     if (IsVeryVerbose())
-      HumanOut() << "killing FifoProc\n";
+      HumanOut() << "killing FifoChild\n";
 
     ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx,
                                    boost::interprocess::defer_lock);
     if (!e_lck.try_lock_for(boost::chrono::milliseconds(20000)))
-      WithColor::error() << "FifoProc ain't giving up lock!\n";
+      WithColor::error() << "FifoChild ain't giving up lock!\n";
 
     if (pidfd_send_signal(pidfd.get(), SIGKILL, nullptr, 0) < 0) {
       int err = errno;
@@ -570,7 +586,7 @@ int RunTool::DoRun(void) {
     }
   };
 
-  auto IsFifoProcStillRunning = [&](int timeout) -> bool {
+  auto IsFifoChildStillRunning = [&](int timeout) -> bool {
     struct pollfd pfd = {.fd = pidfd.get(), .events = POLLIN};
 
     if (IsVeryVerbose())
@@ -590,7 +606,7 @@ int RunTool::DoRun(void) {
   };
 
   unsigned TimesToldToStop = 0;
-  auto TellFifoProcToStop = [&](void) -> bool {
+  auto TellFifoChildToStop = [&](void) -> bool {
     int fd = -1;
     int err = 0;
     do {
@@ -628,21 +644,21 @@ int RunTool::DoRun(void) {
 
   BOOST_SCOPE_DEFER [&] {
     //
-    // tell FifoProc to stop running
+    // tell FifoChild to stop running
     //
-    if (IsFifoProcStillRunning(0u)) {
-      if (TellFifoProcToStop()) {
+    if (IsFifoChildStillRunning(0u)) {
+      if (TellFifoChildToStop()) {
         if (IsVerbose())
-          WithColor::note() << "told FifoProc to stop\n";
+          WithColor::note() << "told FifoChild to stop\n";
 
-        if (IsFifoProcStillRunning(10000))
-          KillFifoProc();
+        if (IsFifoChildStillRunning(10000))
+          KillFifoChild();
       } else {
-        if (IsFifoProcStillRunning(0u))
-          KillFifoProc();
+        if (IsFifoChildStillRunning(0u))
+          KillFifoChild();
       }
     } else {
-      WithColor::warning() << llvm::formatv("FifoProc vanished!\n");
+      WithColor::warning() << llvm::formatv("FifoChild vanished!\n");
     }
 
     {
@@ -1261,15 +1277,15 @@ void touch(const fs::path &p) {
 }
 
 template <bool LivingDangerously>
-int RunTool::FifoProc(const char *const fifo_path) {
-  if (StopFifoProc.load(std::memory_order_relaxed)) {
+int RunTool::FifoChild(const char *const fifo_path) {
+  if (StopFifoChild.load(std::memory_order_relaxed)) {
     if (IsVerbose())
-      HumanOut() << "stopping FifoProc...\n";
+      HumanOut() << "stopping FifoChild...\n";
     return 0;
   }
 
   if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("FifoProc: opening fifo at {0}...\n", fifo_path);
+    HumanOut() << llvm::formatv("FifoChild: opening fifo at {0}...\n", fifo_path);
 
   int fd = -1;
   int err = 0;
@@ -1277,9 +1293,9 @@ int RunTool::FifoProc(const char *const fifo_path) {
     fd = ::open(fifo_path, O_RDONLY | O_CLOEXEC);
     err = errno;
 
-    if (StopFifoProc.load(std::memory_order_relaxed)) {
+    if (StopFifoChild.load(std::memory_order_relaxed)) {
       if (IsVerbose())
-        HumanOut() << "stopping FifoProc...\n";
+        HumanOut() << "stopping FifoChild...\n";
       return 0;
     }
   } while (fd < 0 && err == EINTR);
@@ -1288,43 +1304,43 @@ int RunTool::FifoProc(const char *const fifo_path) {
   scoped_fd recover_fd(fd);
   if (!recover_fd) {
     int err = errno;
-    die("FifoProc: failed to open fifo at " + std::string(fifo_path) + ": " +
+    die("FifoChild: failed to open fifo at " + std::string(fifo_path) + ": " +
         strerror(err));
   }
 
   if (IsVeryVerbose())
-    HumanOut() << "FifoProc: fifo opened.\n";
+    HumanOut() << "FifoChild: fifo opened.\n";
 
   for (;;) {
     char ch;
 
     {
       if (IsVeryVerbose())
-        HumanOut() << "FifoProc: reading from fifo...\n";
+        HumanOut() << "FifoChild: reading from fifo...\n";
 
       ssize_t ret = ::read(recover_fd.get(), &ch, 1);
       if (ret != 1) {
         if (ret < 0) {
           err = errno;
 
-          if (StopFifoProc.load(std::memory_order_relaxed)) {
+          if (StopFifoChild.load(std::memory_order_relaxed)) {
             if (IsVerbose())
-              HumanOut() << "stopping FifoProc...\n";
+              HumanOut() << "stopping FifoChild...\n";
             return 0;
           }
 
           if (err == EINTR) {
             if (IsVeryVerbose())
-              HumanOut() << "FifoProc: read interrupted\n";
+              HumanOut() << "FifoChild: read interrupted\n";
             continue;
           }
 
-          die("FifoProc: failed to read: " + std::string(strerror(err)));
+          die("FifoChild: failed to read: " + std::string(strerror(err)));
         } else if (ret == 0) { /* closed */
           break;
         }
 
-        die("FifoProc: read returned impossible value");
+        die("FifoChild: read returned impossible value");
       }
     }
 
@@ -1354,7 +1370,7 @@ int RunTool::FifoProc(const char *const fifo_path) {
     auto do_recover = [&](void) -> std::string {
 //
 // paranoid (raw) macro which locks a shared mutex. this is meant to defend
-// against FifoProc going (hypothetically) haywire. we are being super careful.
+// against FifoChild going (hypothetically) haywire. we are being super careful.
 //
 #define ___recovering___() ip_scoped_lock<ip_mutex> e_lck(shared_data.mtx)
 
@@ -1600,6 +1616,6 @@ int RunTool::FifoProc(const char *const fifo_path) {
 
   }
 
-  __attribute__((musttail)) return FifoProc<LivingDangerously>(fifo_path);
+  __attribute__((musttail)) return FifoChild<LivingDangerously>(fifo_path);
 }
 }
