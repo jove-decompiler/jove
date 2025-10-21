@@ -4,6 +4,10 @@
 
 #include "jove/tcg.h"
 #ifdef __cplusplus
+#ifndef __clang__
+#error "jove is only intended to be built with the clang compiler."
+#endif
+
 #include "jove/macros.h"
 #include "jove/constants.h"
 #include "jove/types.h"

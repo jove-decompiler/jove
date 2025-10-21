@@ -1,10 +1,6 @@
 #pragma once
 #include "jove/macros.h"
 
-#ifndef __clang__
-#error
-#endif
-
 namespace jove {
 
 struct VerboseThing {
