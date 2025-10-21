@@ -1,5 +1,6 @@
 #pragma once
 #include "assert.h"
+#include "likely.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -53,16 +54,18 @@ public:
   ~scoped_fd() noexcept { close(); }
 
   [[clang::always_inline]] bool valid(void) const noexcept {
-    return fd >= 0;
+    return likely(fd >= 0);
   }
 
   [[clang::always_inline]] explicit operator bool(void) const noexcept {
     return valid();
   }
 
-  [[clang::always_inline]] int get(void) const {
-    aassert(*this);
-    return fd;
+  [[clang::always_inline]] int get(void) const noexcept(false) {
+    int res = fd;
+    aassert(res >= 0);
+    __builtin_assume(res >= 0);
+    return res;
   }
 
   [[clang::always_inline]] void close(void) noexcept {
