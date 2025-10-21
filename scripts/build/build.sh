@@ -73,22 +73,25 @@ ln -sf ../../.. $llvm_path/llvm/projects/jove
 ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
 #
+# gather build commands into array (0)
+#
+cmds=()
+
+#
 # carbon-copy
 #
-pushd .
-cd $carbc_path
-mkdir -p build && cd build
-retry $build_scripts_path/carbon-copy/build.sh
-popd
+cmds+=("pushd \"$carbc_path\" && mkdir -p build && cd build && retry \"$build_scripts_path/carbon-copy/build.sh\" && popd")
 
 #
 # llknife
 #
-pushd .
-cd $llknife_path
-mkdir -p build19 && cd build19
-retry $build_scripts_path/llknife/build19.sh
-popd
+cmds+=("pushd \"$llknife_path\" && mkdir -p build19 && cd build19 && retry \"$build_scripts_path/llknife/build19.sh\" && popd")
+
+#
+# run everything in parallel (0)
+#
+printf "%s\n" "${cmds[@]}" \
+  | parallel -j "$PARALLEL_JOBS" -v --lb --halt soon,fail=1
 
 #
 # gather build commands into array (1)
