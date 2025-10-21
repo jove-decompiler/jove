@@ -29,19 +29,19 @@ public:
     other.fd = -1;
   }
 
-  scoped_fd &operator=(scoped_fd &&other) noexcept(false) {
-    if (this != &other) {
-      close();
+  scoped_fd &operator=(scoped_fd &&other) noexcept {
+    if (this == &other)
+      return *this;
 
-      fd = other.fd;
-      other.fd = -1;
-    }
+    close();
+
+    fd = other.fd;
+    other.fd = -1;
     return *this;
   }
 
-  scoped_fd &operator=(int fd_) noexcept(false) {
+  scoped_fd &operator=(int fd_) noexcept {
     close();
-
     fd = fd_;
     return *this;
   }
@@ -49,30 +49,31 @@ public:
   scoped_fd(const scoped_fd &) = delete;
   scoped_fd &operator=(const scoped_fd &) = delete;
 
-  ~scoped_fd() noexcept(false) {
-    close();
-  }
+  ~scoped_fd() noexcept { close(); }
 
-  [[clang::always_inline]] bool valid(void) const {
+  [[clang::always_inline]] bool valid(void) const noexcept {
     return fd >= 0;
   }
 
-  [[clang::always_inline]] explicit operator bool(void) const {
+  [[clang::always_inline]] explicit operator bool(void) const noexcept {
     return valid();
   }
 
-  int get(void) const {
+  [[clang::always_inline]] int get(void) const {
     assert(*this);
     return fd;
   }
 
-  void close(void) noexcept(false) { /* throws if fails to close valid fd */
+  [[clang::always_inline]] void close(void) noexcept {
     if (*this) {
-      if (::close(fd) < 0)
-        throw std::runtime_error(
-            std::string("scoped_fd: failed to close fd: ") + strerror(errno));
+      //
+      // "Retrying the close() after a failure return is the wrong thing to do,
+      // since this may cause a reused file descriptor from another thread to be
+      // closed." - close(2)
+      //
+      (void)::close(fd);
 
-      fd = -1;
+      fd = -1; /* reset */
     }
   }
 
