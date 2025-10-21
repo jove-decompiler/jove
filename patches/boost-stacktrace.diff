@@ -1,8 +1,8 @@
 diff --git a/src/from_exception.cpp b/src/from_exception.cpp
-index 366ba28..2e467f4 100644
+index 366ba28..00d55d6 100644
 --- a/src/from_exception.cpp
 +++ b/src/from_exception.cpp
-@@ -227,79 +227,88 @@ static bool is_libcpp_runtime() noexcept {
+@@ -227,79 +227,94 @@ static bool is_libcpp_runtime() noexcept {
  #else
  
  static bool is_libcpp_runtime() noexcept { return false; }
@@ -23,19 +23,24 @@ index 366ba28..2e467f4 100644
    return exception_begin_gcc_ptr(ptr)->reserve;
  }
  
++#ifdef BOOST_STATIC_EXECUTABLE
 +extern "C"
 +void* __real___cxa_allocate_exception(size_t thrown_size);
++#endif
 +
  extern "C" BOOST_SYMBOL_EXPORT
--void* __cxa_allocate_exception(size_t thrown_size) throw() {
++#ifdef BOOST_STATIC_EXECUTABLE
 +void* __wrap___cxa_allocate_exception(size_t thrown_size) throw() {
++#else
+ void* __cxa_allocate_exception(size_t thrown_size) throw() {
++#endif
    static const auto orig_allocate_exception = []() {
-+#if 0
++#ifdef BOOST_STATIC_EXECUTABLE
++    return __real___cxa_allocate_exception;
++#else
      void* const ptr = ::dlsym(RTLD_NEXT, "__cxa_allocate_exception");
      BOOST_ASSERT_MSG(ptr, "Failed to find '__cxa_allocate_exception'");
      return reinterpret_cast<void*(*)(size_t)>(ptr);
-+#else
-+  return __real___cxa_allocate_exception;
 +#endif
    }();
  
