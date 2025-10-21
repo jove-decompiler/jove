@@ -20,15 +20,15 @@ CLANGVER=19
 
 EXTRACONF="--enable-jove"
 
-BUILDLIST="qemu4jove-mips64el.cut.bc"
+BUILDLIST="libqemu4jove-mips64el.a"
 
 if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
-    EXTRACONF="--enable-jove-helpers"
+    EXTRACONF="--enable-jove-helpers --enable-lto"
     BUILDLIST="qemu-mips64el qemu-mips64el.bitcode"
   fi
   if test "$1" = "_softfpu" ; then
-    EXTRACONF="--enable-jove-helpers"
+    EXTRACONF="--enable-jove-helpers --enable-lto"
     BUILDLIST="qemu-mips64el qemu-mips64el.bitcode libfpu_soft-mips64el-linux-user.a"
     CLANGVER=16
   fi
@@ -60,7 +60,6 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --enable-tcg-interpreter \
   --enable-tcg \
   --disable-plugins \
-  --enable-lto \
   --disable-pie \
   --disable-tools \
   --disable-docs \
@@ -82,8 +81,6 @@ AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --disable-selinux \
   --enable-trace-backends=nop \
   --disable-malloc-trim \
-  -Dllvm_ar=$THE_AR \
-  -Dllvm_link=$THE_LINK \
   $EXTRACONF
 
 fi
