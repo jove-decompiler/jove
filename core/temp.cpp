@@ -1,5 +1,5 @@
 #include "temp.h"
-
+#include "robust.h"
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
@@ -47,9 +47,9 @@ temp_file::temp_file(const void *contents, size_t N,
 }
 
 void temp_file::store(void) noexcept(false) {
-  ssize_t ret = robust_write(fd.get(), contents, this->N);
+  ssize_t ret = robust::write(fd.get(), contents, this->N);
   if (ret != this->N)
-    throw std::runtime_error("temp_file: robust_write gave " +
+    throw std::runtime_error("temp_file: robust::write gave " +
                              std::to_string(ret));
 
 #ifndef JOVE_HAVE_MEMFD

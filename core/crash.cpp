@@ -2,6 +2,7 @@
 #include "util.h"
 #include "fd.h"
 #include "sys.h"
+#include "robust.h"
 
 #include <sstream>
 #include <iostream>
@@ -32,7 +33,7 @@ static void dump_to_somewhere(const char *content) {
 
   scoped_fd fd(_jove_sys_openat(-1, filename, O_WRONLY | O_CREAT | O_TRUNC, 0666));
   if (fd)
-    robust_write(fd.get(), content, strlen(content));
+    robust::write(fd.get(), content, strlen(content));
 }
 
 static void crash_signal_handler(int no) {
@@ -55,8 +56,8 @@ static void crash_signal_handler(int no) {
   _jove_sys_setpriority(PRIO_PROCESS, 0, 7);
 
   for (;;) {
-    if (robust_write(STDERR_FILENO, msg, len) != len)
-      robust_write(STDOUT_FILENO, msg, len);
+    if (robust::write(STDERR_FILENO, msg, len) != len)
+      robust::write(STDOUT_FILENO, msg, len);
 
 
     {

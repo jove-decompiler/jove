@@ -4,6 +4,7 @@
 #include "symbolizer.h"
 #include "tcg.h"
 #include "explore.h"
+#include "robust.h"
 
 #include <boost/filesystem.hpp>
 #include <llvm/Support/FormatVariadic.h>
@@ -228,7 +229,7 @@ void CodeDigger::RecoverLoop(void) {
 
     uint8_t record[RECORD_LEN];
 
-    ssize_t ret = robust_read(pipe_rdfd, &record[0], RECORD_LEN);
+    ssize_t ret = robust::read(pipe_rdfd, &record[0], RECORD_LEN);
     if (ret != RECORD_LEN) {
       if (ret < 0) {
         if (ret != -EIO)

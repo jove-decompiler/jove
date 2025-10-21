@@ -161,6 +161,7 @@ set(JOVE_SOURCES
     ../core/recompile.cpp
     ../core/redirect.cpp
     ../core/reflink.cpp
+    ../core/robust.cpp
     ../core/score.cpp
     ../core/sret.cpp
     ../core/serialize.cpp

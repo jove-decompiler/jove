@@ -5,6 +5,7 @@
 #include "tcg.h"
 #include "recompile.h"
 #include "fork.h"
+#include "robust.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -246,7 +247,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   {
     char magic[5] = {'J', 'O', 'V', 'E', our_endianness};
 
-    ssize_t ret = robust_write(data_socket, &magic[0], sizeof(magic));
+    ssize_t ret = robust::write(data_socket, &magic[0], sizeof(magic));
 
     if (ret < 0) {
       HumanOut() << llvm::formatv(
@@ -261,7 +262,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   //
   const char other_endianness = ({
     char magic[5];
-    ssize_t ret = robust_read(data_socket, &magic[0], sizeof(magic));
+    ssize_t ret = robust::read(data_socket, &magic[0], sizeof(magic));
     if (ret < 0) {
       HumanOut() << llvm::formatv(
           "failed to send magic bytes: {0}\n", strerror(-ret));
@@ -293,7 +294,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   // read header
   //
   uint16_t header;
-  if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
+  if (robust::read(data_socket, &header, sizeof(header)) != sizeof(header)) {
     WithColor::error() << "failed to read header\n";
     return 1;
   }
@@ -304,7 +305,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   std::vector<std::string> PinnedGlobals;
   {
     uint8_t NPinnedGlobals = 0;
-    if (robust_read(data_socket, &NPinnedGlobals, sizeof(NPinnedGlobals)) != sizeof(NPinnedGlobals)) {
+    if (robust::read(data_socket, &NPinnedGlobals, sizeof(NPinnedGlobals)) != sizeof(NPinnedGlobals)) {
       WithColor::error() << "failed to read NPinnedGlobals\n";
       return 1;
     }
@@ -320,7 +321,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
 
     {
       uint8_t PinnedGlobalStrLen;
-      if (robust_read(data_socket, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) != sizeof(PinnedGlobalStrLen)) {
+      if (robust::read(data_socket, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) != sizeof(PinnedGlobalStrLen)) {
         WithColor::error() << "failed to read PinnedGlobalStrLen\n";
         return 1;
       }
@@ -331,7 +332,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     if (PinnedGlobalStr.size() == 0)
       continue;
 
-    if (robust_read(data_socket, &PinnedGlobalStr[0], PinnedGlobalStr.size()) != PinnedGlobalStr.size()) {
+    if (robust::read(data_socket, &PinnedGlobalStr[0], PinnedGlobalStr.size()) != PinnedGlobalStr.size()) {
       WithColor::error() << "failed to read PinnedGlobalStr\n";
       return 1;
     }
@@ -369,7 +370,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
 
   {
     ssize_t ret =
-        robust_receive_file_with_size(data_socket, jv_s_path.c_str(), 0666);
+        robust::receive_file_with_size(data_socket, jv_s_path.c_str(), 0666);
     if (ret < 0) {
       WithColor::error()
           << llvm::formatv("failed to receive file {0} from remote: {1}\n",
@@ -493,10 +494,10 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
         //
         // send new jv
         //
-        ssize_t ret = robust_sendfile_with_size(data_socket, jv_s_path.c_str());
+        ssize_t ret = robust::sendfile_with_size(data_socket, jv_s_path.c_str());
         if (ret < 0)
           throw std::runtime_error(
-              std::string("robust_sendfile_with_size failed: ") +
+              std::string("robust::sendfile_with_size failed: ") +
               strerror(-ret));
       }
 
@@ -519,11 +520,11 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
           llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
         ssize_t ret =
-            robust_sendfile_with_size(data_socket, chrooted_path.c_str());
+            robust::sendfile_with_size(data_socket, chrooted_path.c_str());
 
         if (ret < 0)
           throw std::runtime_error(
-              std::string("robust_sendfile_with_size failed: ") +
+              std::string("robust::sendfile_with_size failed: ") +
               strerror(-ret));
       }
 
@@ -531,14 +532,14 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
         if (IsVerbose())
           llvm::errs() << "sending jove runtime\n";
 
-        ssize_t ret = robust_sendfile_with_size(
+        ssize_t ret = robust::sendfile_with_size(
             data_socket, IsCOFF
                              ? locator().runtime_dll(options.RuntimeMT).c_str()
                              : locator().runtime_so(options.RuntimeMT).c_str());
 
         if (ret < 0)
           throw std::runtime_error(
-              std::string("robust_sendfile_with_size failed: ") +
+              std::string("robust::sendfile_with_size failed: ") +
               strerror(-ret));
       }
 
@@ -546,12 +547,12 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
         if (IsVerbose())
           llvm::errs() << "sending jove dfsan runtime\n";
 
-        ssize_t ret = robust_sendfile_with_size(
+        ssize_t ret = robust::sendfile_with_size(
             data_socket, locator().dfsan_runtime().c_str());
 
         if (ret < 0)
           throw std::runtime_error(
-              std::string("robust_sendfile_with_size failed: ") +
+              std::string("robust::sendfile_with_size failed: ") +
               strerror(-ret));
       }
     }

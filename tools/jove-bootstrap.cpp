@@ -16,6 +16,7 @@
 #include "warn.h"
 #include "ansi.h"
 #include "ptrace.h"
+#include "robust.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -3264,7 +3265,7 @@ int BootstrapTool::ChildProc(int pipefd) {
     assert(memfd);
 
     const unsigned N = jv.Binaries.at(0).Data.size();
-    if (robust_write(memfd.get(), &jv.Binaries.at(0).Data[0], N) == N)
+    if (robust::write(memfd.get(), &jv.Binaries.at(0).Data[0], N) == N)
       path_to_exe = "/proc/self/fd/" + std::to_string(memfd.get());
   }
 #endif
