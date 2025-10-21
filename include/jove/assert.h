@@ -4,7 +4,6 @@
 #include <cassert>
 #include <algorithm>
 
-#include <boost/assert.hpp>
 #include <boost/preprocessor/stringize.hpp>
 
 #ifndef JOVE_ASSERT_H
@@ -33,41 +32,39 @@ struct assertion_failure_exception : public assertion_failure_base {
 
 }
 
-#endif
-
-#ifndef assert
-#error "this should come after assert() has already been defined"
-#endif
-#undef assert
-
-#ifdef NO_JOVE_ASSERT
-#define aassert(cond)                                                          \
-  do {                                                                         \
-    if (unlikely(!(cond)))                                                     \
-      __assert_fail(BOOST_PP_STRINGIZE(cond), __FILE__, __LINE__,              \
-                                       __PRETTY_FUNCTION__);                   \
-                                                                               \
-  } while (false)
-#define assert(cond) aassert(cond)
-#else
-
 //
 // an "always" assert always executes, regardless of whether NDEBUG is defined.
 //
 // FIXME record __FILE__, __LINE__, ...
 //
+#ifdef NO_JOVE_ASSERT
+extern "C" void __assert_fail(const char *__assertion, const char *__file,
+                              unsigned int __line, const char *__function)
+    __attribute__((noreturn));
+
 #define aassert(cond)                                                          \
-  do {                                                                         \
+  ({                                                                           \
+    if (unlikely(!(cond)))                                                     \
+      ::__assert_fail(BOOST_PP_STRINGIZE(cond), __FILE__, __LINE__,            \
+                                         __PRETTY_FUNCTION__);                 \
+                                                                               \
+    (void)0;                                                                   \
+  })
+#else /* NO_JOVE_ASSERT */
+#define aassert(cond)                                                          \
+  ({                                                                           \
     if (unlikely(!(cond))) {                                                   \
       constexpr ::jove::StaticString ____msg{BOOST_PP_STRINGIZE(cond)};        \
       throw ::jove::assertion_failure_exception<____msg>();                    \
     }                                                                          \
-  } while (false)
+    (void)0;                                                                   \
+  })
+#endif /* NO_JOVE_ASSERT */
+#endif /* JOVE_ASSERT_H*/
 
+#undef assert
 #ifdef NDEBUG
-#define assert(cond) do {} while (false)
+#define assert(cond) ({ (void)0; })
 #else
 #define assert(cond) aassert(cond)
 #endif
-
-#endif /* NO_JOVE_ASSERT */
