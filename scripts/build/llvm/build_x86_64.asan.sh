@@ -66,5 +66,5 @@ cmake -G Ninja \
 
 fi
 
-ln -sf ../../../x86_64_build/llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,ld.lld} llvm/bin/
+ln -sf ../../../x86_64_build/llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,ld.lld,lld-link} llvm/bin/
 ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
