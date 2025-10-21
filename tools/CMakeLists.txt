@@ -1,3 +1,22 @@
+option(JOVE_STATIC_BUILD "Building with -static" ON)
+option(JOVE_SANITIZE_THREAD "Building with -fsanitize=thread" OFF)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$") # FIXME
+# no backend
+llvm_map_components_to_libnames(llvm_libs
+  AllTargetsAsmParsers
+  AllTargetsCodeGens
+  AllTargetsDescs
+  AllTargetsDisassemblers
+  AllTargetsInfos
+  BitReader
+  Core
+  MCDisassembler
+  Object
+  Support
+  Target
+)
+else()
 llvm_map_components_to_libnames(llvm_libs
   AllTargetsAsmParsers
   AllTargetsCodeGens
@@ -12,6 +31,7 @@ llvm_map_components_to_libnames(llvm_libs
   Target
   Passes
 )
+endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
@@ -29,8 +49,19 @@ else()
   message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
+target_compile_definitions(boost_stacktrace_backtrace PRIVATE
+  "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
+)
+
+if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$") # [no threads] (FIXME) # lld's --wrap is broken on mips (FIXME)
+if(JOVE_STATIC_BUILD)
+  target_compile_definitions(boost_stacktrace_from_exception PRIVATE BOOST_STATIC_EXECUTABLE)
+endif()
+endif()
+
 set(JOVE_TOOL_FLAGS
   "-fno-strict-overflow"
+  "-fno-strict-aliasing"
 
   "-D_GNU_SOURCE"
   "-D_FILE_OFFSET_BITS=64"
@@ -39,7 +70,10 @@ set(JOVE_TOOL_FLAGS
   "-DBOOST_UNORDERED_DISABLE_REENTRANCY_CHECK"
   "-DBOOST_STACKTRACE_USE_BACKTRACE"
   "-DBOOST_STACKTRACE_STATIC_LINK"
+# "-DBOOST_ENABLE_ASSERT_HANDLER"
+
 # "-DTBB_USE_ASSERT=1"
+# "-DBOOST_DISABLE_ASSERTS"
 
   # opiniated stuff...
   "-Werror=format"
@@ -74,9 +108,6 @@ set(JOVE_ALL_TARGETS
   mips64el
 )
 
-option(JOVE_STATIC_BUILD "Building with -static" ON)
-option(JOVE_SANITIZE_THREAD "Building with -fsanitize=thread" OFF)
-
 set(JOVE_TARGETS_TO_BUILD "all"
     CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
 
@@ -101,6 +132,7 @@ set(JOVE_SOURCES
     ../core/block.cpp
     ../core/calls.cpp
     ../core/coff.cpp
+    ../core/cpu.cpp
     ../core/crash.cpp
     ../core/crypto.cpp
     ../core/byval.cpp
@@ -116,6 +148,7 @@ set(JOVE_SOURCES
     ../core/locator.cpp
     ../core/llvm.cpp
     ../core/mmap.cpp
+    ../core/mt.cpp
     ../core/objdump.cpp
     ../core/perf.cpp
     ../core/pipe.cpp
@@ -195,11 +228,14 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
 # )
 
   target_link_libraries(jove-${arch} PRIVATE
-    -Wl,--push-state,--whole-archive
-    ${qemu_build_dir}/qemu4jove-${arch}.cut.bc
-    -Wl,--pop-state
+    -pthread
 
-    ${qemu_build_dir}/libqemu4jove-${arch}-native.a
+    -Wl,--push-state,--whole-archive
+    ${qemu_build_dir}/libqemu4jove-${arch}.a
+
+#   ${qemu_build_dir}/qemu4jove-${arch}.cut.bc
+#   ${qemu_build_dir}/libqemu4jove-${arch}-native.a
+    -Wl,--pop-state
 
     glib-2.0
 
@@ -229,10 +265,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
 #     Boost::stacktrace_from_exception
   )
 
-  target_compile_definitions(boost_stacktrace_backtrace PRIVATE
-    "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
-  )
-
   target_link_libraries(jove-${arch} PRIVATE
     -Wl,--push-state,--whole-archive
     ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_backtrace.a
@@ -240,8 +272,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   )
 
   if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$") # [no threads] (FIXME) # lld's --wrap is broken on mips (FIXME)
-    target_link_libraries(jove-${arch} PRIVATE -pthread)
-
     if(JOVE_STATIC_BUILD)
       # this is the magic we need for static-linking
       target_link_options(jove-${arch} PRIVATE  "-Wl,--wrap=__cxa_allocate_exception")
@@ -334,6 +364,13 @@ else()
   set(JOVE_QEMU_BUILD_DIR_NAME "build")
 endif()
 
+set(qemu_build_dir_name "${JOVE_QEMU_BUILD_DIR_NAME}")
+
+# FIXME (hack)
+if(LLVM_USE_SANITIZER)
+  string(APPEND qemu_build_dir_name "_asan")
+endif()
+
 foreach(arch ${JOVE_TARGETS_TO_BUILD})
-  tool_for_arch("${arch}" "${JOVE_${arch}_extra_cflags}" "${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}")
+  tool_for_arch("${arch}" "${JOVE_${arch}_extra_cflags}" "${JOVE_SRC_DIR}/qemu/${qemu_build_dir_name}")
 endforeach()
