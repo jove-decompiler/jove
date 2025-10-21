@@ -34,7 +34,6 @@ cmake -G Ninja \
       -D LLVM_ENABLE_FFI=OFF \
       -D LLVM_ENABLE_LIBCXX=OFF \
       -D LLVM_INCLUDE_BENCHMARKS=OFF \
-      -D LLVM_INCLUDE_TESTS=OFF \
       -D LLVM_INCLUDE_DOCS=OFF \
       -D LLVM_UNREACHABLE_OPTIMIZE=OFF \
       -D LLVM_ENABLE_ZSTD=OFF \
@@ -50,7 +49,6 @@ cmake -G Ninja \
       -D LLVM_ENABLE_LTO=THIN \
       -D JOVE_STATIC_BUILD=ON \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
-      -D LLVM_ENABLE_LTO=OFF \
       -D LLVM_USE_LINKER=lld \
       -D JOVE_HAVE_MEMFD=ON \
       -S $(pwd)/.. -B $(pwd)
