@@ -1,5 +1,6 @@
 #include "pipe.h"
 #include "fd.h"
+#include "eintr.h"
 
 #include <cstring>
 #include <stdexcept>
@@ -19,11 +20,7 @@ std::optional<std::string> pipe_line_reader::get_line(int rfd) {
 
     tmpbuff.resize(4096);
 
-    ssize_t ret;
-    do
-      ret = ::read(rfd, &tmpbuff[0], tmpbuff.size());
-    while (ret < 0 && errno == EINTR);
-
+    ssize_t ret = sys::retry_eintr(::read, rfd, &tmpbuff[0], tmpbuff.size());
     if (ret < 0)
       throw std::runtime_error("failed to read pipe: " + std::string(strerror(errno)));
 

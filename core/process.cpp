@@ -14,11 +14,8 @@ namespace jove {
 int WaitForProcessToExit(pid_t pid) {
   for (;;) {
     int wstatus = 0;
-    if (::waitpid(pid, &wstatus, 0) < 0) {
-      int err = errno;
-
-      if (err == EINTR)
-        continue;
+    if (sys::retry_eintr(::waitpid, pid, &wstatus, 0) < 0) {
+      const int err = errno;
 
       if (err == ECHILD) {
         // lost the exit status. happens if children are automically reaped by

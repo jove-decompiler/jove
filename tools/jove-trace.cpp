@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "B.h"
+#include "eintr.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -275,11 +276,7 @@ open_events:
         if (fd < 0) {
           ;
         } else {
-          ssize_t ret;
-          do
-            ret = ::write(fd, "0\n", sizeof("0\n") - 1);
-          while (ret < 0 && errno == EINTR);
-
+          ssize_t ret = sys::retry_eintr(::write, fd, "0\n", sizeof("0\n") - 1);
           (void)::close(fd);
 
           if (ret == sizeof("0\n") - 1) {
@@ -362,11 +359,7 @@ open_events:
 
         const unsigned N = buff.size();
 
-        ssize_t ret;
-        do
-          ret = ::write(events_fd, buff.c_str(), N);
-        while (ret < 0 && errno == EINTR);
-
+        ssize_t ret = sys::retry_eintr(::write, events_fd, buff.c_str(), N);
         if (ret < 0) {
           int err = errno;
 
@@ -418,11 +411,7 @@ enable_uprobe:
     unsigned c = 0;
 
 do_enable_uprobe:
-    ssize_t ret;
-    do
-      ret = ::write(fd, "1\n", sizeof("1\n") - 1);
-    while (ret < 0 && errno == EINTR);
-
+    ssize_t ret = sys::retry_eintr(::write, fd, "1\n", sizeof("1\n") - 1);
     if (ret < 0) {
       int err = errno;
       if (err == EINVAL && ++c < MAX_RETRIES) {

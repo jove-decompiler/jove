@@ -1,4 +1,7 @@
 #pragma once
+#include "fd.h"
+#include "eintr.h"
+
 #include <functional>
 #include <string>
 #include <stdexcept>
@@ -79,63 +82,19 @@ pid_t RunExecutable(const std::string &exe_path,
   //
   // redirect standard output and/or standard error, if desired.
   //
-  // FIXME (style)
-  //
   if (!stdout_path.empty()) {
-    //
-    // redirect stdout
-    //
-    int fd = -1;
-    do
-      fd = ::open(stdout_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    while (fd < 0 && errno == EINTR);
-
-    if (fd < 0) {
-      perror(("open " + stdout_path).c_str());
-      exit(1);
-    }
-
-    int res = -1;
-    do
-      res = ::dup2(fd, STDOUT_FILENO);
-    while (res < 0 && errno == EINTR);
-
-    if (res < 0) {
-      perror("dup2 stdout");
-      exit(1);
-    }
-
-    ::close(fd);
+    scoped_fd fd(sys::retry_eintr(::open, stdout_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666));
+    if (fd)
+      sys::retry_eintr(::dup2, fd.get(), STDOUT_FILENO);
   }
 
-  if (!stderr_path.empty()) {
-    //
-    // redirect stderr
-    //
-    int fd = -1;
-    do
-      fd = ::open(stderr_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    while (fd < 0 && errno == EINTR);
-
-    if (fd < 0) {
-      perror(("open " + stderr_path).c_str());
-      exit(1);
-    }
-
-    int res = -1;
-    do
-      res = ::dup2(fd, STDERR_FILENO);
-    while (res < 0 && errno == EINTR);
-
-    if (res < 0) {
-      perror("dup2 stderr");
-      exit(1);
-    }
-
-    ::close(fd);
+  if (!stdout_path.empty()) {
+    scoped_fd fd(sys::retry_eintr(::open, stderr_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666));
+    if (fd)
+      sys::retry_eintr(::dup2, fd.get(), STDERR_FILENO);
   }
 
-  errno = 0;
+  errno = 0; /* reset */
 
   ::execve(exe_path.c_str(),
            const_cast<char **>(&arg_vec[0]),

@@ -11,6 +11,7 @@
 #include "redirect.h"
 #include "signals.h"
 #include "align.h"
+#include "eintr.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -337,28 +338,24 @@ struct ScopedMount {
       return;
 
     for (;;) {
-      int ret = ::mount(this->source,
-                        this->target,
-                        this->filesystemtype,
-                        this->mountflags,
-                        this->data);
+      int ret = sys::retry_eintr(::mount,
+                                 this->source,
+                                 this->target,
+                                 this->filesystemtype,
+                                 this->mountflags,
+                                 this->data);
       if (ret < 0) {
-        int err = errno;
-        switch (err) {
-        case EINTR:
-          continue;
+        const int err = errno;
 
-        default:
-          if (tool.IsVerbose())
-            tool.HumanOut() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
-                    this->source,
-                    this->target,
-                    this->filesystemtype,
-                    (unsigned)this->mountflags,
-                    (void *)this->data,
-                    strerror(err));
-          return;
-        }
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
+                  this->source,
+                  this->target,
+                  this->filesystemtype,
+                  (unsigned)this->mountflags,
+                  (void *)this->data,
+                  strerror(err));
+        return;
       } else {
         /* mount suceeded */
         this->mounted = true;
@@ -374,10 +371,10 @@ struct ScopedMount {
     unsigned retries = 0;
 
     for (;;) {
-      int ret = ::umount2(this->target, 0);
+      int ret = sys::retry_eintr(::umount2, this->target, 0);
 
       if (ret < 0) {
-        int err = errno;
+        const int err = errno;
 
         switch (err) {
         case EBUSY:
@@ -391,8 +388,6 @@ struct ScopedMount {
             return;
           }
           /* fallthrough */
-        case EINTR:
-          continue;
 
         default:
           tool.HumanOut() << llvm::formatv("umount(\"{0}\") failed: {1}\n",
@@ -607,33 +602,27 @@ int RunTool::DoRun(void) {
 
   unsigned TimesToldToStop = 0;
   auto TellFifoChildToStop = [&](void) -> bool {
-    int fd = -1;
-    int err = 0;
-    do {
-      fd = ::open(fifo_file_path.c_str(), O_WRONLY | O_NONBLOCK);
-      err = errno;
-    } while (fd < 0 && err == EINTR);
-
-    scoped_fd recover_fd(fd);
+    scoped_fd recover_fd(sys::retry_eintr(::open, fifo_file_path.c_str(),
+                                          O_WRONLY | O_NONBLOCK));
     if (!recover_fd) {
+      const int err = errno;
+
       if (err != ENXIO)
         WithColor::error() << llvm::formatv(
             "failed to open fifo (\"{0}\") to signal app has exited: {1}\n",
             fifo_path, strerror(err));
+
       return false;
     }
 
-    ssize_t ret = -1;
-    err = 0;
-    do {
-      ret = ::write(fd, &exited_char, 1);
-      err = errno;
-    } while (ret < 0 && err == EINTR);
-
+    ssize_t ret = sys::retry_eintr(::write, recover_fd.get(), &exited_char, 1);
     if (ret != 1) {
+      const int err = errno;
+
       WithColor::error() << llvm::formatv(
           "failed to write to fifo (\"{0}\") to signal app has exited: {1}\n",
           fifo_path, strerror(err));
+
       return false;
     }
 

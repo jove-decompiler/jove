@@ -92,11 +92,7 @@ bool capture_vdso(StringTy &out) {
   std::vector<char> buff;
   buff.resize(2 * 4096);
   for (;;) {
-    ssize_t ret;
-    do
-      ret = ::read(rfd.get(), &buff[0], buff.size());
-    while (ret < 0 && errno == EINTR);
-
+    ssize_t ret = sys::retry_eintr(::read, rfd.get(), &buff[0], buff.size());
     if (ret < 0)
       throw std::runtime_error("failed to read pipe: " + std::string(strerror(errno)));
 

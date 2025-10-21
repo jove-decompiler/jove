@@ -791,15 +791,14 @@ int BootstrapTool::TracerLoop(pid_t child) {
       // wait for a child process to stop or terminate
       //
       int status;
-      child = ::waitpid(-1, &status, __WALL);
-
+      child = sys::retry_eintr(::waitpid, -1, &status, __WALL);
       if (unlikely(child < 0)) {
-        int err = errno;
-        if (err == EINTR)
-          continue;
+        const int err = errno;
+        assert(err != EINTR);
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("exiting... ({0})\n", strerror(err));
+
         break;
       }
 

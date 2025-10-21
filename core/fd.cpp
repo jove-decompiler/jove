@@ -2,6 +2,7 @@
 #include "util.h"
 #include "likely.h"
 #include "sys.h"
+#include "eintr.h"
 
 #include <cassert>
 #include <cstdint>
@@ -23,19 +24,18 @@ static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count)
   do {
     unsigned left = count - n;
 
-    ssize_t ret = IsRead ? ::_jove_sys_read (fd, (char *)&_buf[n], left)
+    ssize_t ret = IsRead ? ::_jove_sys_read(fd,  (char *)&_buf[n], left)
                          : ::_jove_sys_write(fd, (char *)&_buf[n], left);
     if (unlikely(ret == 0))
       return -EIO;
 
     if (unlikely(ret < 0)) {
-      int err = -ret;
-
-      if (err == EINTR)
+      if (ret == -EINTR)
         continue;
-
-      return -err;
+      return ret;
     }
+
+    __builtin_assume(ret > 0);
 
     n += ret;
   } while (n != count);
@@ -56,18 +56,14 @@ ssize_t robust_copy_file_range(int in_fd, off_t *in_off, int out_fd,
   const size_t saved_len = len;
 
   do {
-    ssize_t ret = ::copy_file_range(in_fd, in_off, out_fd, out_off, len, 0);
-
+    ssize_t ret = sys::retry_eintr(::copy_file_range, in_fd, in_off, out_fd, out_off, len, 0);
     if (unlikely(ret == 0))
       return -EIO;
 
-    if (unlikely(ret < 0)) {
-      int err = errno;
-      if (err == EINTR)
-        continue;
+    if (unlikely(ret < 0))
+      return -errno;
 
-      return -err;
-    }
+    __builtin_assume(ret > 0);
 
     len -= ret;
   } while (len != 0);
@@ -79,18 +75,15 @@ ssize_t robust_sendfile_from_fd(int out_fd, int in_fd, off_t *in_off, size_t fil
   const size_t saved_file_size = file_size;
 
   do {
-    ssize_t ret = ::sendfile(out_fd, in_fd, in_off, file_size);
+    ssize_t ret = sys::retry_eintr(::sendfile, out_fd, in_fd, in_off, file_size);
 
     if (unlikely(ret == 0))
       return -EIO;
 
-    if (unlikely(ret < 0)) {
-      int err = errno;
-      if (err == EINTR)
-        continue;
+    if (unlikely(ret < 0))
+      return -errno;
 
-      return -err;
-    }
+    __builtin_assume(ret > 0);
 
     file_size -= ret;
   } while (file_size != 0);
