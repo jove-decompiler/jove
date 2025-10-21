@@ -157,7 +157,7 @@ static void run_all_qemu_ctors(void) {
 }
 #endif
 
-TCGContext *get_tcg_context(void)
+TCGContext *get_tcg_context(void) {
   // FIXME ideally we don't have to rely on thread-local variables.
   static __THREAD_IF_WE_ARE_MT bool _Done = false;
 
