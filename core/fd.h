@@ -1,12 +1,14 @@
 #pragma once
-#include <unistd.h>
-#include <sys/sendfile.h>
+#include "assert.h"
 
 #include <cstddef>
-#include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
-#include <cstring> /* strerror */
+#include <utility>
+
+#include <unistd.h>
+#include <sys/sendfile.h>
 
 namespace jove {
 
@@ -34,9 +36,8 @@ public:
       return *this;
 
     close();
+    std::swap(fd, other.fd);
 
-    fd = other.fd;
-    other.fd = -1;
     return *this;
   }
 
@@ -60,7 +61,7 @@ public:
   }
 
   [[clang::always_inline]] int get(void) const {
-    assert(*this);
+    aassert(*this);
     return fd;
   }
 
