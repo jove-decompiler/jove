@@ -80,7 +80,7 @@ cmds=()
 #
 # carbon-copy
 #
-cmds+=("pushd \"$carbc_path\" && mkdir -p build && cd build && retry \"$build_scripts_path/carbon-copy/build.sh\" && popd")
+cmds+=("pushd \"$carbc_path\" && mkdir -p build19 && cd build19 && retry \"$build_scripts_path/carbon-copy/build19.sh\" && popd")
 
 #
 # llknife
