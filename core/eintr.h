@@ -1,9 +1,9 @@
 #pragma once
+#include <cerrno>
 #include <concepts>
+#include <functional>
 #include <type_traits>
 #include <utility>
-#include <errno.h>
-#include <functional>
 
 namespace jove {
 namespace sys {
