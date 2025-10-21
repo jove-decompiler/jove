@@ -1,5 +1,5 @@
 #pragma once
-#include "jove/macros.h"
+#include "jove/likely.h"
 
 namespace jove {
 

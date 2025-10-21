@@ -1,4 +1,4 @@
-#include "jove/macros.h"
+#include "jove/likely.h"
 
 #include <stdexcept>
 #include <cassert>
