@@ -140,7 +140,12 @@ struct reference_ipt_t
 
       if constexpr (IsEngaged)
         this->InvalidateCurrPoint("ovf");
+
+#if 0 /* FIXME need something better than this */
+      throw error_decoding_exception();
+#else
       break;
+#endif
 
     case ppt_stop:
       break;
