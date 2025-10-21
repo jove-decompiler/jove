@@ -113,6 +113,7 @@ extern "C" void jv_illegal_op(uint64_t PC) {
   throw jove::illegal_op_exception(PC);
 }
 
+#if 0
 extern "C" {
 
 struct jove_init_rec {
@@ -121,15 +122,17 @@ struct jove_init_rec {
   void *data;         // optional associated data (often null)
 };
 
-extern const struct jove_init_rec __jove_global_ctors_begin[];
-extern const struct jove_init_rec __jove_global_ctors_end[];
-extern const struct jove_init_rec __jove_global_dtors_begin[];
-extern const struct jove_init_rec __jove_global_dtors_end[];
+extern struct jove_init_rec __jove_global_ctors_begin[];
+extern struct jove_init_rec __jove_global_ctors_end[];
+extern struct jove_init_rec __jove_global_dtors_begin[];
+extern struct jove_init_rec __jove_global_dtors_end[];
 
 }
+#endif
 
 namespace jove {
 
+#if 0
 static int by_priority(const void *a, const void *b) {
   const struct jove_init_rec *A = (const struct jove_init_rec *)a;
   const struct jove_init_rec *B = (const struct jove_init_rec *)b;
@@ -152,10 +155,25 @@ static void run_all_qemu_ctors(void) {
       tmp[i].func();
   }
 }
+#endif
 
+TCGContext *get_tcg_context(void)
+  // FIXME ideally we don't have to rely on thread-local variables.
+  static __THREAD_IF_WE_ARE_MT bool _Done = false;
+
+  if (!_Done) {
+    _Done = true;
+    tcg_register_thread();
+  }
+
+  TCGContext *const s = tcg_ctx;
+  assert(s);
+
+  return s;
+}
 
 int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
-  TCGContext *const s = tcg_ctx;
+  TCGContext *const s = get_tcg_context();
   assert(s);
 
   for (int i = 0; i < s->nb_globals; i++) {
@@ -167,7 +185,7 @@ int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
 }
 
 const char *tiny_code_generator_t::tcg_name_of_global(unsigned glb) {
-  TCGContext *const s = tcg_ctx;
+  TCGContext *const s = get_tcg_context();
   assert(s);
 
   assert(glb < s->nb_globals);
@@ -178,18 +196,6 @@ static const uint8_t starter_bin_bytes[] = {
 #include "qemu-starter.inc"
 };
 
-TCGContext *get_tcg_context(void) /* FIXME */ {
-  static __THREAD_IF_WE_ARE_MT bool registered = false;
-
-  if (!registered) {
-    registered = true;
-
-    tcg_register_thread();
-  }
-
-  return tcg_ctx;
-}
-
 static CPUState *get_cpu_state(void) {
   (void)get_tcg_context();
 
@@ -198,14 +204,16 @@ static CPUState *get_cpu_state(void) {
 
 tiny_code_generator_t::tiny_code_generator_t() {
   static std::mutex mtx;
-  static bool inited = false;
+  static bool _Done = false;
 
   std::unique_lock<std::mutex> lck(mtx);
 
-  if (!inited) {
-    inited = true;
+  if (!_Done) {
+    _Done = true;
 
+#if 0
     run_all_qemu_ctors();
+#endif
 
     temp_exe the_exe(&starter_bin_bytes[0], sizeof(starter_bin_bytes),
                      "qemu-starter-" TARGET_ARCH_NAME);
@@ -222,17 +230,17 @@ void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
 }
 
 void tiny_code_generator_t::dump_ops(FILE *out) {
-  tcg_dump_ops(tcg_ctx, out, false);
+  tcg_dump_ops(get_tcg_context(), out, false);
 }
 
 std::pair<unsigned, terminator_info_t>
 tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
+  TCGContext *const s = get_tcg_context();
+  assert(s);
+
   CPUState *const cs = get_cpu_state();
   assert(cs);
   cs->tcg_cflags |= CF_PARALLEL; /* XXX */
-
-  TCGContext *const s = get_tcg_context();
-  assert(s);
 
   unsigned tb_size = 0;
 
@@ -270,6 +278,9 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   s->gen_tb = &tb;
   s->addr_type = sizeof(taddr_t) == 4 ? TCG_TYPE_I32 : TCG_TYPE_I64;
   s->guest_mo = cs->cc->tcg_ops->guest_default_memory_order;
+
+  tb.itree.start = pc & JOVE_PAGE_MASK;
+  tb.itree.last = -1;
 
   jv_end_pc = pc_end;
 
