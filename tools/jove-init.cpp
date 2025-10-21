@@ -8,6 +8,7 @@
 #include "win.h"
 #include "hash.h"
 #include "signals.h"
+#include "mt.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -254,38 +255,8 @@ int InitTool::Run(void) {
   disas_t disas;
   explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
                                             GetVerbosityLevel());
-
-  // FIXME
-#if 0
-  std::transform(
-      maybe_par_unseq,
-      jv.Binaries.cbegin(),
-      jv.Binaries.cend(),
-      jv.Binaries.begin(),
-#else
-  std::vector<binary_index_t> Q(N);
-  std::iota(Q.begin(), Q.end(), 0);
-
-  std::mutex Q_mtx;
-
-  std::function<void(void)> worker =
-#if 0
-      [&](const binary_t &init) -> binary_t {
-        const binary_index_t BIdx = index_of_binary(init);
-#else
-      [&](void) -> void {
-      for (;;) {
-        const binary_index_t BIdx = ({
-          std::lock_guard<std::mutex> lck(Q_mtx);
-
-          if (Q.empty())
-            return;
-
-          binary_index_t TheBIdx = Q.back();
-          Q.resize(Q.size() - 1);
-          TheBIdx;
-        });
-#endif
+  auto worker =
+      [&](unsigned BIdx) -> void {
         binary_base_t<false, IsToolMinSize> b(jv_file, BIdx);
 
         //
@@ -375,27 +346,9 @@ int InitTool::Run(void) {
           exit(1);
         }
 
-#if 0
-        return binary_t(std::move(b));
-      });
-#else
         jv.Binaries.at(BIdx) = std::move(b);
-      }
       };
-#endif
-  {
-    std::vector<std::thread> workers;
-
-    unsigned num_threads = num_cpus();
-
-    workers.reserve(num_threads);
-    for (unsigned i = 0; i < num_threads; ++i)
-      workers.push_back(std::thread(worker));
-
-    for (std::thread &t : workers)
-      t.join();
-  }
-#endif
+  mt::for_n(worker, N);
 
   jv.Binaries.at(0).IsExecutable = true;
   jv.Binaries.at(1).IsDynamicLinker = true;

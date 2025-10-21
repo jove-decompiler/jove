@@ -35,7 +35,6 @@ struct binary_state_t {
 
 class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
-    cl::opt<unsigned> Threads;
     cl::opt<bool> NoSave;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
@@ -44,11 +43,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
     cl::opt<std::string> SingleBBIdx;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Threads("num-threads",
-                  cl::desc("Number of CPU threads to use (hack)"),
-                  cl::init(num_cpus()), cl::cat(JoveCategory)),
-
-          NoSave("no-save",
+        : NoSave("no-save",
                  cl::desc("Do not overwrite jv before exiting"),
                  cl::cat(JoveCategory)),
 

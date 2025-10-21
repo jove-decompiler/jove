@@ -6,6 +6,10 @@
 #include "mmap.h"
 #include "redirect.h"
 #include "jove.constants.h"
+#if 1
+#include "recompile.h"
+#include "analyze.h"
+#endif
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -421,6 +425,44 @@ int LoopTool::Run(void) {
 
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&LoopTool::get_child_pid, this));
+
+#ifndef JOVE_NO_BACKEND
+  boost::concurrent_flat_set<dynamic_target_t> inflight;
+  std::atomic<uint64_t> done = 0;
+
+  analyzer_options_t analyzer_opts;
+  recompiler_options_t recompiler_opts;
+
+  ConfigureVerbosity(analyzer_opts);
+  ConfigureVerbosity(recompiler_opts);
+
+#define PROPOGATE_OPTION(name)                                                 \
+  do {                                                                         \
+    recompiler_opts.name = opts.name;                                          \
+  } while (false)
+
+  //analyzer_opts.Conservative = opts.Conservative;
+
+  PROPOGATE_OPTION(DFSan);
+  PROPOGATE_OPTION(ForeignLibs);
+  PROPOGATE_OPTION(Trace);
+  PROPOGATE_OPTION(Optimize);
+  PROPOGATE_OPTION(SkipCopyRelocHack);
+  PROPOGATE_OPTION(DebugSjlj);
+  PROPOGATE_OPTION(ABICalls);
+  PROPOGATE_OPTION(RuntimeMT);
+  PROPOGATE_OPTION(CallStack);
+  PROPOGATE_OPTION(LayOutSections);
+  PROPOGATE_OPTION(SoftfpuBitcode);
+  PROPOGATE_OPTION(VerifyBitcode);
+
+  recompiler_opts.temp_dir = temporary_dir();
+  recompiler_opts.Output = sysroot;
+
+  disas_t disas;
+  tiny_code_generator_t TCG;
+  llvm::LLVMContext Context;
+#endif
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
     pid_t pid;
@@ -1130,9 +1172,13 @@ skip_run:
         });
       }
     } else { /* local */
+#ifdef JOVE_NO_BACKEND
+      std::abort();
+#else
       //
       // analyze
       //
+#if 0
       rc = RunToolToExit("analyze",
         [&](auto Arg) {
           if (!opts.ForeignLibs)
@@ -1159,6 +1205,19 @@ skip_run:
           Env("JVPATH=" + path_to_jv());
           Env("JOVEDIR=" + jove_dir());
         });
+#else
+      int rc = ({
+      analyzer_t analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done);
+
+      analyzer.examine_blocks();
+      oneapi::tbb::parallel_invoke(
+          [&analyzer](void) -> void { analyzer.examine_callers(); },
+          [&analyzer](void) -> void { analyzer.identify_ABIs(); });
+      analyzer.identify_Sjs();
+
+      (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
+      });
+#endif
 
       if (rc) {
         HumanOut() << "jove analyze failed!\n";
@@ -1168,6 +1227,7 @@ skip_run:
       //
       // recompile
       //
+#if 0
       rc = RunToolToExit("recompile",
         [&](auto Arg) {
           Arg("-o");
@@ -1240,11 +1300,18 @@ skip_run:
           Env("JVPATH=" + path_to_jv());
           Env("JOVEDIR=" + jove_dir());
         });
+#else
+      rc = ({
+      recompiler_t recompiler(jv, recompiler_opts, disas, TCG, locator());
+      recompiler.go();
+      });
+#endif
 
       if (rc) {
         HumanOut() << "jove recompile failed!\n";
         return rc;
       }
+#endif
     }
   }
 

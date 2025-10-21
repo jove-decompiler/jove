@@ -190,7 +190,6 @@ void read_file_into_a_string(const char *path, std::string &out);
 std::string read_file_into_string(const char *infile);
 uint64_t size_of_file(const char *path);
 uint32_t size_of_file32(const char *path);
-unsigned num_cpus(void);
 void IgnoreCtrlC(void);
 void DoDefaultOnErrorSignal(void);
 void exclude_from_coredumps(void *addr, size_t size);

@@ -20,6 +20,7 @@
 #include "reflink.h"
 #include "fork.h"
 #include "align.h"
+#include "mt.h"
 #include "augmented_raw_syscalls.h"
 
 #include <tbb/flow_graph.h>
@@ -894,40 +895,8 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       std::for_each(aux_filenames.begin(),
                     aux_filenames.end(), process_aux);
     } else {
-      std::vector<unsigned> Q(aux_filenames.size());
-      std::iota(Q.begin(), Q.end(), 0);
-
-      std::mutex Q_mtx;
-
-      std::function<void(void)> worker = [&](void) -> void {
-        for (;;) {
-          const unsigned Idx = ({
-            std::lock_guard<std::mutex> lck(Q_mtx);
-
-            if (Q.empty())
-              return;
-
-            binary_index_t Idx = Q.back();
-            Q.resize(Q.size() - 1);
-            Idx;
-          });
-
-          process_aux(aux_filenames.at(Idx));
-        }
-      };
-
-      {
-        std::vector<std::thread> workers;
-
-        unsigned num_threads = num_cpus();
-
-        workers.reserve(num_threads);
-        for (unsigned i = 0; i < num_threads; ++i)
-          workers.push_back(std::thread(worker));
-
-        for (std::thread &t : workers)
-          t.join();
-      }
+      mt::for_n([&](unsigned i) -> void { process_aux(aux_filenames.at(i)); },
+                aux_filenames.size());
     }
   } else {
     auto integrate_jv = [&](void) -> void {

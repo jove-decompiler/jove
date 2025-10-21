@@ -31,16 +31,6 @@ uint32_t size_of_file32(const char *path) {
   return static_cast<uint32_t>(res);
 }
 
-unsigned num_cpus(void) {
-  cpu_set_t cpu_mask;
-  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    int err = errno;
-    throw std::runtime_error(std::string("sched_getaffinity failed: ") + strerror(err));
-  }
-
-  return CPU_COUNT(&cpu_mask);
-}
-
 void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
   read_file_into_thing<std::vector<uint8_t>>(path, out);
 }

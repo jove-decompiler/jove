@@ -179,7 +179,7 @@ public:
   int go(void);
 
 private:
-  void worker(void);
+  void worker(unsigned);
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
   binary_index_t ChooseBinaryWithSoname(const std::string &soname);

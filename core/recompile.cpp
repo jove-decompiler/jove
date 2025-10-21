@@ -4,6 +4,7 @@
 #include "recompile.h"
 #include "llvm.h"
 #include "path.h"
+#include "mt.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -663,27 +664,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // run jove-llvm and llc on all DSOs
   //
-#if 0
-  std::for_each(
-    maybe_par_unseq,
-    Q.begin(),
-    Q.end(),
-    std::bind(&recompiler_t::worker, this, std::placeholders::_1));
-#else
-  {
-    std::vector<std::thread> workers;
-
-    unsigned num_threads = num_cpus();
-
-    workers.reserve(num_threads);
-    for (unsigned i = 0; i < num_threads; ++i)
-      //workers.emplace_back(&recompiler_t::worker, this);
-      workers.push_back(std::thread(&recompiler_t::worker, this));
-
-    for (std::thread &t : workers)
-      t.join();
-  }
-#endif
+  mt::for_n(std::bind(&recompiler_t::worker, this, std::placeholders::_1), Q.size());
 
   auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -1151,18 +1132,8 @@ int recompiler_t<MT, MinSize>::go(void) {
 }
 
 template <bool MT, bool MinSize>
-void recompiler_t<MT, MinSize>::worker(void) {
-  for (;;) {
-  dso_t dso = ({
-    std::lock_guard<std::mutex> lck(Q_mtx);
-
-    if (Q.empty())
-      return;
-
-    dso_t the_dso = Q.back();
-    Q.resize(Q.size() - 1);
-    the_dso;
-  });
+void recompiler_t<MT, MinSize>::worker(unsigned j) {
+  dso_t dso = Q.at(j);
 
   int rc;
 
@@ -1280,7 +1251,7 @@ void recompiler_t<MT, MinSize>::worker(void) {
       [&](auto Env) {
         InitWithEnviron(Env);
 
-        Env("JVPATH=" + path_to_jv());
+        Env("JVPATH=" + Tool::get_path_to_jv());
       },
       path_to_stdout, path_to_stderr,
       [&](const char **argv, const char **envp) {
@@ -1455,7 +1426,6 @@ void recompiler_t<MT, MinSize>::worker(void) {
                                         binary_filename);
 
     return;
-  }
   }
 }
 
