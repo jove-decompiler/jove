@@ -76,6 +76,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       debootstrap \
                       elfutils \
                       flex \
+                      cabextract \
                       g++ \
                       g++-12-aarch64-linux-gnu \
                       g++-12-multilib \
