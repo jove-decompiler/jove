@@ -15,17 +15,18 @@ if [ ! -f build.ninja ]; then
 OURCFLAGS=\
 " -O2"\
 " -g1"\
+" -gz=none"\
 " -fno-omit-frame-pointer"\
 " -mno-omit-leaf-frame-pointer"\
 " -ggdb"\
 " -gdwarf-4"
 
 cmake -G Ninja \
-      -D CMAKE_BUILD_TYPE=Release \
+      -D CMAKE_BUILD_TYPE=RelWithDebInfo \
       -D CMAKE_C_COMPILER=$(which clang-19) \
       -D CMAKE_CXX_COMPILER=$(which clang++-19) \
-      -D "CMAKE_C_FLAGS_RELEASE=$OURCFLAGS" \
-      -D "CMAKE_CXX_FLAGS_RELEASE=$OURCFLAGS" \
+      -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
+      -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
       -D "JOVE_TARGETS_TO_BUILD=i386;x86_64;mipsel;mips64el;aarch64" \
       -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
@@ -41,7 +42,6 @@ cmake -G Ninja \
       -D LLVM_ENABLE_FFI=OFF \
       -D LLVM_ENABLE_LIBCXX=OFF \
       -D LLVM_INCLUDE_BENCHMARKS=OFF \
-      -D LLVM_INCLUDE_TESTS=OFF \
       -D LLVM_INCLUDE_DOCS=OFF \
       -D LLVM_UNREACHABLE_OPTIMIZE=OFF \
       -D LLVM_ENABLE_ZSTD=OFF \
@@ -53,18 +53,18 @@ cmake -G Ninja \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
-      -D LLVM_ENABLE_PIC=OFF \
-      -D LLVM_ENABLE_LTO=THIN \
+      -D LLVM_ENABLE_PIC=ON \
+      -D LLVM_ENABLE_LTO=OFF \
       -D JOVE_STATIC_BUILD=OFF \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D JOVE_USE_SYSTEM_TBB=OFF \
       -D TBB_SANITIZE=address \
       -D "LLVM_USE_SANITIZER=Address;Undefined" \
-      -D LLVM_ENABLE_LTO=OFF \
       -D LLVM_USE_LINKER=lld \
       -D JOVE_HAVE_MEMFD=ON \
       -S $(pwd)/.. -B $(pwd)
 
 fi
 
-ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+ln -sf ../../../x86_64_build/llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,ld.lld} llvm/bin/
+ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
