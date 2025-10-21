@@ -15,6 +15,10 @@ OURCFLAGS=\
 
 if [ ! -f build.ninja ]; then
 
+#
+# NOTE: mips64/llvm NEEDS LTO=OFF
+#
+
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D CMAKE_SYSTEM_NAME=Linux \
@@ -51,7 +55,7 @@ cmake -G Ninja \
   -D LLVM_ENABLE_BINDINGS=OFF \
   -D LLVM_ENABLE_EH=ON \
   -D LLVM_ENABLE_PIC=OFF \
-  -D LLVM_ENABLE_LTO=THIN \
+  -D LLVM_ENABLE_LTO=OFF \
   -D JOVE_STATIC_BUILD=ON \
   -D LLVM_BUILD_DOCS=OFF \
   -D LLVM_BINUTILS_INCDIR=/usr/include \

@@ -18,7 +18,10 @@ OURLDFLAGS=\
 
 CLANGVER=19
 
-EXTRACONF="--enable-jove"
+#
+# NOTE: mips64/qemu NEEDS lto
+#
+EXTRACONF="--enable-jove --enable-lto"
 
 BUILDLIST="libqemu4jove-mips64el.a"
 
