@@ -18,7 +18,7 @@ pid_t long_fork(std::function<int(void)> f) {
   if (!child) {
     (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
 
-    int poll_ret = ({
+    const int poll_ret = ({
       struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
       sys::retry_eintr(::poll, &pfd, 1, 0);
     });
