@@ -124,6 +124,7 @@ else()
 endif()
 
 set(JOVE_SOURCES
+    ../core/death.cpp # PR_SET_PDEATHSIG before any threads are created
     ../core/tbb_hacks.cpp # we'd like to have this first to disable TBB...
     ../core/B.cpp
     ../core/add.cpp
