@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20.0)
+
 if (NOT DEFINED LLVM_VERSION_MAJOR)
   message(FATAL_ERROR "This project needs to be built as an LLVM project")
 endif()
