@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include <boost/interprocess/anonymous_shared_memory.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/container/slist.hpp>
 #include <boost/scope/defer.hpp>
@@ -183,12 +184,52 @@ template <ExecOpt Opts = ExecOpt::None,
   env_vec.push_back(nullptr);
 
   //
+  // this is the way by which we inform the parent if the exec() failed.
+  //
+  boost::interprocess::mapped_region shared_mem(
+      boost::interprocess::anonymous_shared_memory(sizeof(int)));
+  int &shared_err = *static_cast<int *>(shared_mem.get_address());
+  __atomic_store_n(&shared_err, 0, __ATOMIC_RELAXED);
+
+  //
+  // this is so we don't make progress in the parent until the child has exec'd
+  //
+  int pipefd[2] = {-1, -1};
+  (void)::pipe(pipefd);
+
+  scoped_fd rfd(pipefd[0]);
+  scoped_fd wfd(pipefd[1]);
+
+  const bool pipe_trick = rfd && wfd;
+
+  //
   // there are issues with tbb concerning the use of fork(2), but since we are
   // calling execve(2) straight away there should be no chance of deadlocking.
   //
   pid_t pid = ::fork();
-  if (pid)
+  if (pid) {
+    if (pipe_trick) {
+      wfd.close(); /* unused in parent. */
+
+      //
+      // block until exec has happened
+      //
+      uint8_t byte;
+      (void)sys::retry_eintr(::read, rfd.get(), &byte, 1);
+
+      //
+      // now we can check for bad errno
+      //
+      if (int err = __atomic_load_n(&shared_err, __ATOMIC_RELAXED)) {
+        //
+        // execve(2) failed. errno is in shared_err.
+        //
+        throw std::runtime_error("execve() failed: " + std::string(strerror(err)));
+      }
+    }
+
     return pid;
+  }
 
   before_exec(&arg_vec[0], &env_vec[0]);
 
@@ -224,14 +265,40 @@ template <ExecOpt Opts = ExecOpt::None,
       sys::retry_eintr(::dup2, fd.get(), STDIN_FILENO);
   }
 
+  if (pipe_trick) {
+    rfd.close(); /* unused in child. */
+
+    //
+    // this little trick will allow us to block only until the exec has happened
+    //
+    (void)sys::retry_eintr(::fcntl, wfd.get(), F_SETFD, FD_CLOEXEC);
+  }
+
   errno = 0; /* reset */
 
   ::execve(exe_path.c_str(),
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env_vec[0]));
 
-  int err = errno;
-  throw std::runtime_error(std::string("execve of ") + exe_path + " failed: " + strerror(err));
+  //
+  // if we got here, execve failed.
+  //
+  const int err = errno;
+  aassert(err != 0);
+
+  if (pipe_trick) {
+    //
+    // communicate error to parent
+    //
+    __atomic_store_n(&shared_err, err, __ATOMIC_RELAXED);
+
+    wfd.close(); /* allow parent to make progress */
+  }
+
+  for (;;)
+    _exit(err);
+
+  __builtin_unreachable();
 }
 
 [[nodiscard]] int WaitForProcessToExit(pid_t);
