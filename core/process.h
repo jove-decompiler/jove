@@ -1,6 +1,7 @@
 #pragma once
 #include "fd.h"
 #include "eintr.h"
+#include "pidfd.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -18,9 +19,12 @@
 #include <boost/container/slist.hpp>
 #include <boost/scope/defer.hpp>
 
-#include <sys/wait.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <linux/prctl.h>  /* Definition of PR_* constants */
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <poll.h>
 
 namespace jove {
 
@@ -208,7 +212,8 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
   // there are issues with tbb concerning the use of fork(2), but since we are
   // calling execve(2) straight away there should be no chance of deadlocking.
   //
-  pid_t pid = ::fork();
+  scoped_fd our_pfd(pidfd_open(::getpid(), 0));
+  const pid_t pid = ::fork();
   if (pid) {
     if (pipe_trick) {
       wfd.close(); /* unused in parent. */
@@ -235,6 +240,25 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
     }
 
     return pid;
+  }
+
+  (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
+  if (our_pfd) {
+    const int poll_ret = ({
+      struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
+      sys::retry_eintr(::poll, &pfd, 1, 0);
+    });
+    aassert(poll_ret >= 0);
+    our_pfd.close();
+    if (poll_ret != 0) {
+      //
+      // parent is already gone. this generally shouldn't happen, but if we do
+      // happen to get here, just silently exit.
+      //
+      for (;;)
+        _exit(0);
+      __builtin_unreachable();
+    }
   }
 
   before_exec(&arg_vec[0], &env_vec[0]);
