@@ -640,7 +640,7 @@ void SerializeJV(const jv_base_t<MT, MinSize> &in,
   IsMT_hack = MT;
   IsMinSize_hack = MinSize;
 
-  if (true /* FIXME */ || text) {
+  if (text) {
     boost::archive::text_oarchive oa(os);
     oa << in;
   } else {
@@ -675,7 +675,7 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
   out.clear();
 
-  if (true /* FIXME */ || text) {
+  if (text) {
     boost::archive::text_iarchive ia(is);
     ia >> out;
   } else {
