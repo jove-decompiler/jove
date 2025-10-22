@@ -73,7 +73,7 @@ inline constexpr bool has_flag_v =
 //
 // Running an executable (the big function)
 //
-template <ExecOpt Opts = ExecOpt::None,
+template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
           typename ComputeArgs,
           typename ComputeEnvs>
 [[nodiscard]] pid_t RunExecutable(

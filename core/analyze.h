@@ -103,6 +103,7 @@ struct analyzer_t {
   void identify_Sjs(void);
 
   int analyze_blocks(void);
+  template <bool BottomUp = false>
   int analyze_functions(void);
 
   int analyze_function(function_t &);

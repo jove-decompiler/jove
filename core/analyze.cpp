@@ -234,6 +234,7 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
 }
 
 template <bool MT, bool MinSize>
+template <bool BottomUp>
 int analyzer_t<MT, MinSize>::analyze_functions(void) {
   const unsigned N = boost::num_vertices(cg.G);
 
@@ -272,6 +273,17 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
               analyze_function(function_of_target(cg.G[V], jv));
             });
 
+        if constexpr (BottomUp) {
+        for (auto pred : boost::make_iterator_range(
+                 boost::inv_adjacent_vertices(v, CGCondensed))) {
+          unsigned c =
+              counts[boost::get(boost::vertex_index, CGCondensed, pred)]
+                  .fetch_add(1u, std::memory_order_relaxed) + 1u;
+
+          if (c == boost::out_degree(pred, CGCondensed))
+            analyze_node.try_put(pred);
+        }
+        } else {
         for (auto succ : boost::make_iterator_range(
                  boost::adjacent_vertices(v, CGCondensed))) {
           unsigned c =
@@ -281,11 +293,18 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
           if (c == boost::in_degree(succ, CGCondensed))
             analyze_node.try_put(succ);
         }
+        }
       });
 
   for (auto v : boost::make_iterator_range(boost::vertices(CGCondensed))) {
+    if constexpr (BottomUp) {
+    if (boost::out_degree(v, CGCondensed) == 0) {
+      analyze_node.try_put(v);
+    }
+    } else {
     if (boost::in_degree(v, CGCondensed) == 0) {
       analyze_node.try_put(v);
+    }
     }
   }
 
@@ -926,6 +945,25 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
   template struct analyzer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),         \
                              GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH3                                            \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template int                                                                 \
+  analyzer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                         \
+             GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>::                       \
+      analyze_functions<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product))>(void);
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2)(VALUES_TO_INSTANTIATE_WITH3))
 
 }
 #endif /* JOVE_NO_BACKEND */

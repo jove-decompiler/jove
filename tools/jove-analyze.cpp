@@ -40,6 +40,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
     cl::list<std::string> PinnedGlobals;
     cl::opt<int> Conservative;
     cl::opt<unsigned> WaitMilli;
+    cl::opt<bool> BottomUp;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -65,7 +66,12 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
           WaitMilli(
               "wait-for",
               cl::desc("Number of milliseconds to update message in -v mode."),
-              cl::cat(JoveCategory), cl::init(1000u)) {}
+              cl::cat(JoveCategory), cl::init(1000u)),
+
+          BottomUp("bottom-up",
+                   cl::desc("direction of Kahn-style traversal in analyze_functions()"),
+                   cl::cat(JoveCategory))
+          {}
   } opts;
 
   boost::concurrent_flat_set<dynamic_target_t> inflight;
@@ -120,7 +126,10 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 
 int AnalyzeTool::AnalyzeFunctions(void) {
   auto go = [&](void) -> void {
-    analyzer.analyze_functions();
+    if (opts.BottomUp)
+      analyzer.analyze_functions<true>();
+    else
+      analyzer.analyze_functions<false>();
   };
 
   if (IsVerbose()) {
