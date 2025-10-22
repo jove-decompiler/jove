@@ -747,6 +747,10 @@ int recompiler_t<MT, MinSize>::go(void) {
     });
   });
 
+  {
+  std::vector<pid_t> pidvec;
+  pidvec.reserve(jv.Binaries.size());
+
   for_each_binary(/* maybe_par_unseq, */ jv, [&](auto &b) {
     if (!b.is_file())
       return;
@@ -763,7 +767,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       std::string imp_lib_path =
           fs::path(x.chrooted_path).replace_extension("lib").string();
 
-      if (unlikely(RunExecutableToExit(locator().dlltool(), [&](auto Arg) {
+      pidvec.push_back(RunExecutable(locator().dlltool(), [&](auto Arg) {
             Arg(locator().dlltool());
             Arg("-m");
             Arg(IsTarget32 ? "i386" : "i386:x86-64");
@@ -778,10 +782,15 @@ int recompiler_t<MT, MinSize>::go(void) {
             if (opts.IsVeryVerbose()) {
               print_command(argv);
             }
-          })))
-        throw std::runtime_error("failed to run llvm-dlltool");
+          }));
     });
   });
+
+  std::vector<int> rcvec(pidvec.size());
+  std::ranges::transform(pidvec, rcvec.begin(), WaitForProcessToExit);
+
+  aassert(std::ranges::all_of(rcvec, [](int rc) -> bool { return rc == 0; }));
+  }
 
   //
   // run ld on all the object files
