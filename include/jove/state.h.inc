@@ -252,7 +252,7 @@ public:
     StatePtr<T> &x = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
     if constexpr (MultiThreaded) {                                             \
       {                                                                        \
-        T *const xp = x.load(std::memory_order_acquire);                       \
+        T *const xp = x.load(boost::memory_order_acquire);                     \
         if (likely(xp))                                                        \
           return *xp;                                                          \
       }                                                                        \
@@ -262,8 +262,8 @@ public:
       T *expected = nullptr;                                                   \
       T *const desired = new_x.get();                                          \
       if (x.compare_exchange_strong(expected, desired,                         \
-                                    std::memory_order_release,                 \
-                                    std::memory_order_acquire)) {              \
+                                    boost::memory_order_release,               \
+                                    boost::memory_order_acquire)) {            \
         new_x.release();                                                       \
         return *desired;                                                       \
       }                                                                        \

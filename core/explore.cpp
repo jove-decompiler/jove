@@ -211,9 +211,9 @@ on_insn:
   bbprop_2.Sj = bbprop_1.Sj;
   bbprop_2.Term = bbprop_1.Term;
   bbprop_2.pDynTargets.store(
-      bbprop_1.pDynTargets.load(std::memory_order_relaxed),
-      std::memory_order_relaxed);
-  bbprop_2.Analysis.Stale.store(true, std::memory_order_relaxed);
+      bbprop_1.pDynTargets.load(boost::memory_order_relaxed),
+      boost::memory_order_relaxed);
+  bbprop_2.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
   //bbprop_2.InvalidateAnalysis();
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
@@ -230,8 +230,8 @@ on_insn:
     bbprop_1.Term.Addr = 0;
     bbprop_1.Term._indirect_jump.IsLj = false;
     bbprop_1.Sj = false;
-    bbprop_1.pDynTargets.store(nullptr, std::memory_order_relaxed);
-    bbprop_1.Analysis.Stale.store(true, std::memory_order_relaxed);
+    bbprop_1.pDynTargets.store(nullptr, boost::memory_order_relaxed);
+    bbprop_1.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
 
     //
     // gather up bb_1 edges
@@ -373,8 +373,8 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
   {
   BOOST_SCOPE_DEFER [&bbprop] {
-      bbprop.pub.is.store(true, MT ? std::memory_order_release
-                                   : std::memory_order_relaxed);
+      bbprop.pub.is.test_and_set(MT ? boost::memory_order_release
+                                    : boost::memory_order_relaxed);
   };
 
   typename BBMap_t<MT>::exclusive_lock_guard e_lck_bbmap(
@@ -673,7 +673,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
 
-      if (callee.Analysis.pCallers.load(std::memory_order_relaxed))
+      if (callee.Analysis.pCallers.load(boost::memory_order_relaxed))
         callee.Analysis.AddCaller<MT, MinSize>(caller_t(b.Idx, T.Addr));
 
       if (maybe_jv) {

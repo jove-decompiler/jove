@@ -11,7 +11,7 @@
 template <typename T, std::size_t N>
 struct table_t {
   alignas(T) std::byte storage_[N * sizeof(T)];
-  std::atomic<uint32_t> len_ = 0;
+  ip_atomic<uint32_t> len_ = 0;
 
   table_t(const table_t &) = delete;
   table_t &operator=(const table_t &) = delete;
@@ -23,14 +23,14 @@ struct table_t {
   }
 
   table_t(table_t &&other) noexcept {
-    unsigned M = other.len_.load(std::memory_order_relaxed);
-    len_.store(M, std::memory_order_relaxed);
+    unsigned M = other.len_.load(boost::memory_order_relaxed);
+    len_.store(M, boost::memory_order_relaxed);
 
     for (std::size_t i = 0; i < N; ++i)
       new (&reinterpret_cast<T *>(storage_)[i])
           T(std::move(reinterpret_cast<T *>(other.storage_)[i]));
 
-    other.len_.store(0, std::memory_order_relaxed);
+    other.len_.store(0, boost::memory_order_relaxed);
   }
 
   ~table_t() noexcept {
@@ -41,11 +41,11 @@ struct table_t {
   }
 
   unsigned size(void) const noexcept {
-    return len_.load(std::memory_order_relaxed);
+    return len_.load(boost::memory_order_relaxed);
   }
 
   void clear(void) noexcept {
-    len_.store(0, std::memory_order_relaxed);
+    len_.store(0, boost::memory_order_relaxed);
   }
 
   // NO BOUNDS CHECKING!

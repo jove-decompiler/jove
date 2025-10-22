@@ -46,7 +46,7 @@ namespace jove {
 namespace {
 
 struct shared_data_t {
-  std::atomic<unsigned> counter = 0u;
+  ip_atomic<unsigned> counter = 0u;
 };
 
 }
@@ -280,7 +280,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   //
   fs::path TemporaryDir;
   {
-    unsigned x = shared_data.counter.fetch_add(1u, std::memory_order_relaxed);
+    unsigned x = shared_data.counter.fetch_add(1u, boost::memory_order_relaxed);
     TemporaryDir = fs::path(temporary_dir()) / std::to_string(x);
     fs::create_directory(TemporaryDir);
   }

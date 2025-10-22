@@ -24,7 +24,7 @@ void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
   for_each_basic_block_in_binary(maybe_par_unseq, *this, [&](bb_t bb) {
     bbprop_t &bbprop = this->ICFG[bb];
 
-    void *const p = bbprop.pDynTargets.load(std::memory_order_relaxed);
+    void *const p = bbprop.pDynTargets.load(boost::memory_order_relaxed);
     if (!p)
       return;
 
@@ -55,7 +55,7 @@ void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
     OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
 
     bbprop.pDynTargets.store(reinterpret_cast<void *>(OurPtrAddr),
-                             std::memory_order_relaxed);
+                             boost::memory_order_relaxed);
 
     pOtherDynTargets->~OtherDynTargets_t();
     sm.deallocate(pOtherDynTargets);
@@ -70,7 +70,7 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
   segment_manager_t &sm = get_segment_manager();
 
   for_each_function_in_binary(maybe_par_unseq, *this, [&](function_t &f) {
-    void *const p = f.Analysis.pCallers.load(std::memory_order_relaxed);
+    void *const p = f.Analysis.pCallers.load(boost::memory_order_relaxed);
     if (!p)
       return;
 
@@ -98,7 +98,7 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
     OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
 
     f.Analysis.pCallers.store(reinterpret_cast<void *>(OurPtrAddr),
-                              std::memory_order_relaxed);
+                              boost::memory_order_relaxed);
 
     pOtherCallers->~OtherCallers_t();
     sm.deallocate(pOtherCallers);

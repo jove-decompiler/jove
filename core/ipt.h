@@ -112,7 +112,7 @@ StraightLineGo(const binary_base_t<MT, MinSize> &b,
          const bbprop_t &bbprop = the_bbprop.get();
 
          if constexpr (MT) {
-           if (!bbprop.pub.is.load(std::memory_order_acquire))
+           if (!bbprop.pub.is.test(boost::memory_order_acquire))
              (void)bbprop.pub.shared_access<MT>();
          }
          bbprop.lock_sharable<MT>(); /* don't change on us */
@@ -146,7 +146,7 @@ StraightLineGo(const binary_base_t<MT, MinSize> &b,
          the_bbprop = new_bbprop;
 
          if constexpr (MT) {
-           if (!new_bbprop.pub.is.load(std::memory_order_acquire))
+           if (!new_bbprop.pub.is.test(boost::memory_order_acquire))
              bbprop_t::pub_t::shared_lock_guard<MT>(new_bbprop.pub.mtx);
          }
          new_bbprop.lock_sharable<MT>(); /* don't change on us */

@@ -10,8 +10,8 @@ template <bool MT, bool MinSize>
 bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   using OurCallers_t = Callers_t<MT, MinSize>;
 
-  if (void *const p = pCallers.load(MT ? std::memory_order_acquire
-                                       : std::memory_order_relaxed)) {
+  if (void *const p = pCallers.load(MT ? boost::memory_order_acquire
+                                       : boost::memory_order_relaxed)) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     bool The_MT      = !!(addr & 1u);
     bool The_MinSize = !!(addr & 2u);
@@ -45,10 +45,9 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
   if constexpr (MT) {
     void *expected = nullptr;
     void *desired = reinterpret_cast<void *>(addr);
-    if (pCallers.compare_exchange_strong(
-            expected, desired,
-            MT ? std::memory_order_release : std::memory_order_relaxed,
-            MT ? std::memory_order_acquire : std::memory_order_relaxed)) {
+    if (pCallers.compare_exchange_strong(expected, desired,
+                                         boost::memory_order_release,
+                                         boost::memory_order_acquire)) {
       pTheCallers->Insert(caller);
       return true; /* it was empty before */
     }
@@ -67,15 +66,15 @@ bool function_analysis_t::AddCaller(const caller_t &caller) noexcept {
     return reinterpret_cast<OurCallers_t *>(expected_addr)->Insert(caller);
   } else {
     pTheCallers ->Insert(caller);
-    pCallers.store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
+    pCallers.store(reinterpret_cast<void *>(addr), boost::memory_order_relaxed);
     return true;
   }
 }
 
 function_analysis_t::~function_analysis_t() noexcept {
-  if (void *const p = pCallers.load(AreWeMT ? std::memory_order_acquire
-                                            : std::memory_order_relaxed)) {
-    pCallers.store(nullptr, std::memory_order_relaxed);
+  if (void *const p = pCallers.load(AreWeMT ? boost::memory_order_acquire
+                                            : boost::memory_order_relaxed)) {
+    pCallers.store(nullptr, boost::memory_order_relaxed);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     bool MT      = !!(addr & 1u);
@@ -115,15 +114,15 @@ function_analysis_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
   auto &RCG = jv.Analysis.ReverseCallGraph;
 
   call_graph_index_t Res =
-      this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
+      this->ReverseCGVertIdxHolder.Idx.load(boost::memory_order_relaxed);
 
   if (unlikely(!is_call_graph_index_valid(Res))) {
     auto e_lck = this->ReverseCGVertIdxHolder.exclusive_access<MT>();
 
-    Res = this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
+    Res = this->ReverseCGVertIdxHolder.Idx.load(boost::memory_order_relaxed);
     if (likely(!is_call_graph_index_valid(Res))) {
       Res = RCG.index_of_add_vertex(&jv.get_segment_manager());
-      this->ReverseCGVertIdxHolder.Idx.store(Res, std::memory_order_relaxed);
+      this->ReverseCGVertIdxHolder.Idx.store(Res, boost::memory_order_relaxed);
 
       dynamic_target_t X = target_of_function(*this);
       assert(is_dynamic_target_valid(X));

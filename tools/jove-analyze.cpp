@@ -140,7 +140,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           b.Analysis.Functions.begin(),
           b.Analysis.Functions.end(), 0u,
           [&](uint64_t n, const function_t &f) -> uint64_t {
-            return n + static_cast<unsigned>(f.Analysis.Stale.load(std::memory_order_relaxed));
+            return n + static_cast<unsigned>(f.Analysis.Stale.test(boost::memory_order_relaxed));
           });
     };
 

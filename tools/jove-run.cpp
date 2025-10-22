@@ -63,7 +63,7 @@ struct binary_state_t {
 
 struct shared_data_t {
   ip_mutex mtx;
-  std::atomic<char> recovered_ch = '\0';
+  ip_atomic<char> recovered_ch = '\0';
 };
 
 }
@@ -1198,7 +1198,7 @@ int RunTool::DoRun(void) {
       }
 #endif
 
-      if (shared_data.recovered_ch.load(std::memory_order_relaxed)) {
+      if (shared_data.recovered_ch.load(boost::memory_order_relaxed)) {
         if (IsVerbose())
           HumanOut() << "sleep interrupted by jove-recover\n";
         sleep(std::min<unsigned>(sec - t, 3));
@@ -1224,7 +1224,7 @@ int RunTool::DoRun(void) {
     //
     // robust means of determining whether jove-recover has run
     //
-    char ch = shared_data.recovered_ch.load(std::memory_order_relaxed);
+    char ch = shared_data.recovered_ch.load(boost::memory_order_relaxed);
     if (ch)
       return ch; /* return char jove-loop will recognize */
   }
@@ -1328,7 +1328,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
     if (unlikely(ch == exited_char))
       return 0; /* if we see this, the app has exited. */
 
-    shared_data.recovered_ch.store(ch, std::memory_order_relaxed);
+    shared_data.recovered_ch.store(ch, boost::memory_order_relaxed);
     auto do_recover = [&](void) -> std::string {
 //
 // paranoid (raw) macro which locks a shared mutex. this is meant to defend

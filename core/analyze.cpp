@@ -315,7 +315,7 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
 
 template <bool MT, bool MinSize>
 int analyzer_t<MT, MinSize>::analyze_function(function_t &f) {
-  if (!f.Analysis.Stale.load(std::memory_order_acquire))
+  if (!f.Analysis.Stale.test(boost::memory_order_acquire))
     return 0;
 
   dynamic_target_t X(target_of_function(f));
@@ -330,7 +330,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f) {
         inflight.erase(X);
     }
 
-    f.Analysis.Stale.store(false, std::memory_order_release);
+    f.Analysis.Stale.clear(boost::memory_order_release);
   };
 
   {
@@ -728,7 +728,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
         }
       } else if (__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE)) {
 #else
-      if (callee.Analysis.Stale.load(std::memory_order_acquire)) {
+      if (callee.Analysis.Stale.test(boost::memory_order_acquire)) {
 #endif
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
@@ -916,7 +916,7 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
   if (!DynTargets.ForEachWhile([&](const dynamic_target_t &X) {
         function_t &callee = function_of_target(X, jv);
         const bool IsStale =
-            callee.Analysis.Stale.load(std::memory_order_acquire);
+            callee.Analysis.Stale.test(boost::memory_order_acquire);
         if (IsStale) {
           return false;
         } else {

@@ -436,11 +436,11 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::object::Binary &B,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
-  if (!bbprop.Analysis.Stale.load(std::memory_order_acquire))
+  if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
     return false;
 
   BOOST_SCOPE_DEFER [&] {
-    bbprop.Analysis.Stale.store(false, std::memory_order_release);
+    bbprop.Analysis.Stale.clear(boost::memory_order_release);
   };
 
   const bool IsCOFF = B::is_coff(B);
@@ -2336,7 +2336,7 @@ int llvm_t<MT, MinSize>::PrepareToTranslateCode(void) {
 template <bool MT, bool MinSize>
 tcg_global_set_t
 llvm_t<MT, MinSize>::DetermineFunctionArgs(const function_t &f) {
-  if (unlikely(f.Analysis.Stale.load(std::memory_order_relaxed)))
+  if (unlikely(f.Analysis.Stale.test(boost::memory_order_relaxed)))
     die("DetermineFunctionArgs: func #" + std::to_string(f.Idx) + " is stale!");
 
   return f.Analysis.args;
@@ -2345,7 +2345,7 @@ llvm_t<MT, MinSize>::DetermineFunctionArgs(const function_t &f) {
 template <bool MT, bool MinSize>
 tcg_global_set_t
 llvm_t<MT, MinSize>::DetermineFunctionRets(const function_t &f) {
-  if (unlikely(f.Analysis.Stale.load(std::memory_order_relaxed)))
+  if (unlikely(f.Analysis.Stale.test(boost::memory_order_relaxed)))
     die("DetermineFunctionRets: func #" + std::to_string(f.Idx) + " is stale!");
 
   return f.Analysis.rets;

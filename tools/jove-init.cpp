@@ -119,7 +119,7 @@ void InitTool::parse_loaded_objects(const std::string &rtld_stdout,
 template <bool MT, bool MinSize>
 static void init_binaries(unsigned N, jv_file_t &,
                           ip_binary_table_t<MT, MinSize> &Binaries) {
-  Binaries.len_.store(N, std::memory_order_relaxed);
+  Binaries.len_.store(N, boost::memory_order_relaxed);
   for (unsigned i = 0; i < N; ++i)
     Binaries[i].Idx = static_cast<binary_index_t>(i);
 }

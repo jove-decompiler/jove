@@ -273,7 +273,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             }
           }
 
-          Writer.printBoolean("Stale", ICFG[bb].Analysis.Stale);
+          Writer.printBoolean("Stale", ICFG[bb].Analysis.Stale.test(boost::memory_order_relaxed));
         }
 
         Writer.getOStream() << '\n';
@@ -401,7 +401,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           if (f.Analysis.IsLj)
             Writer.printBoolean("IsLj", f.Analysis.IsLj);
 
-          Writer.printBoolean("Stale", f.Analysis.Stale);
+          Writer.printBoolean("Stale", f.Analysis.Stale.test(boost::memory_order_relaxed));
         }
 
         Writer.printBoolean("IsABI", f.IsABI);

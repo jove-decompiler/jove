@@ -60,6 +60,54 @@ static void serialize(Archive &ar, std::atomic<T> &t,
 }
 
 //
+// boost::atomics::ipc_atomic
+//
+template <class Archive, class T>
+static void save(Archive &ar, const boost::atomics::ipc_atomic<T> &t, const unsigned int) {
+  const T value = t.load(boost::memory_order_relaxed);
+  ar << BOOST_SERIALIZATION_NVP(value);
+}
+
+template <class Archive, class T>
+static void load(Archive &ar, boost::atomics::ipc_atomic<T> &t, const unsigned int) {
+  T value;
+  ar >> value;
+  t.store(value, boost::memory_order_relaxed);
+}
+
+template <class Archive, class T>
+static void serialize(Archive &ar, boost::atomics::ipc_atomic<T> &t,
+                      const unsigned int file_version) {
+  boost::serialization::split_free(ar, t, file_version);
+}
+
+//
+// boost::atomics::ipc_atomic_flag
+//
+template <class Archive>
+static void save(Archive &ar, const boost::atomics::ipc_atomic_flag &t, const unsigned int) {
+  const bool value = t.test(boost::memory_order_relaxed);
+  ar << BOOST_SERIALIZATION_NVP(value);
+}
+
+template <class Archive>
+static void load(Archive &ar, boost::atomics::ipc_atomic_flag &t, const unsigned int) {
+  bool value;
+  ar >> value;
+
+  if (value)
+    t.test_and_set(boost::memory_order_relaxed);
+  else
+    t.clear(boost::memory_order_relaxed);
+}
+
+template <class Archive>
+static void serialize(Archive &ar, boost::atomics::ipc_atomic_flag &t,
+                      const unsigned int file_version) {
+  boost::serialization::split_free(ar, t, file_version);
+}
+
+//
 // interprocess string
 //
 
@@ -331,7 +379,7 @@ load(Archive &ar,
   ip_adj_.clear();
 
   ar >> ip_adj_;
-  ip_adj._size.store(boost::num_vertices(ip_adj_), std::memory_order_relaxed);
+  ip_adj._size.store(boost::num_vertices(ip_adj_), boost::memory_order_relaxed);
 }
 
 //
@@ -549,7 +597,7 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
       uintptr_t addr = reinterpret_cast<uintptr_t>(pTheDynTargets);            \
       addr |= (jove::IsMT_hack ? 1u : 0u) | (jove::IsMinSize_hack ? 2u : 0u);  \
       bbprop.pDynTargets.store(reinterpret_cast<void *>(addr),                 \
-                               std::memory_order_relaxed);                     \
+                               boost::memory_order_relaxed);                   \
     }                                                                          \
     return;                                                                    \
   }

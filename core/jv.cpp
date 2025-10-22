@@ -407,7 +407,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
       b.Idx = BIdx;
       jv.Binaries.container().emplace_back(std::move(b));
     } else {
-      BIdx = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
+      BIdx = jv.Binaries.len_.fetch_add(1u, boost::memory_order_relaxed);
       b.Idx = BIdx;
       jv.Binaries[BIdx] = std::move(b);
     }
@@ -432,7 +432,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
       b.Idx = BIdx;
       jv.Binaries.container().push_back(std::move(b));
     } else {
-      BIdx  = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
+      BIdx  = jv.Binaries.len_.fetch_add(1u, boost::memory_order_relaxed);
 
       b.Idx = BIdx;
       jv.Binaries[BIdx] = std::move(b);
@@ -533,8 +533,8 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
       Binaries.container().emplace_back(std::move(b));
     other.Binaries.container().clear();
   } else {
-    Binaries.len_.store(N, std::memory_order_relaxed);
-    other.Binaries.len_.store(0, std::memory_order_relaxed);
+    Binaries.len_.store(N, boost::memory_order_relaxed);
+    other.Binaries.len_.store(0, boost::memory_order_relaxed);
 
     auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
     auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(N);

@@ -3,14 +3,18 @@
 #endif
 
 template <typename T>
+using ip_atomic = boost::atomics::ipc_atomic<T>;
+using ip_atomic_flag = boost::atomics::ipc_atomic_flag;
+
+template <typename T>
 class atomic_offset_ptr {
   static constexpr uint64_t null = 1u;
 
-  std::atomic<uint64_t> off = null;
+  ip_atomic<uint64_t> off = null;
 
   void takeFrom(atomic_offset_ptr &other) noexcept {
-    const uint64_t newo = other.off.exchange(null, std::memory_order_acquire);
-    const uint64_t oldo = off.exchange(newo, std::memory_order_release);
+    const uint64_t newo = other.off.exchange(null, boost::memory_order_acquire);
+    const uint64_t oldo = off.exchange(newo, boost::memory_order_release);
 
     (void)oldo;
   }
@@ -34,14 +38,14 @@ public:
 
   ~atomic_offset_ptr() noexcept = default;
 
-  T *load(std::memory_order memoryOrder = std::memory_order_seq_cst) const {
+  T *load(boost::memory_order memoryOrder = boost::memory_order_seq_cst) const volatile noexcept {
     return static_cast<T *>(
         boost::interprocess::ipcdetail::offset_ptr_to_raw_pointer(
             this, off.load(memoryOrder)));
   }
 
   void store(T *ptr,
-             std::memory_order memoryOrder = std::memory_order_seq_cst) {
+             boost::memory_order memoryOrder = boost::memory_order_seq_cst) volatile noexcept {
     off.store(
         boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
             ptr, this),
@@ -49,8 +53,8 @@ public:
   }
 
   bool compare_exchange_strong(T *&expected, T *desired,
-                               std::memory_order success,
-                               std::memory_order failure) {
+                               boost::memory_order success,
+                               boost::memory_order failure) volatile noexcept {
 
     uint64_t expected_off =
         boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
@@ -68,16 +72,28 @@ public:
 
     return res;
   }
+
+  T *exchange(T *desired, boost::memory_order order =
+                              boost::memory_order_seq_cst) volatile noexcept {
+    uint64_t desired_off =
+        boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
+            desired, this);
+
+    const uint64_t other_off = this->off.exchange(desired_off, order);
+    return static_cast<T *>(
+        boost::interprocess::ipcdetail::offset_ptr_to_raw_pointer(this,
+                                                                  other_off));
+  }
 };
 
 // this is a dangerous class.
 template <typename T>
 class atomic_unique_ptr {
-  std::atomic<T *> ptr = nullptr;
+  ip_atomic<T *> ptr = nullptr;
 
   void takeFrom(atomic_unique_ptr &other) noexcept {
-    T *const newp = other.ptr.exchange(nullptr, std::memory_order_acquire);
-    T *const oldp = ptr.exchange(newp, std::memory_order_release);
+    T *const newp = other.ptr.exchange(nullptr, boost::memory_order_acquire);
+    T *const oldp = ptr.exchange(newp, boost::memory_order_release);
     delete oldp;
   }
 
@@ -99,17 +115,17 @@ public:
   atomic_unique_ptr &operator=(const atomic_unique_ptr &) = delete;
 
   ~atomic_unique_ptr() {
-    delete ptr.load(std::memory_order_relaxed);
+    delete ptr.load(boost::memory_order_relaxed);
   }
 
-  T *load(std::memory_order order = std::memory_order_acquire) noexcept {
+  T *load(boost::memory_order order = boost::memory_order_acquire) noexcept {
     return ptr.load(order);
   }
 
   bool compare_exchange_strong(T *&expected,
                                T *desired,
-                               std::memory_order success,
-                               std::memory_order failure) noexcept {
+                               boost::memory_order success,
+                               boost::memory_order failure) noexcept {
     return ptr.compare_exchange_strong(expected, desired, success, failure);
   }
 };

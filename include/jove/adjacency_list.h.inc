@@ -41,7 +41,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   using inv_adjacency_iterator = type::inv_adjacency_iterator;
   using vertex_property_type = type::vertex_property_type;
 
-  std::atomic<uint32_t> _size = 0;
+  ip_atomic<uint32_t> _size = 0;
 
   ip_adjacency_list(jv_file_t &jv_file)
     requires(PointUnique)
@@ -62,8 +62,8 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
                         DirectedS, VertexProperty, EdgeProperty, GraphProperty,
                         EdgeListS> &&other) noexcept
       : _adjacency_list(std::move(other._adjacency_list)),
-        _size(other._size.load(std::memory_order_relaxed)) {
-    other._size.store(0, std::memory_order_relaxed);
+        _size(other._size.load(boost::memory_order_relaxed)) {
+    other._size.store(0, boost::memory_order_relaxed);
   }
 
   template <bool MT2, bool Spin2>
@@ -77,8 +77,8 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     }
 
     _adjacency_list = std::move(other._adjacency_list);
-    _size.store(other._size.load(std::memory_order_relaxed));
-    other._size.store(0, std::memory_order_relaxed);
+    _size.store(other._size.load(boost::memory_order_relaxed));
+    other._size.store(0, boost::memory_order_relaxed);
     return *this;
   }
 
@@ -109,7 +109,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   template <typename... Args>
   vertices_size_type index_of_add_vertex(Args &&...args) {
     const vertices_size_type Idx =
-        _size.fetch_add(1u, std::memory_order_relaxed);
+        _size.fetch_add(1u, boost::memory_order_relaxed);
 
     if (unlikely(Idx >= actual_num_vertices())) {
       auto e_lck = this->exclusive_access();
@@ -138,7 +138,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   }
 
   vertices_size_type num_vertices(void) const {
-    return _size.load(std::memory_order_relaxed);
+    return _size.load(boost::memory_order_relaxed);
   }
 
   bool empty(void) const { return num_vertices() == 0; }

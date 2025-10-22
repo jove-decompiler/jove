@@ -47,6 +47,7 @@
 #include <boost/interprocess/allocators/private_node_allocator.hpp>
 #include <boost/interprocess/allocators/private_adaptive_pool.hpp>
 #include <boost/interprocess/allocators/node_allocator.hpp>
+#include <boost/container_hash/hash_is_avalanching.hpp>
 #include <boost/preprocessor/cat.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
@@ -60,6 +61,9 @@
 #include <boost/container/scoped_allocator.hpp>
 #include <boost/array.hpp>
 #include <boost/iterator/counting_iterator.hpp>
+#include <boost/atomic/ipc_atomic_flag.hpp>
+#include <boost/atomic/ipc_atomic.hpp>
+#include <boost/atomic/atomic.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -109,6 +113,7 @@ struct binary_base_t;
 #include "jove/addr.h.inc"
 #include "jove/terminator.h.inc"
 #include "jove/nop.h.inc"
+#include "jove/atomic.h.inc"
 #include "jove/mt.h.inc"
 #include "jove/possibly_concurrent.h.inc"
 #include "jove/index.h.inc"
@@ -222,8 +227,6 @@ using fnmap_t = possibly_concurrent_node_or_flat_map<
 
 size_t jvDefaultInitialSize(void);
 
-#include "jove/atomic.h.inc"
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic warning "-Wpadded"
 
@@ -243,45 +246,67 @@ struct bb_analysis_t {
     tcg_global_set_t def;
   } reach;
 
-  std::atomic<bool> Stale = true;
+  ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
 
-  bb_analysis_t() noexcept = default;
+  bb_analysis_t() noexcept {
+    this->Stale.test_and_set(boost::memory_order_relaxed);
+  }
 
   bb_analysis_t(tcg_global_set_t live_def,
                 tcg_global_set_t live_use,
                 tcg_global_set_t reach_def) noexcept
-      : live{.def = live_def, .use = live_use}, reach{.def = reach_def} {}
+      : live{.def = live_def, .use = live_use},
+        reach{.def = reach_def} {
+    this->Stale.test_and_set(boost::memory_order_relaxed);
+  }
 
   bb_analysis_t(const bb_analysis_t &other) noexcept
-      : live(other.live), reach(other.reach) {
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
+      : live(other.live),
+        reach(other.reach) {
+    if (other.Stale.test(boost::memory_order_relaxed))
+      this->Stale.test_and_set(boost::memory_order_relaxed);
+    else
+      this->Stale.clear(boost::memory_order_relaxed);
   }
 
   bb_analysis_t(bb_analysis_t &&other) noexcept
-      : live(other.live), reach(other.reach) {
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
+      : live(other.live),
+        reach(other.reach) {
+    if (other.Stale.test(boost::memory_order_relaxed))
+      this->Stale.test_and_set(boost::memory_order_relaxed);
+    else
+      this->Stale.clear(boost::memory_order_relaxed);
   }
 
   bb_analysis_t &operator=(bb_analysis_t &&other) noexcept {
+    if (this == &other)
+      return *this;
+
     live = other.live;
     reach = other.reach;
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
+
+    if (other.Stale.test(boost::memory_order_relaxed))
+      this->Stale.test_and_set(boost::memory_order_relaxed);
+    else
+      this->Stale.clear(boost::memory_order_relaxed);
+
     return *this;
   }
 
   bb_analysis_t &operator=(const bb_analysis_t &other) noexcept {
     live = other.live;
     reach = other.reach;
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
+
+    if (other.Stale.test(boost::memory_order_relaxed))
+      this->Stale.test_and_set(boost::memory_order_relaxed);
+    else
+      this->Stale.clear(boost::memory_order_relaxed);
+
     return *this;
   }
 
   struct straight_line_t {
-    std::atomic<bool> Stale = true;
+    std::atomic_flag Stale = ATOMIC_FLAG_INIT;
 
     basic_block_index_t BBIdx = invalid_basic_block_index;
     taddr_t Addr = uninit_taddr;
@@ -302,31 +327,15 @@ using DynTargets_t =
 
 struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   struct pub_t : public ip_mt_base_rw_accessible_nospin {
-    std::atomic<bool> is = false;
+    ip_atomic_flag is = BOOST_ATOMIC_FLAG_INIT;
 
     pub_t() noexcept = default;
 
-    pub_t(pub_t &&other) noexcept {
-      is.store(other.is.load(std::memory_order_relaxed),
-               std::memory_order_relaxed);
-    }
+    pub_t(const pub_t &other) = delete;
+    pub_t &operator=(const pub_t &other) = delete;
 
-    pub_t(const pub_t &other) noexcept {
-      is.store(other.is.load(std::memory_order_relaxed),
-               std::memory_order_relaxed);
-    }
-
-    pub_t &operator=(pub_t &&other) noexcept {
-      is.store(other.is.load(std::memory_order_relaxed),
-               std::memory_order_relaxed);
-      return *this;
-    }
-
-    pub_t &operator=(const pub_t &other) noexcept {
-      is.store(other.is.load(std::memory_order_relaxed),
-               std::memory_order_relaxed);
-      return *this;
-    }
+    pub_t(pub_t &&other) noexcept = default;
+    pub_t &operator=(pub_t &&other) noexcept = default;
   } pub;
 
   bool Speculative = false;
@@ -387,8 +396,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
   getDynamicTargets(void) const {
-    if (const void *const p = pDynTargets.load(MT ? std::memory_order_acquire :
-                                                    std::memory_order_relaxed)) {
+    if (const void *const p = pDynTargets.load(MT ? boost::memory_order_acquire :
+                                                    boost::memory_order_relaxed)) {
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool TheMT      = !!(p_addr & 1u);
     bool TheMinSize = !!(p_addr & 2u);
@@ -439,14 +448,14 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
     template <bool MT>
     void set(const ip_func_index_vec &x) {
-      _p.store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
+      _p.store(&x, MT ? boost::memory_order_release : boost::memory_order_relaxed);
     }
 
   public:
     template <bool MT>
     const ip_func_index_vec &get(void) const {
       const ip_func_index_vec *res =
-          _p.load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
+          _p.load(MT ? boost::memory_order_acquire : boost::memory_order_relaxed);
       assert(res);
       return *res;
     }
@@ -468,7 +477,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   } Parents;
 
   bool hasDynTarget(void) const {
-    return !!pDynTargets.load(std::memory_order_relaxed);
+    return !!pDynTargets.load(boost::memory_order_relaxed);
   }
 
   template <bool MT, bool MinSize>
@@ -610,7 +619,7 @@ struct function_analysis_t {
   tcg_global_set_t args;
   tcg_global_set_t rets;
 
-  std::atomic<bool> Stale = true;
+  ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
 
   atomic_offset_ptr<void> pCallers = nullptr;
 
@@ -619,7 +628,7 @@ struct function_analysis_t {
   bool IsLj = false;
 
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
-    std::atomic<call_graph_index_t> Idx = invalid_call_graph_index;
+    ip_atomic<call_graph_index_t> Idx = invalid_call_graph_index;
 
     ReverseCGVertHolder_t() noexcept = default;
 
@@ -635,9 +644,9 @@ struct function_analysis_t {
 
   private:
     void moveFrom(ReverseCGVertHolder_t &&other) noexcept {
-      Idx.store(other.Idx.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
-      other.Idx.store(invalid_call_graph_index, std::memory_order_relaxed);
+      const auto NewIdx = other.Idx.exchange(invalid_call_graph_index,
+                                             boost::memory_order_relaxed);
+      this->Idx.store(NewIdx, boost::memory_order_relaxed);
     }
   } ReverseCGVertIdxHolder;
 
@@ -648,15 +657,15 @@ struct function_analysis_t {
   }
 
   bool hasCaller(void) const noexcept {
-    return !!pCallers.load(std::memory_order_relaxed);
+    return !!pCallers.load(boost::memory_order_relaxed);
   }
 
   template <bool MT, bool MinSize>
   unsigned numCallers(void) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.load(MT ? std::memory_order_acquire
-                                         : std::memory_order_relaxed)) {
+    if (void *const p = pCallers.load(MT ? boost::memory_order_acquire
+                                         : boost::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
       bool TheMinSize = !!(p_addr & 2u);
@@ -694,8 +703,8 @@ struct function_analysis_t {
                 std::function<void(const caller_t &)> proc) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    if (void *const p = pCallers.load(MT ? std::memory_order_acquire
-                                         : std::memory_order_relaxed)) {
+    if (void *const p = pCallers.load(MT ? boost::memory_order_acquire
+                                         : boost::memory_order_relaxed)) {
       uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
       bool TheMT      = !!(p_addr & 1u);
       bool TheMinSize = !!(p_addr & 2u);
@@ -720,43 +729,55 @@ struct function_analysis_t {
   ip_call_graph_base_t<MT>::vertex_descriptor
   ReverseCGVert(jv_base_t<MT, MinSize> &);
 
-  explicit function_analysis_t(segment_manager_t *psm) noexcept : psm(psm) {}
+  explicit function_analysis_t(segment_manager_t *psm) noexcept : psm(psm) {
+    this->Invalidate();
+  }
   explicit function_analysis_t() = delete;
+  ~function_analysis_t() noexcept;
+
+  explicit function_analysis_t(const function_analysis_t &) noexcept = delete;
+  function_analysis_t &operator=(const function_analysis_t &) noexcept = delete;
 
   explicit function_analysis_t(function_analysis_t &&other) noexcept
       : psm(other.psm),
         args(other.args),
         rets(other.rets),
+        IsLeaf(other.IsLeaf),
+        IsSj(other.IsSj),
+        IsLj(other.IsLj),
         ReverseCGVertIdxHolder(std::move(other.ReverseCGVertIdxHolder)) {
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
-
-    pCallers.store(other.pCallers.load(std::memory_order_relaxed),
-                   std::memory_order_relaxed);
-    other.pCallers.store(nullptr, std::memory_order_relaxed);
+    moveFrom(std::move(other));
   }
 
   function_analysis_t &operator=(function_analysis_t &&other) noexcept {
-    psm = other.psm;
-    args = other.args;
-    rets = other.rets;
-    ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
+    if (this == &other)
+      return *this;
 
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
+    this->psm = other.psm;
+    this->args = other.args;
+    this->rets = other.rets;
+    this->IsLeaf = other.IsLeaf;
+    this->IsSj = other.IsSj;
+    this->IsLj = other.IsLj;
+    this->ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
+    moveFrom(std::move(other));
 
-    pCallers.store(other.pCallers.load(std::memory_order_relaxed),
-                   std::memory_order_relaxed);
-    other.pCallers.store(nullptr, std::memory_order_relaxed);
     return *this;
   }
 
-  void Invalidate(void) { this->Stale.store(true, std::memory_order_relaxed); }
+  void Invalidate(void) { this->Stale.test_and_set(boost::memory_order_relaxed); }
 
-  explicit function_analysis_t(const function_analysis_t &) = delete;
-  function_analysis_t &operator=(const function_analysis_t &) = delete;
+private:
+  void moveFrom(function_analysis_t &&other) noexcept {
+    this->pCallers.store(
+        other.pCallers.exchange(nullptr, boost::memory_order_relaxed),
+        boost::memory_order_relaxed);
 
-  ~function_analysis_t() noexcept;
+    if (other.Stale.test())
+      this->Stale.test_and_set(boost::memory_order_relaxed);
+    else
+      this->Stale.clear(boost::memory_order_relaxed);
+  }
 };
 
 struct function_t {
@@ -788,11 +809,11 @@ struct function_t {
       : Analysis(psm) {}
   explicit function_t() = delete;
 
+  explicit function_t(const function_t &) noexcept = delete;
+  function_t &operator=(const function_t &) noexcept = delete;
+
   explicit function_t(function_t &&) noexcept = default;
   function_t &operator=(function_t &&) noexcept = default;
-
-  explicit function_t(const function_t &) = delete;
-  function_t &operator=(const function_t &) = delete;
 };
 
 #include "jove/objdump.h.inc"
