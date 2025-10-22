@@ -379,9 +379,6 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f) {
 
                 res &= G[V].OUT;
 
-                if (IsABI)
-                  res &= CallConvRets;
-
                 return res;
               }) &
           ~(NotRets | options.PinnedEnvGlbs);
