@@ -1985,7 +1985,7 @@ index d2f0991c..718e993a 100644
  
  #endif
 diff --git a/include/boost/unordered/detail/foa/core.hpp b/include/boost/unordered/detail/foa/core.hpp
-index 062b7112..d1696331 100644
+index ee6cb927..9ebe8efe 100644
 --- a/include/boost/unordered/detail/foa/core.hpp
 +++ b/include/boost/unordered/detail/foa/core.hpp
 @@ -985,41 +985,41 @@ struct arrays_holder
@@ -2070,7 +2070,7 @@ index 062b7112..d1696331 100644
    using size_policy=pow2_size_policy;
    using prober=pow2_quadratic_prober;
    using mix_policy=typename std::conditional<
-     hash_is_avalanching<Hash>::value,
+     boost::hash_is_avalanching<Hash>::value,
      no_mix,
      mulx_mix
    >::type;
@@ -2142,7 +2142,7 @@ index 062b7112..d1696331 100644
      size_ctrl{initial_max_load(),0}
    {
 diff --git a/include/boost/unordered/detail/foa/table.hpp b/include/boost/unordered/detail/foa/table.hpp
-index 529a514c..9c759d69 100644
+index 47540de8..0ef6c20f 100644
 --- a/include/boost/unordered/detail/foa/table.hpp
 +++ b/include/boost/unordered/detail/foa/table.hpp
 @@ -39,41 +39,41 @@ struct plain_integral
@@ -2393,8 +2393,8 @@ index 529a514c..9c759d69 100644
                     {return const_cast<table*>(this)->begin();}
    iterator       end()noexcept{return {};}
    const_iterator end()const noexcept{return const_cast<table*>(this)->end();}
-@@ -495,51 +498,51 @@ public:
-     else return 0;
+@@ -503,51 +506,51 @@ public:
+     return type_policy::move(type_policy::value_from(*pos.p()));
    }
  
    void swap(table& x)
@@ -2449,7 +2449,7 @@ index 529a514c..9c759d69 100644
    using super::load_factor;
    using super::max_load_factor;
    using super::max_load;
-@@ -561,60 +564,60 @@ public:
+@@ -569,60 +572,60 @@ public:
      >::type;
  
      std::size_t s=x.size();
@@ -3203,7 +3203,7 @@ index f99f7f42..fe2ebe0e 100644
          constexpr static bool const value = true;
        };
 diff --git a/include/boost/unordered/unordered_flat_map.hpp b/include/boost/unordered/unordered_flat_map.hpp
-index 6ad25d8e..c3642747 100644
+index 56ec1261..49b8ffe5 100644
 --- a/include/boost/unordered/unordered_flat_map.hpp
 +++ b/include/boost/unordered/unordered_flat_map.hpp
 @@ -23,41 +23,41 @@
@@ -3296,7 +3296,7 @@ index 6ad25d8e..c3642747 100644
  
        unordered_flat_map& operator=(std::initializer_list<value_type> il)
 diff --git a/include/boost/unordered/unordered_flat_set.hpp b/include/boost/unordered/unordered_flat_set.hpp
-index 8e925931..ae234243 100644
+index b06a0d77..dbcc12c1 100644
 --- a/include/boost/unordered/unordered_flat_set.hpp
 +++ b/include/boost/unordered/unordered_flat_set.hpp
 @@ -20,41 +20,41 @@
@@ -3389,7 +3389,7 @@ index 8e925931..ae234243 100644
  
        unordered_flat_set& operator=(std::initializer_list<value_type> il)
 diff --git a/include/boost/unordered/unordered_node_map.hpp b/include/boost/unordered/unordered_node_map.hpp
-index 6f644dc0..b355491b 100644
+index a9d7ef44..a463a7b4 100644
 --- a/include/boost/unordered/unordered_node_map.hpp
 +++ b/include/boost/unordered/unordered_node_map.hpp
 @@ -24,41 +24,41 @@
@@ -3482,7 +3482,7 @@ index 6f644dc0..b355491b 100644
  
        unordered_node_map& operator=(std::initializer_list<value_type> il)
 diff --git a/include/boost/unordered/unordered_node_set.hpp b/include/boost/unordered/unordered_node_set.hpp
-index 537f305e..5624c147 100644
+index 1ac71b41..c1a19430 100644
 --- a/include/boost/unordered/unordered_node_set.hpp
 +++ b/include/boost/unordered/unordered_node_set.hpp
 @@ -23,41 +23,41 @@
