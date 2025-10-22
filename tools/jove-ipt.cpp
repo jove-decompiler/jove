@@ -151,7 +151,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               "objdump",
               cl::desc(
                   "Run objdump and treat output as authoritative."),
-              cl::init(true), cl::cat(JoveCategory)),
+              cl::cat(JoveCategory)),
 
           Serial(
               "serial",
