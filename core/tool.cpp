@@ -191,6 +191,7 @@ int main(int argc, char **argv) {
   tool->UpdateVerbosity();
 
   ::srand(time(NULL));
+  ::setlocale(LC_ALL, "C");
 
 #ifndef JOVE_NO_TBB
   jove::tbb_hacks::enable();
