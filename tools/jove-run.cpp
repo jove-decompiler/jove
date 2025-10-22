@@ -511,15 +511,6 @@ int RunTool::DoRun(void) {
     sigemptyset(&sa.sa_mask);
 
     //
-    // set up for graceful termination.
-    //
-    sa.sa_flags = 0; /* no SA_RESTART here, so that open() will return EINTR */
-    sa.sa_handler = [](int sig) -> void {
-      StopFifoChild.store(true, std::memory_order_relaxed);
-    };
-    (void)::sigaction(SIGTERM, &sa, NULL);
-
-    //
     // ignore Ctrl+C
     //
     sa.sa_flags = SA_RESTART;
@@ -538,6 +529,15 @@ int RunTool::DoRun(void) {
     Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
         jv_file, jv, *Explorer,
         symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
+
+    //
+    // set up for graceful termination.
+    //
+    sa.sa_flags = 0; /* no SA_RESTART here, so that open() will return EINTR */
+    sa.sa_handler = [](int sig) -> void {
+      StopFifoChild.store(true, std::memory_order_relaxed);
+    };
+    (void)::sigaction(SIGTERM, &sa, NULL);
 
     int rc = 1;
     ignore_exception([&] {
