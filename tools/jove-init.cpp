@@ -243,11 +243,6 @@ int InitTool::Run(void) {
 
   const unsigned N = binary_paths.size() + 3;
 
-  block_signals([&] {
-    jv.clear(); /* point of no return */
-    init_binaries(N, jv_file, jv.Binaries);
-  });
-
   //
   // add them
   //
@@ -348,14 +343,19 @@ int InitTool::Run(void) {
 
         jv.Binaries.at(BIdx) = std::move(b);
       };
-  mt::for_n(worker, N);
 
-  jv.Binaries.at(0).IsExecutable = true;
-  jv.Binaries.at(1).IsDynamicLinker = true;
-  jv.Binaries.at(2).IsVDSO = true;
+  block_signals([&] {
+    jv.clear(); /* point of no return */
+    init_binaries(N, jv_file, jv.Binaries);
+    mt::for_n(worker, N);
 
-  assert(!explorer.get_jv());
-  jv.fixup(jv_file); // XXX
+    jv.Binaries.at(0).IsExecutable = true;
+    jv.Binaries.at(1).IsDynamicLinker = true;
+    jv.Binaries.at(2).IsVDSO = true;
+
+    assert(!explorer.get_jv());
+    jv.fixup(jv_file); // XXX
+  });
 
   return 0;
 }
