@@ -68,6 +68,8 @@ template <ExecOpt Set, ExecOpt Flag>
 inline constexpr bool has_flag_v =
     (to_underlying(Set) & to_underlying(Flag)) != 0;
 
+[[nodiscard]] int WaitForProcessToExit(pid_t);
+
 //
 // Running an executable (the big function)
 //
@@ -224,6 +226,10 @@ template <ExecOpt Opts = ExecOpt::None,
         //
         // execve(2) failed. errno is in shared_err.
         //
+        ignore_exception([&] {
+          WaitForProcessToExit(pid); /* child will promptly exit. */
+        });
+
         throw std::runtime_error("execve() failed: " + std::string(strerror(err)));
       }
     }
@@ -300,8 +306,6 @@ template <ExecOpt Opts = ExecOpt::None,
 
   __builtin_unreachable();
 }
-
-[[nodiscard]] int WaitForProcessToExit(pid_t);
 
 template <ExecOpt Opts = ExecOpt::None, typename... Args>
 [[nodiscard]] static inline int RunExecutableToExit(Args &&...args) {
