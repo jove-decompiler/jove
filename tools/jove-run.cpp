@@ -492,6 +492,7 @@ int RunTool::DoRun(void) {
   //
   // create process reading from fifo
   //
+  scoped_fd our_pfd(pidfd_open(::getpid(), 0));
   pid_t fifo_child = jove::fork();
   if (!fifo_child) {
     DeathHandlerVerbose.store(IsVerbose(), std::memory_order_relaxed);
@@ -514,8 +515,23 @@ int RunTool::DoRun(void) {
       int err = errno;
       WithColor::error() << llvm::formatv(
           "failed to set FifoChild SIGTERM death handler: {0}\n", strerror(err));
-    } else {
-      (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
+    }
+
+    (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
+
+    struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
+    int poll_ret = sys::retry_eintr(::poll, &pfd, 1, 0);
+    if (poll_ret < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("poll failed: {0}\n", strerror(err));
+    }
+
+    if (poll_ret != 0) {
+      //
+      // parent is already gone.
+      //
+      our_pfd.close();
+      _exit(1);
     }
 
     //
@@ -544,6 +560,8 @@ int RunTool::DoRun(void) {
 
     _exit(rc);
   }
+
+  our_pfd.close();
 
   scoped_fd pidfd(pidfd_open(fifo_child, 0));
   if (!pidfd) {
@@ -580,7 +598,7 @@ int RunTool::DoRun(void) {
     if (IsVeryVerbose())
       HumanOut() << "polling...\n";
 
-    int poll_ret = ::poll(&pfd, 1, timeout);
+    int poll_ret = sys::retry_eintr(::poll, &pfd, 1, timeout);
     if (poll_ret < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("poll failed: {0}\n", strerror(err));
