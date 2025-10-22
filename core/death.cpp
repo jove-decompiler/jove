@@ -5,7 +5,7 @@
 namespace jove {
 
 static void __attribute__((__constructor__)) death_init(void) {
-  (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
+  (void)::prctl(PR_SET_PDEATHSIG, SIGKILL);
 }
 
 }

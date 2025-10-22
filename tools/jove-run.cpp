@@ -42,6 +42,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <poll.h>
+#include <linux/prctl.h>  /* Definition of PR_* constants */
+#include <sys/prctl.h>
 
 #include "jove/assert.h"
 
@@ -512,6 +514,8 @@ int RunTool::DoRun(void) {
       int err = errno;
       WithColor::error() << llvm::formatv(
           "failed to set FifoChild SIGTERM death handler: {0}\n", strerror(err));
+    } else {
+      (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
     }
 
     //
