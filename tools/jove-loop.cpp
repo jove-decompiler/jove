@@ -11,6 +11,7 @@
 #include "analyze.h"
 #endif
 #include "robust.h"
+#include "eintr.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -415,7 +416,7 @@ int LoopTool::Run(void) {
   child_pid.file->store();
 
   child_pid.mapping_fd = std::make_unique<scoped_fd>(
-      ::open(child_pid.file->path().c_str(), O_RDWR));
+      sys::retry_eintr(::open, child_pid.file->path().c_str(), O_RDWR));
   aassert(child_pid.mapping_fd && *child_pid.mapping_fd);
 
   child_pid.mapping =
@@ -683,9 +684,10 @@ skip_run:
       int connect_ret;
       if (IsVerbose())
         HumanOut() << llvm::formatv("connecting to remote {0}...\n", opts.Connect);
-      connect_ret = ::connect(remote_fd.get(),
-                              reinterpret_cast<struct sockaddr *>(&server_addr),
-                              sizeof(sockaddr_in));
+      connect_ret =
+          sys::retry_eintr(::connect, remote_fd.get(),
+                           reinterpret_cast<struct sockaddr *>(&server_addr),
+                           sizeof(sockaddr_in));
       if (connect_ret < 0 && errno != EINPROGRESS) {
         int err = errno;
         HumanOut() << llvm::formatv("connect failed: {0}\n", strerror(err));
