@@ -306,7 +306,6 @@ static void *recover_proc(const char *fifo_path);
 static std::atomic<bool> InterruptSleep = false;
 #endif
 static std::atomic<bool> StopFifoChild = false;
-static std::atomic<bool> DeathHandlerVerbose = false;
 
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
 
@@ -495,28 +494,6 @@ int RunTool::DoRun(void) {
   scoped_fd our_pfd(pidfd_open(::getpid(), 0));
   pid_t fifo_child = jove::fork();
   if (!fifo_child) {
-    DeathHandlerVerbose.store(IsVerbose(), std::memory_order_relaxed);
-    auto death_handler = [](int sig) -> void {
-      if (DeathHandlerVerbose.load(std::memory_order_relaxed))
-        WithColor::note() << "death_handler\n";
-
-      StopFifoChild.store(true, std::memory_order_relaxed);
-    };
-
-    struct sigaction sa;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0; /* no SA_RESTART here, so that open() will return EINTR */
-
-    //
-    // Graceful termination
-    //
-    sa.sa_handler = death_handler;
-    if (sigaction(SIGTERM, &sa, NULL) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv(
-          "failed to set FifoChild SIGTERM death handler: {0}\n", strerror(err));
-    }
-
     (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
 
     struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
@@ -526,19 +503,28 @@ int RunTool::DoRun(void) {
       WithColor::error() << llvm::formatv("poll failed: {0}\n", strerror(err));
     }
 
-    if (poll_ret != 0) {
-      //
-      // parent is already gone.
-      //
-      our_pfd.close();
-      _exit(1);
-    }
+    our_pfd.close();
+    if (poll_ret != 0)
+      _exit(1); /* parent is already gone. */
+
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+
+    //
+    // set up for graceful termination.
+    //
+    sa.sa_flags = 0; /* no SA_RESTART here, so that open() will return EINTR */
+    sa.sa_handler = [](int sig) -> void {
+      StopFifoChild.store(true, std::memory_order_relaxed);
+    };
+    (void)::sigaction(SIGTERM, &sa, NULL);
 
     //
     // ignore Ctrl+C
     //
+    sa.sa_flags = SA_RESTART;
     sa.sa_handler = SIG_IGN;
-    sigaction(SIGINT, &sa, NULL);
+    (void)::sigaction(SIGINT, &sa, NULL);
 
     //
     // create stuff
