@@ -142,6 +142,7 @@ set(JOVE_SOURCES
     ../core/explore.cpp
     ../core/fd.cpp
     ../core/flow.cpp
+    ../core/fork.cpp
     ../core/function.cpp
     ../core/hash.cpp
     ../core/ida.cpp

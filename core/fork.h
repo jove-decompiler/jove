@@ -28,4 +28,9 @@ static inline pid_t fork(void) {
   return res;
 }
 
+//
+// convenience for long running forks.
+//
+pid_t long_fork(std::function<int(void)> f);
+
 }

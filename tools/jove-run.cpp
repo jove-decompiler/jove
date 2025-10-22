@@ -42,8 +42,6 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <poll.h>
-#include <linux/prctl.h>  /* Definition of PR_* constants */
-#include <sys/prctl.h>
 
 #include "jove/assert.h"
 
@@ -491,22 +489,7 @@ int RunTool::DoRun(void) {
   //
   // create process reading from fifo
   //
-  scoped_fd our_pfd(pidfd_open(::getpid(), 0));
-  pid_t fifo_child = jove::fork();
-  if (!fifo_child) {
-    (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
-
-    struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
-    int poll_ret = sys::retry_eintr(::poll, &pfd, 1, 0);
-    if (poll_ret < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("poll failed: {0}\n", strerror(err));
-    }
-
-    our_pfd.close();
-    if (poll_ret != 0)
-      _exit(1); /* parent is already gone. */
-
+  pid_t fifo_child = long_fork([&](void) -> int {
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
 
@@ -539,15 +522,8 @@ int RunTool::DoRun(void) {
     };
     (void)::sigaction(SIGTERM, &sa, NULL);
 
-    int rc = 1;
-    ignore_exception([&] {
-      rc = FifoChild<LivingDangerously>(fifo_file_path.c_str());
-    });
-
-    _exit(rc);
-  }
-
-  our_pfd.close();
+    return FifoChild<LivingDangerously>(fifo_file_path.c_str());
+  });
 
   scoped_fd pidfd(pidfd_open(fifo_child, 0));
   if (!pidfd) {
