@@ -2,6 +2,8 @@
 
 : "${build_scripts_path:?build_scripts_path must be set}"
 
+cmdsdir="$build_scripts_path/cmds"
+
 jove_path="$build_scripts_path/../.."
 qemu_path="$jove_path/qemu"
 llvm_path="$jove_path/llvm-project"

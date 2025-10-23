@@ -34,43 +34,47 @@ ln -s ${hostarch}_build "$qemu_path/build"
 rm -f                   "$llvm_path/build"
 ln -s ${hostarch}_build "$llvm_path/build"
 
-# -------- Stage 1 --------
-. "$build_scripts_path/cmds/carbon-copy.sh"
-. "$build_scripts_path/cmds/llknife.19.sh"
+# convenience
+X="$build_scripts_path"
+Y="$cmdsdir"
 
-. "$build_scripts_path/parallel.sh"
+# -------- Stage 1 --------
+. "$Y/carbon-copy.sh"
+. "$Y/llknife.19.sh"
+
+. "$X/parallel.sh"
 
 # -------- Stage 2 --------
-. "$build_scripts_path/cmds/wine64.sh"
-. "$build_scripts_path/cmds/linux.sh"
-. "$build_scripts_path/cmds/qemu.helpers.sh"
-. "$build_scripts_path/cmds/qemu4jove.sh"
-. "$build_scripts_path/cmds/qemu4jove.cross.sh"
+. "$Y/wine64.sh"
+. "$Y/linux.sh"
+. "$Y/qemu.helpers.sh"
+. "$Y/qemu4jove.sh"
+. "$Y/qemu4jove.cross.sh"
 
-. "$build_scripts_path/parallel.sh"
+. "$X/parallel.sh"
 
 # -------- Stage 3 --------
-. "$build_scripts_path/cmds/03_make.sh"
-. "$build_scripts_path/cmds/llvm.tblgen.sh"
+. "$Y/03_make.sh"
+. "$Y/llvm.tblgen.sh"
 
-. "$build_scripts_path/parallel.sh"
+. "$X/parallel.sh"
 
 # -------- Stage 4 --------
-. "$build_scripts_path/cmds/wine32.sh"
-. "$build_scripts_path/cmds/llvm.sh"
+. "$Y/wine32.sh"
+. "$Y/llvm.sh"
 
-. "$build_scripts_path/parallel.sh"
+. "$X/parallel.sh"
 
 # -------- Stage 5 --------
-. "$build_scripts_path/cmds/llknife.sh"
-. "$build_scripts_path/cmds/qemu.softfpu.sh"
+. "$Y/llknife.sh"
+. "$Y/qemu.softfpu.sh"
 
-. "$build_scripts_path/parallel.sh"
+. "$X/parallel.sh"
 
 # -------- Stage 6 --------
-. "$build_scripts_path/cmds/06_make.sh"
-. "$build_scripts_path/parallel.sh"
+. "$Y/06_make.sh"
+. "$X/parallel.sh"
 
 # -------- Stage 7 --------
-. "$build_scripts_path/cmds/07_make.sh"
-. "$build_scripts_path/parallel.sh"
+. "$Y/07_make.sh"
+. "$X/parallel.sh"
