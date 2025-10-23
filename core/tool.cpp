@@ -209,11 +209,7 @@ int main(int argc, char **argv) {
   const bool smartterm = tool->is_smart_terminal();
 
   try {
-#if 0 /* FIXME */
     return tool->Run();
-#else
-    _exit(tool->Run());
-#endif
   } catch (const boost::interprocess::bad_alloc &) {
     WithColor::error()
         << "exhausted all available memory for .jv. try removing ~/.jv.* and "
