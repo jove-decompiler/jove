@@ -210,8 +210,7 @@ on_insn:
   bbprop_2.Size = intvl_2.second;
   bbprop_2.Sj = bbprop_1.Sj;
   bbprop_2.Term = bbprop_1.Term;
-  bbprop_2.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
-  //bbprop_2.InvalidateAnalysis();
+  assert(bbprop_2.Analysis.Stale.test(boost::memory_order_relaxed));
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
 
@@ -578,7 +577,8 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     bbprop.Term._conditional_jump.String = T._conditional_jump.String;
 #endif
 
-    //bbprop.InvalidateAnalysis();
+    assert(bbprop.Analysis.Stale.test(boost::memory_order_relaxed));
+
     if (is_function_index_valid(ParentIdx))
       bbprop.Parents.insert(ParentIdx, b);
 
