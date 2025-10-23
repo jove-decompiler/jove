@@ -1,7 +1,3 @@
-[![CI](https://github.com/aleden/jove/actions/workflows/CI.yml/badge.svg)](https://github.com/aleden/jove/actions/workflows/CI.yml)
-
-![](.araki.png)
-
 # JOVE README
 `jove` is a decompiler for C programs built on top of [QEMU User-mode emulation](https://www.qemu.org/), [LLVM](https://llvm.org/docs/LangRef.html), and [`llvm-cbe`](https://github.com/JuliaHubOSS/llvm-cbe). By observing control-flow at runtime, it is capable of perfectly disassembling machine-code binaries. The output is such that it can be modified, recompiled, and, executed. It targets userspace linux on `i386`/`x86_64`/`mips`/`mipsel`/`mips64el`/`aarch64` and Windows executables under WINE on `x86`/`x64`.
 
