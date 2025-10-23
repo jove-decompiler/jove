@@ -221,5 +221,6 @@ RUN patch -p1 -d /jove/boost/libs/dynamic_bitset -i /jove/patches/boost-dynamic_
 RUN patch -p1 -d /jove/boost/libs/serialization -i /jove/patches/boost-serialization.diff
 
 RUN patch -p1 -d /jove/zlib -i /jove/patches/zlib.diff
-RUN /jove/scripts/build/build.sh 40 1
-RUN /jove/scripts/ci_install.sh
+
+RUN /jove/scripts/ci/build.sh
+RUN /jove/scripts/ci/install.sh
