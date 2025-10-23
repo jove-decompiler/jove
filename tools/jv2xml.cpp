@@ -40,7 +40,7 @@ public:
 JOVE_REGISTER_TOOL("jv2xml", jv2xmlTool);
 
 int jv2xmlTool::Run(void) {
-  // destructively modify data so the output is printable
+  // destructively modify data so the output is printable FIXME
   for_each_binary(jv, [&](binary_t &binary) {
     std::fill(binary.Data.begin(), binary.Data.end(), ' ');
   });
