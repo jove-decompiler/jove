@@ -210,16 +210,13 @@ on_insn:
   bbprop_2.Size = intvl_2.second;
   bbprop_2.Sj = bbprop_1.Sj;
   bbprop_2.Term = bbprop_1.Term;
-  bbprop_2.pDynTargets.store(
-      bbprop_1.pDynTargets.load(boost::memory_order_relaxed),
-      boost::memory_order_relaxed);
   bbprop_2.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
   //bbprop_2.InvalidateAnalysis();
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
 
   std::vector<bb_t> to_bb_vec;
-  {
+  void *const pDynTargets = ({
     bbprop_t::exclusive_lock_guard<MT> e_lck(bbprop_1.mtx);
 
     //
@@ -230,7 +227,6 @@ on_insn:
     bbprop_1.Term.Addr = 0;
     bbprop_1.Term._indirect_jump.IsLj = false;
     bbprop_1.Sj = false;
-    bbprop_1.pDynTargets.store(nullptr, boost::memory_order_relaxed);
     bbprop_1.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
 
     //
@@ -250,10 +246,14 @@ on_insn:
     //
     ICFG.template clear_out_edges<false>(bb_1);
     ICFG.template add_edge<false>(bb_1, bb_2);
-  }
+
+    bbprop_1.pDynTargets.exchange(nullptr, boost::memory_order_relaxed);
+  });
 
   {
     bbprop_t::exclusive_lock_guard<MT> e_lck(boost::move(e_lck_bb));
+
+    bbprop_2.pDynTargets.store(pDynTargets, boost::memory_order_relaxed);
 
     //
     // edges from bb_1 now point from bb_2
