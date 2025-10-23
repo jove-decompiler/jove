@@ -174,7 +174,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     if (Check)
       assert(Idx < num_vertices()); /* catch bugs */
 
-    // for VertexList=vecS this is just identity map TODO static_assert
+    // for VertexList=vecS this is just identity map =>static_assert FIXME
     return boost::vertex(Idx, container());
   }
 

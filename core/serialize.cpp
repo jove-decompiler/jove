@@ -357,7 +357,7 @@ save(Archive &ar,
     //
     // no need to call boost::remove_vertex since we are not using a named graph
     // (and so icfg_t::removing_vertex() is a no-op), and none of these vertices
-    // have outgoing (or incoming) edges
+    // have outgoing (or incoming) edges FIXME
     //
     ip_adj_.m_vertices.pop_back();
   }

@@ -12,7 +12,7 @@
 extern "C" void tcg_dump_ops(TCGContext *s, FILE *f, bool have_prefs);
 extern "C" void tcg_register_thread(void);
 
-// using thread-local variables is an easy fix. FIXME
+// using thread-local variables is an easy fix but a lesser fix FIXME
 static __THREAD_IF_WE_ARE_MT llvm::object::Binary *jv_Bin;
 static __THREAD_IF_WE_ARE_MT uint64_t jv_end_pc;
 static __THREAD_IF_WE_ARE_MT jove::terminator_info_t jv_ti;
