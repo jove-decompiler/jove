@@ -149,7 +149,6 @@ set(JOVE_SOURCES
     ../core/jv.cpp
     ../core/locator.cpp
     ../core/llvm.cpp
-    ../core/mmap.cpp
     ../core/mt.cpp
     ../core/objdump.cpp
     ../core/perf.cpp
