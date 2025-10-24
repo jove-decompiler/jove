@@ -1,5 +1,5 @@
 #include "redirect.h"
-#include "sys.h"
+#include "sys.h" /* (async-signal-safe) */
 
 #include <llvm/Support/FormatVariadic.h>
 

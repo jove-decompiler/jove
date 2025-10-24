@@ -1,5 +1,5 @@
 #include "robust.h"
-#include "sys.h" /* _jove_sys_ calls are so we are async-signal-safe */
+#include "sys.h" /* (async-signal-safe) */
 #include "likely.h"
 #include "eintr.h"
 #include "fd.h"

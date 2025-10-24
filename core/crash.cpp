@@ -1,7 +1,7 @@
 #include "crash.h"
 #include "util.h"
 #include "fd.h"
-#include "sys.h"
+#include "sys.h" /* (async-signal-safe) */
 #include "robust.h"
 
 #include <sstream>
