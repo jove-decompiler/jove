@@ -49,7 +49,7 @@ jobs:
       -
         name: Test
         run: |
-          docker run --rm --privileged -v /dev:/dev ${{ env.LATEST_TAG }} /jove/scripts/ci_check.sh
+          docker run --rm --privileged -v /dev:/dev ${{ env.LATEST_TAG }} /jove/scripts/ci/check.sh
 
       # 3) Tests succeeded. Now just push that same local image to Docker Hub.
       -
