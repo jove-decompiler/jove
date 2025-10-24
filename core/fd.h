@@ -44,7 +44,7 @@ public:
   }
 
   [[clang::always_inline]] int get(void) const noexcept(false) {
-    const int res = fd;
+    const int res = this->fd;
     aassert(res >= 0);
     __builtin_assume(res >= 0);
     return res;
