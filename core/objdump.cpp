@@ -59,7 +59,7 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename,
 
 #define ret_if_end()                                                           \
   do {                                                                         \
-    if (it == line.end())                                                      \
+    if (unlikely(it == line.end()))                                            \
       return;                                                                  \
   } while (false)
 
