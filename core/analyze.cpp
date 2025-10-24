@@ -273,7 +273,7 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
               analyze_function(function_of_target(cg.G[V], jv));
             });
 
-        if constexpr (BottomUp) {
+if constexpr (BottomUp) {
         for (auto pred : boost::make_iterator_range(
                  boost::inv_adjacent_vertices(v, CGCondensed))) {
           unsigned c =
@@ -283,7 +283,7 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
           if (c == boost::out_degree(pred, CGCondensed))
             analyze_node.try_put(pred);
         }
-        } else {
+} else {
         for (auto succ : boost::make_iterator_range(
                  boost::adjacent_vertices(v, CGCondensed))) {
           unsigned c =
@@ -293,19 +293,19 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
           if (c == boost::in_degree(succ, CGCondensed))
             analyze_node.try_put(succ);
         }
-        }
+}
       });
 
   for (auto v : boost::make_iterator_range(boost::vertices(CGCondensed))) {
-    if constexpr (BottomUp) {
+if constexpr (BottomUp) {
     if (boost::out_degree(v, CGCondensed) == 0) {
       analyze_node.try_put(v);
     }
-    } else {
+} else {
     if (boost::in_degree(v, CGCondensed) == 0) {
       analyze_node.try_put(v);
     }
-    }
+}
   }
 
   flow_graph.wait_for_all();
