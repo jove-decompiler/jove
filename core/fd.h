@@ -39,12 +39,8 @@ public:
 
   ~scoped_fd() noexcept { close(); }
 
-  [[clang::always_inline]] bool valid(void) const noexcept {
-    return likely(fd >= 0);
-  }
-
   [[clang::always_inline]] explicit operator bool(void) const noexcept {
-    return valid();
+    return likely(fd >= 0);
   }
 
   [[clang::always_inline]] int get(void) const noexcept(false) {
