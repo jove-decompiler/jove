@@ -1035,7 +1035,7 @@ void IPTTool::gather_binaries(explorer_t<IsToolMT, IsToolMinSize> &explorer,
       process_node.try_put(e.record.mmap2->filename);
       break;
     case PERF_RECORD_SAMPLE: {
-      if (strcmp(e.name, "__jove_augmented_syscalls__") != 0)
+      if (unlikely(strcmp(e.name, "__jove_augmented_syscalls__") != 0))
         return;
 
       auto on_syscall = [&]<typename T>(const T *payload) -> void {

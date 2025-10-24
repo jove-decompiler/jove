@@ -867,7 +867,7 @@ protected:
       const char *const name = event.name;
       const uint64_t ip = *event.sample.ip;
 
-      if (strcmp(name, "__jove_augmented_syscalls__") != 0) {
+      if (unlikely(strcmp(name, "__jove_augmented_syscalls__") != 0)) {
         unexpected_rest();
         break;
       }
