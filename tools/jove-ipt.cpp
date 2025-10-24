@@ -366,8 +366,8 @@ int IPTTool::Analyze(void) {
   if (!opts.ExistingPerfData) {
     auto &perf_data =
         *(new perf::data_reader<true>("perf.data", false /* sequential */));
-    _async_populate_read(perf_data.contents.mmap.get(),
-                         perf_data.contents.mmap.size());
+    _async_populate_read_forever(perf_data.contents.mmap.get(),
+                                 perf_data.contents.mmap.size());
 
 #define OUR_IOURING_INIT(ringp)                                                \
   do {                                                                         \
