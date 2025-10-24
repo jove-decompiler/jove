@@ -19,15 +19,6 @@ static void RedirectSigHandler(int no) {
 #if 1
 #endif
 
-  pid_t child = get_redirectee();
-  if (child < 0) {
-#if 0
-    tool.HumanOut() << llvm::formatv(
-        "received {0} but no app to redirect to!\n", signame);
-#endif
-    return;
-  }
-
   //
   // redirect the signal.
   //
@@ -37,6 +28,15 @@ static void RedirectSigHandler(int no) {
       tool.HumanOut() << "Received SIGINT. Cancelling..\n";
 #endif
     tool.interrupted.store(true, std::memory_order_relaxed);
+  }
+
+  pid_t child = get_redirectee();
+  if (child < 0) {
+#if 0
+    tool.HumanOut() << llvm::formatv(
+        "received {0} but no app to redirect to!\n", signame);
+#endif
+    return;
   }
 
 #if 1
