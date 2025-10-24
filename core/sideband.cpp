@@ -19,13 +19,13 @@ static unsigned do_read_samples(const uint8_t *const begin,
   auto &sample = out.sample;
 
   const uint8_t *pos = begin;
-  if constexpr (TID) {
+  if (TID) {
     sample.pid = reinterpret_cast<const uint32_t *>(&pos[0]);
     sample.tid = reinterpret_cast<const uint32_t *>(&pos[4]);
     pos += 8;
   }
 
-  if constexpr (TIME) {
+  if (TIME) {
     sample.time = reinterpret_cast<const uint64_t *>(pos);
     pos += 8;
 
@@ -33,22 +33,22 @@ static unsigned do_read_samples(const uint8_t *const begin,
     assert(errcode == 0);
   }
 
-  if constexpr (ID) {
+  if (ID) {
     sample.id = reinterpret_cast<const uint64_t *>(pos);
     pos += 8;
   }
 
-  if constexpr (STREAM_ID) {
+  if (STREAM_ID) {
     sample.stream_id = reinterpret_cast<const uint64_t *>(pos);
     pos += 8;
   }
 
-  if constexpr (CPU) {
+  if (CPU) {
     sample.cpu = reinterpret_cast<const uint32_t *>(pos);
     pos += 8;
   }
 
-  if constexpr (IDENTIFIER) {
+  if (IDENTIFIER) {
     sample.identifier = reinterpret_cast<const uint64_t *>(pos);
     pos += 8;
   }
@@ -78,23 +78,23 @@ static unsigned do_read_sample_samples(const uint8_t *const begin,
   const uint8_t *pos = begin;
 
   static_assert(IDENTIFIER, "read_sample_samples: bad (!IDENTIFIER)");
-  if constexpr (IDENTIFIER) {
+  if (IDENTIFIER) {
     sample.identifier = (const uint64_t *)pos;
     pos += 8;
   }
 
-  if constexpr (IP) {
+  if (IP) {
     sample.ip = (const uint64_t *)pos;
     pos += 8; /* skip */
   }
 
-  if constexpr (TID) {
+  if (TID) {
     sample.pid = (const uint32_t *)&pos[0];
     sample.tid = (const uint32_t *)&pos[4];
     pos += 8;
   }
 
-  if constexpr (TIME) {
+  if (TIME) {
     sample.time = (const uint64_t *)pos;
     pos += 8;
 
@@ -102,36 +102,36 @@ static unsigned do_read_sample_samples(const uint8_t *const begin,
     assert(errcode == 0);
   }
 
-  if constexpr (ADDR) {
+  if (ADDR) {
     pos += 8; /* skip */
   }
 
-  if constexpr (ID) {
+  if (ID) {
     sample.id = (const uint64_t *)pos;
     pos += 8;
   }
 
-  if constexpr (STREAM) {
+  if (STREAM) {
     sample.stream_id = (const uint64_t *)pos;
     pos += 8;
   }
 
-  if constexpr (CPU) {
+  if (CPU) {
     sample.cpu = (const uint32_t *)pos;
     pos += 8;
   }
 
-  if constexpr (PERIOD) {
+  if (PERIOD) {
     pos += 8; /* skip */
   }
 
   static_assert(!READ, "read_sample_samples: unimplemented (PERF_SAMPLE_READ)");
 
-  if constexpr (CALLCHAIN) {
+  if (CALLCHAIN) {
     pos += (*((const uint64_t *)pos) * 8); /* skip */
   }
 
-  if constexpr (RAW) {
+  if (RAW) {
     const struct pev_record_raw *raw = (const struct pev_record_raw *)pos;
     out.record.raw = raw;
     pos += 4;
