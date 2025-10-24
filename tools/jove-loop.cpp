@@ -342,15 +342,15 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   } child_pid;
 
   int get_child_pid(void) {
-    scoped_mmap *const mm = child_pid.mapping.get();
+    scoped_mmap *const pmm = child_pid.mapping.get();
+    if (!pmm)
+      return -1;
 
+    scoped_mmap &mm = *pmm;
     if (!mm)
       return -1;
 
-    if (!(*mm))
-      return -1;
-
-    return __atomic_load_n(reinterpret_cast<int *>(mm->get()), __ATOMIC_RELAXED);
+    return __atomic_load_n(reinterpret_cast<int *>(mm.get()), __ATOMIC_RELAXED);
   }
 
 public:
