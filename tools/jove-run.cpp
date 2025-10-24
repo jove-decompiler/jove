@@ -1066,11 +1066,14 @@ int RunTool::DoRun(void) {
   //
   // communicate child PID to jove-loop
   //
-  if (child_pid.mapping && *child_pid.mapping) {
+  if (scoped_mmap *const pmm = child_pid.mapping.get()) {
+    scoped_mmap &mm = *pmm;
+
     assert(get_child_pid() == -1);
 
-    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->get()), pid,
-                     __ATOMIC_RELAXED);
+    if (mm)
+      __atomic_store_n(reinterpret_cast<int *>(mm.get()), pid,
+                       __ATOMIC_RELAXED);
   }
 
   IgnoreCtrlC();
@@ -1172,11 +1175,14 @@ int RunTool::DoRun(void) {
   //
   // reset child PID
   //
-  if (child_pid.mapping && *child_pid.mapping) {
+  if (scoped_mmap *const pmm = child_pid.mapping.get()) {
+    scoped_mmap &mm = *pmm;
+
     assert(get_child_pid() >= 0);
 
-    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->get()), -1,
-                     __ATOMIC_RELAXED); /* reset */
+    if (mm)
+      __atomic_store_n(reinterpret_cast<int *>(mm.get()), -1,
+                       __ATOMIC_RELAXED); /* reset */
   }
 
   if (IsVeryVerbose())
