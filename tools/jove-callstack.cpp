@@ -105,7 +105,7 @@ int CallStackTool::Run(void) {
           return;
         }
 
-        const uint64_t *ptr = reinterpret_cast<const uint64_t *>(mapping.ptr);
+        const uint64_t *ptr = reinterpret_cast<const uint64_t *>(mapping.get());
         ptr += (JOVE_PAGE_SIZE / sizeof(uint64_t));
 
         if (!ptr[0])

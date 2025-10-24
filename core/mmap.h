@@ -8,10 +8,11 @@
 
 namespace jove {
 
-struct scoped_mmap {
-  const size_t len = ~size_t(0);
+class scoped_mmap {
+  const size_t len = 0;
   void *const ptr = nullptr;
 
+public:
   scoped_mmap() = delete;
   scoped_mmap(const scoped_mmap &) = delete;
   scoped_mmap &operator=(const scoped_mmap &) = delete;
@@ -28,6 +29,22 @@ struct scoped_mmap {
   }
 
   explicit operator bool(void) const { return ptr && ptr != MAP_FAILED; }
+
+  [[clang::always_inline]] void *get(void) const noexcept(false) {
+    void *const res = this->ptr;
+
+    aassert(res != MAP_FAILED);
+    __builtin_assume(res != MAP_FAILED);
+    return res;
+  }
+  [[clang::always_inline]] size_t size(void) const noexcept(false) {
+    const size_t res = this->len;
+
+    aassert(this->ptr != MAP_FAILED);
+    __builtin_assume(res > 0u);
+
+    return res;
+  }
 };
 
 }

@@ -228,7 +228,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     if (!(*mm))
       return -1;
 
-    return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
+    return __atomic_load_n(reinterpret_cast<int *>(mm->get()), __ATOMIC_RELAXED);
   }
 
 public:
@@ -1069,7 +1069,7 @@ int RunTool::DoRun(void) {
   if (child_pid.mapping && *child_pid.mapping) {
     assert(get_child_pid() == -1);
 
-    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->ptr), pid,
+    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->get()), pid,
                      __ATOMIC_RELAXED);
   }
 
@@ -1175,7 +1175,7 @@ int RunTool::DoRun(void) {
   if (child_pid.mapping && *child_pid.mapping) {
     assert(get_child_pid() >= 0);
 
-    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->ptr), -1,
+    __atomic_store_n(reinterpret_cast<int *>(child_pid.mapping->get()), -1,
                      __ATOMIC_RELAXED); /* reset */
   }
 

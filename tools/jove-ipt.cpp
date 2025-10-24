@@ -532,7 +532,7 @@ int IPTTool::Analyze(void) {
 
             OUR_IOURING_QUEUE_WRITE(
                 &ring, ofd.get(),
-                reinterpret_cast<const char *>(perf_data.contents.mmap->ptr) +
+                reinterpret_cast<const char *>(perf_data.contents.mmap.get()) +
                     skip,
                 count, offset);
 
@@ -799,7 +799,7 @@ int IPTTool::Analyze(void) {
 
         if (IsVerbose())
           WithColor::note() << llvm::formatv("size of {0}: {1}\n", aux_filename,
-                                             aux.contents.mmap->len);
+                                             aux.contents.mmap.size());
 
         bool Ran = false;
 

@@ -350,7 +350,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     if (!(*mm))
       return -1;
 
-    return __atomic_load_n(reinterpret_cast<int *>(mm->ptr), __ATOMIC_RELAXED);
+    return __atomic_load_n(reinterpret_cast<int *>(mm->get()), __ATOMIC_RELAXED);
   }
 
 public:

@@ -1,13 +1,21 @@
 #pragma once
 #include "mmap.h"
 #include "likely.h"
+#include "eintr.h"
+#include "assert.h"
+#include "fd.h"
 
 #include <memory>
 #include <functional>
 #include <cassert>
 #include <iterator>
 
+#include <boost/filesystem.hpp>
+
 #include <linux/perf_event.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 namespace jove {
 
@@ -98,17 +106,30 @@ static_assert(std::forward_iterator<event_iterator>);
 
 template <bool HasHeader>
 struct data_reader {
-  struct {
-    std::unique_ptr<scoped_fd> fd;
-    std::unique_ptr<scoped_mmap> mmap;
+  struct contents_t {
+    scoped_fd fd;
+    scoped_mmap mmap;
+
+    contents_t(int fd, size_t len)
+        : fd(fd), mmap(nullptr, len, PROT_READ, MAP_PRIVATE, fd, 0) {}
   } contents;
 
-  data_reader(const char *filename, bool sequential = true);
-  ~data_reader();
+  data_reader(const char *filename, bool sequential = true)
+      : contents(sys::retry_eintr(::open, filename, O_RDONLY),
+                 boost::filesystem::file_size(filename)) {
+    if constexpr (HasHeader)
+      aassert(check_magic());
+
+    if (sequential)
+      aassert(::madvise(contents.mmap.get(), contents.mmap.size(),
+                        MADV_SEQUENTIAL) == 0);
+  }
+
+  ~data_reader() = default;
 
   template <bool H = HasHeader, typename = std::enable_if_t<H>>
   const struct header &get_header() const {
-    return *reinterpret_cast<struct header *>(contents.mmap->ptr);
+    return *reinterpret_cast<struct header *>(contents.mmap.get());
   }
 
   template <bool H = HasHeader, typename = std::enable_if_t<H>>
@@ -116,17 +137,17 @@ struct data_reader {
 
   const uint8_t *data_begin(void) const {
     if constexpr (HasHeader)
-      return reinterpret_cast<const uint8_t *>(contents.mmap->ptr) +
+      return reinterpret_cast<const uint8_t *>(contents.mmap.get()) +
              get_header().data.offset;
     else
-      return reinterpret_cast<const uint8_t *>(contents.mmap->ptr);
+      return reinterpret_cast<const uint8_t *>(contents.mmap.get());
   }
 
   const uint8_t *data_end(void) const {
     if constexpr (HasHeader)
       return data_begin() + get_header().data.size;
     else
-      return data_begin() + contents.mmap->len;
+      return data_begin() + contents.mmap.size();
   }
 
   event_iterator begin(void) const {
