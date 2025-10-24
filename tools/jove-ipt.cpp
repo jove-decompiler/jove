@@ -20,6 +20,7 @@
 #include "reflink.h"
 #include "fork.h"
 #include "align.h"
+#include "prefetch.h"
 #include "mt.h"
 #include "augmented_raw_syscalls.h"
 
@@ -363,7 +364,10 @@ int IPTTool::Analyze(void) {
   bool Failed = false;
 
   if (!opts.ExistingPerfData) {
-    perf::data_reader<true> perf_data("perf.data");
+    auto &perf_data =
+        *(new perf::data_reader<true>("perf.data", false /* sequential */));
+    _async_populate_read(perf_data.contents.mmap.get(),
+                         perf_data.contents.mmap.size());
 
 #define OUR_IOURING_INIT(ringp)                                                \
   do {                                                                         \
