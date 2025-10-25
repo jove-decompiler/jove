@@ -1,34 +1,42 @@
 #include "util.h"
 #include "fd.h"
+#include "assert.h"
 
-#include <cassert>
+#include <cerrno>
 #include <cstring>
-#include <stdexcept>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
+#include <system_error>
 
 #include <sched.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+static_assert(sizeof(off_t) >= 8, "Build with -D_FILE_OFFSET_BITS=64");
+
 namespace jove {
 
-uint64_t size_of_file(const char *path) {
-  struct stat64 st;
-  if (::stat64(path, &st) < 0) {
-    int err = errno;
-    throw std::runtime_error(std::string("size_of_file: stat64 failed: ") + strerror(err));
-  }
+uint64_t size_of_file(const char* path) {
+  struct stat st{};
+  if (::stat(path, &st) < 0)
+    throw std::system_error(errno, std::generic_category(),
+                            std::string("stat('") + path + "') failed");
 
-  return st.st_size;
+  if (!S_ISREG(st.st_mode))
+    throw std::runtime_error(std::string("not a regular file: ") + path);
+
+  aassert(st.st_size >= 0);
+  return static_cast<uint64_t>(st.st_size);
 }
 
-uint32_t size_of_file32(const char *path) {
-  uint64_t res = size_of_file(path);
-  if (res > 0xffffffff)
+uint32_t size_of_file32(const char* path) {
+  uint64_t len = size_of_file(path);
+  if (len > std::numeric_limits<uint32_t>::max()) {
     throw std::runtime_error("size_of_file32: overflow");
-
-  return static_cast<uint32_t>(res);
+  }
+  return static_cast<uint32_t>(len);
 }
 
 void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {

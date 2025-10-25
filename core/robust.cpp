@@ -114,7 +114,7 @@ ssize_t sendfile_with_size(int fd, const char *file_path) {
 }
 
 ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
-  uint32_t file_size;
+  uint64_t file_size;
   {
     std::string file_size_str;
 
@@ -142,7 +142,7 @@ ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
   scoped_fd rfd(pipefd[0]);
   scoped_fd wfd(pipefd[1]);
 
-  scoped_fd out_fd(::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm));
+  scoped_fd out_fd(::open(out, O_WRONLY | O_TRUNC | O_CREAT | O_LARGEFILE, file_perm));
   if (!out_fd)
     return -errno;
 
