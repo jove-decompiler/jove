@@ -735,6 +735,8 @@ skip_run:
         magic[4];
       });
 
+      const bool text = our_endianness != other_endianness;
+
       //
       // send header
       //
@@ -810,8 +812,7 @@ skip_run:
 
         HumanOut() << llvm::formatv("jv.Binaries.size()={0}\n", jv.Binaries.size());
 
-        SerializeJVToFile(jv, jv_file, tmpjv_path.c_str(),
-                          our_endianness != other_endianness /* text */);
+        SerializeJVToFile(jv, jv_file, tmpjv_path.c_str(), text);
 
         if (IsVerbose())
           HumanOut() << "serialized.\n";
@@ -854,8 +855,7 @@ skip_run:
           HumanOut() << "unserializing...\n";
 
         // XXX is this really necessary for all cases?
-        UnserializeJVFromFile(jv, jv_file, tmpjv_path.c_str(),
-                              our_endianness != other_endianness /* text */);
+        UnserializeJVFromFile(jv, jv_file, tmpjv_path.c_str(), text);
 
         if (IsVerbose())
           HumanOut() << "unserialized.\n";

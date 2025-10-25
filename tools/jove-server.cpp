@@ -275,6 +275,8 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     magic[4];
   });
 
+  const bool text = our_endianness != other_endianness;
+
   //
   // create a temporary directory
   //
@@ -429,8 +431,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     jv_t_1 &jv1 = *ip_construct<jv_t_1>(*jv_file.get_segment_manager(), jv_file);
     {
     auto &jv = jv1;
-    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str(),
-                          true /* text FIXME */);
+    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str(), text);
     llvm::errs() << llvm::formatv("jv.Binaries.size()={0}\n", jv.Binaries.size());
     }
 
@@ -482,8 +483,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
 
       llvm::errs() << llvm::formatv("  jv.Binaries.size()={0}\n", jv.Binaries.size());
 
-      SerializeJVToFile(jv, jv_file, jv_s_path.c_str(),
-                        true /* text FIXME */);
+      SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), text);
 
       {
         //
