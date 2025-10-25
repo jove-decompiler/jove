@@ -154,8 +154,6 @@ set(JOVE_SOURCES
     ../core/perf.cpp
     ../core/pipe.cpp
     ../core/process.cpp
-    ../core/portable_binary_iarchive.cpp
-    ../core/portable_binary_oarchive.cpp
     ../core/prefetch.cpp
     ../core/ptrace.cpp
     ../core/pidfd.cpp

@@ -3,8 +3,8 @@
 
 #include <fstream>
 
-#include "portable_binary_iarchive.h"
-#include "portable_binary_oarchive.h"
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/xml_oarchive.hpp>
@@ -692,7 +692,7 @@ void SerializeJV(const jv_base_t<MT, MinSize> &in,
     boost::archive::text_oarchive oa(os);
     oa << in;
   } else {
-    portable_binary_oarchive oa(os);
+    boost::archive::binary_oarchive oa(os);
     oa << in;
   }
 }
@@ -727,7 +727,7 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
     boost::archive::text_iarchive ia(is);
     ia >> out;
   } else {
-    portable_binary_iarchive ia(is);
+    boost::archive::binary_iarchive ia(is);
     ia >> out;
   }
 
