@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  LATEST_TAG: aleden22/jove:latest
+  LATEST_TAG: aototokizawa/jove:latest
 
 jobs:
   docker:
