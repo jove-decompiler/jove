@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
 
   //
   // if we get here, an exception occurred. some thing may be in an "undefined"
-  // state. At this point, behave as though `execve("/usr/bin/true")` occurred.
+  // state. At this point, behave as though `execve("/usr/bin/false")` occurred.
   //
   llvm::errs() << message;
   llvm::errs().flush();
