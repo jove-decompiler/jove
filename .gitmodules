@@ -48,7 +48,6 @@
 [submodule "zlib"]
 	path = zlib
 	url = https://github.com/madler/zlib.git
-	branch = develop
 [submodule "winetricks"]
 	path = winetricks
 	url = https://github.com/Winetricks/winetricks.git
