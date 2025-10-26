@@ -1,15 +1,19 @@
 [submodule "llvm-project"]
 	path = llvm-project
 	url = https://github.com/jove-decompiler/llvm-project.git
+	branch = jove16
 [submodule "carbon-copy"]
 	path = carbon-copy
 	url = https://github.com/jove-decompiler/carbon-copy.git
+	branch = master
 [submodule "prebuilts"]
 	path = prebuilts
 	url = https://github.com/jove-decompiler/prebuilts.git
+	branch = main
 [submodule "klee"]
 	path = klee
 	url = https://github.com/jove-decompiler/klee.git
+	branch = jove
 [submodule "llvm-cbe"]
 	path = llvm-cbe
 	url = https://github.com/jove-decompiler/llvm-cbe.git
@@ -17,27 +21,34 @@
 [submodule "qemu"]
 	path = qemu
 	url = https://github.com/jove-decompiler/qemu.git
+	branch = jove16b
 [submodule "mk-deb-vm"]
 	path = mk-deb-vm
 	url = https://github.com/jove-decompiler/mk-deb-vm.git
+	branch = main
 [submodule "oneTBB"]
 	path = oneTBB
 	url = https://github.com/oneapi-src/oneTBB.git
+	branch = master
 [submodule "boost"]
 	path = boost
 	url = https://github.com/boostorg/boost.git
 [submodule "libipt"]
 	path = libipt
 	url = https://github.com/jove-decompiler/libipt.git
+	branch = jove
 [submodule "linux"]
 	path = linux
 	url = https://github.com/jove-decompiler/linux.git
+	branch = jove16b
 [submodule "wine"]
 	path = wine
 	url = https://github.com/jove-decompiler/wine.git
+	branch = master
 [submodule "zlib"]
 	path = zlib
 	url = https://github.com/madler/zlib.git
+	branch = develop
 [submodule "winetricks"]
 	path = winetricks
 	url = https://github.com/Winetricks/winetricks.git
