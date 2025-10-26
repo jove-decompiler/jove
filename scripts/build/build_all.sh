@@ -22,6 +22,8 @@ export build_scripts_path MAX_RETRIES PARALLEL_JOBS archs hostarch
 #
 # fresh symlinks
 #
+mkdir -p                "$llvm_path/llvm/projects"
+
 rm -f                   "$llvm_path/llvm/projects/jove"
 ln -s ../../..          "$llvm_path/llvm/projects/jove"
 
