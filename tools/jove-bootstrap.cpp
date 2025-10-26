@@ -3011,7 +3011,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
     const std::string &nm = pm.nm;
     if (nm.empty())
-      continue;
+      continue; /* anonymous memory FIXME */
 
     binary_index_t BIdx = invalid_binary_index;
     if (nm.front() != '/') {
@@ -3922,7 +3922,8 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
 
   // WARN_ON(!pm.x);
   const std::string &nm = pm.nm;
-  //assert(!nm.empty());
+  if (nm.empty())
+    return invalid_binary_index; /* anonymous memory FIXME */
 
   binary_index_t BIdx = invalid_binary_index;
 
