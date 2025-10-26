@@ -41,6 +41,3 @@
 [submodule "winetricks"]
 	path = winetricks
 	url = https://github.com/Winetricks/winetricks.git
-[submodule "llknife"]
-	path = llknife
-	url = git@github.com:jove-decompiler/llknife.git
