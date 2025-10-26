@@ -26,7 +26,7 @@ typedef boost::format fmt;
 template <bool MT, bool MinSize>
 function_index_t explorer_t<MT, MinSize>::_explore_function(
     binary_t &b,
-    obj::Binary &B,
+    B::ref Bin,
     const taddr_t Addr,
     const bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
@@ -66,7 +66,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   get_newfn_proc()(b, f);
 
   const basic_block_index_t EntryIdx =
-      _explore_basic_block<false>(b, B, Addr, Speculative, Idx);
+      _explore_basic_block<false>(b, Bin, Addr, Speculative, Idx);
 
   assert(is_basic_block_index_valid(EntryIdx));
 
@@ -107,7 +107,7 @@ template <bool MT, bool MinSize>
 template <bool WithOnBlockProc>
 bool explorer_t<MT, MinSize>::split(
     binary_t &b,
-    obj::Binary &Bin,
+    B::ref Bin,
     bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
     bbmap_t::iterator it,
     const taddr_t Addr,
@@ -319,7 +319,7 @@ template <bool MT, bool MinSize>
 template <bool WithOnBlockProc>
 basic_block_index_t
 explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
-                                              obj::Binary &Bin,
+                                              B::ref Bin,
                                               const taddr_t Addr,
                                               bool Speculative,
                                               const function_index_t ParentIdx,
@@ -540,18 +540,15 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     llvm::WithColor::error()
         << (boost::format("%s: unknown terminator @ %#lx\n") % __func__ % Addr).str();
 
-    const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
-
     uint64_t InstLen;
     for (uint64_t A = Addr; A < Addr + Size; A += InstLen) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
-      if (!ExpectedPtr)
+      const uint8_t *Ptr = static_cast<const uint8_t *>(B::toMappedAddr(Bin, A));
+      if (!Ptr)
         throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
       llvm::MCInst Inst;
       bool Disassembled = disas.DisAsm->getInstruction(
-          Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
-          llvm::nulls());
+          Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, Size), A, llvm::nulls());
 
       if (!Disassembled)
         throw std::runtime_error((fmt("%s: failed to disassemble %#lx") % __func__ % A).str());
@@ -721,7 +718,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 template <bool MT, bool MinSize>
 void explorer_t<MT, MinSize>::_control_flow_to(
     binary_t &b,
-    obj::Binary &Bin,
+    B::ref Bin,
     const taddr_t TermAddr,
     const taddr_t Target,
     const bool Speculative, bb_t bb /* unused if !Speculative */) {
@@ -760,19 +757,19 @@ void explorer_t<MT, MinSize>::_control_flow_to(
 
 template <bool MT, bool MinSize>
 basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(binary_t &b,
-                                                        obj::Binary &B,
-                                                        taddr_t Addr) {
+                                                                 B::ref Bin,
+                                                                 taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<false>(b, B, Addr, false);
+  return _explore_basic_block<false>(b, Bin, Addr, false);
 }
 
 template <bool MT, bool MinSize>
 basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(
     binary_t &b,
-    obj::Binary &B,
+    B::ref Bin,
     taddr_t Addr,
     onblockproc_t<MT> obp,
     onblockproc_u_t obp_u) {
@@ -780,19 +777,19 @@ basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<true>(b, B, Addr, false,
-                                    invalid_function_index, obp, obp_u);
+  return _explore_basic_block<true>(b, Bin, Addr, false, invalid_function_index,
+                                    obp, obp_u);
 }
 
 template <bool MT, bool MinSize>
 function_index_t explorer_t<MT, MinSize>::explore_function(binary_t &b,
-                                                  obj::Binary &B,
-                                                  taddr_t Addr) {
+                                                           B::ref Bin,
+                                                           taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_function(b, B, Addr, false);
+  return _explore_function(b, Bin, Addr, false);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

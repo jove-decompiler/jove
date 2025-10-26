@@ -1,15 +1,9 @@
 #pragma once
-#include "jove/jove.h"
+#include "B.h"
 #include "disas.h"
 
 #include <functional>
 #include <vector>
-
-namespace llvm {
-namespace object {
-class Binary;
-}
-}
 
 namespace jove {
 
@@ -88,7 +82,7 @@ class explorer_t : public VerboseThing {
 
   template <bool WithOnBlockProc>
   bool split(binary_t &,
-             llvm::object::Binary &,
+             B::ref,
              bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
              bbmap_t::iterator it,
              const taddr_t Addr,
@@ -98,7 +92,7 @@ class explorer_t : public VerboseThing {
   template <bool WithOnBlockProc>
   basic_block_index_t _explore_basic_block(
       binary_t &,
-      llvm::object::Binary &,
+      B::ref,
       const taddr_t Addr,
       bool Speculative,
       const function_index_t ParentIdx = invalid_function_index,
@@ -106,12 +100,12 @@ class explorer_t : public VerboseThing {
       onblockproc_u_t obp_u = nop_on_block_u);
 
   function_index_t _explore_function(binary_t &,
-                                     llvm::object::Binary &,
+                                     B::ref,
                                      const taddr_t Addr,
                                      const bool Speculative);
 
   void _control_flow_to(binary_t &,
-                        llvm::object::Binary &,
+                        B::ref,
                         const taddr_t TermAddr,
                         const taddr_t Target,
                         const bool Speculative,
@@ -150,17 +144,17 @@ public:
   // executing.
   //
   basic_block_index_t explore_basic_block(binary_t &,
-                                          llvm::object::Binary &,
+                                          B::ref,
                                           taddr_t Addr);
 
   basic_block_index_t explore_basic_block(binary_t &,
-                                          llvm::object::Binary &,
+                                          B::ref,
                                           taddr_t Addr,
                                           onblockproc_t<MT> obp,
                                           onblockproc_u_t obp_u);
 
   function_index_t explore_function(binary_t &,
-                                    llvm::object::Binary &,
+                                    B::ref,
                                     taddr_t Addr);
 
   on_newbb_proc_t<MT, MinSize> get_newbb_proc(void) const {

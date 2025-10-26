@@ -44,7 +44,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
 
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
@@ -1145,7 +1145,7 @@ skip_run:
 
           auto Bin = B::Create(b.data());
 
-          B::_elf(*Bin, [&](ELFO &O) {
+          B::_elf(Bin.get(), [&](ELFO &O) {
 
           auto _soname = elf::soname(O);
           if (!_soname)

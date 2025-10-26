@@ -29,7 +29,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
 
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
@@ -129,8 +129,6 @@ int Trace2AsmTool::Run(void) {
     auto &ICFG = binary.Analysis.ICFG;
     bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
-    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).Bin.get())->getELFFile();
-
     uint64_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;
 
@@ -146,8 +144,9 @@ int Trace2AsmTool::Run(void) {
 
     uint64_t InstLen = 0;
     for (uintptr_t A = Addr; A < End; A += InstLen) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
-      if (!ExpectedPtr)
+      const uint8_t *Ptr = static_cast<const uint8_t *>(
+          B::toMappedAddr(state.for_binary(binary).Bin.get(), A));
+      if (!Ptr)
         abort();
 
       llvm::MCInst Inst;
@@ -158,7 +157,7 @@ int Trace2AsmTool::Run(void) {
         llvm::raw_string_ostream ErrorStrStream(errmsg);
 
         Disassembled = disas.DisAsm->getInstruction(
-            Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, End - Addr), A,
+            Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, End - Addr), A,
             ErrorStrStream);
       }
 

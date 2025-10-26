@@ -88,7 +88,7 @@ struct binary_state_t {
            LoadOffset != std::numeric_limits<uintptr_t>::max();
   }
 
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  B::unique_ptr Bin;
   struct {
     elf::DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
@@ -103,9 +103,9 @@ struct binary_state_t {
   } _elf;
 
   binary_state_t(const auto &b) {
-    ObjectFile = B::Create(b.data());
+    Bin = B::Create(b.data());
 
-    B::_elf(*ObjectFile, [&](ELFO &Obj) {
+    B::_elf(Bin.get(), [&](ELFO &Obj) {
     elf::loadDynamicTable(Obj, _elf.DynamicTable);
 
     _elf.OptionalDynSymRegion =
@@ -400,7 +400,7 @@ public:
       : opts(JoveCategory),
         shared_mem(boost::interprocess::anonymous_shared_memory(sizeof(int))),
         shared_err(*static_cast<int *>(shared_mem.get_address())),
-        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).ObjectFile)) {}
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {}
 
   int Run(void) override;
 
@@ -736,7 +736,7 @@ uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
     return Addr;
   }
 
-  uint64_t off = B::offset_of_va(*x.ObjectFile, Addr);
+  uint64_t off = B::offset_of_va(x.Bin.get(), Addr);
   return off + (x.LoadAddr - x.LoadOffset);
 }
 
@@ -754,7 +754,7 @@ uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
   }
 
   uint64_t off = pc - (x.LoadAddr - x.LoadOffset);
-  return B::va_of_offset(*x.ObjectFile, off);
+  return B::va_of_offset(x.Bin.get(), off);
 }
 
 int BootstrapTool::TracerLoop(pid_t child) {
@@ -1260,7 +1260,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               //
               if (!exe_path.empty()) {
                 std::vector<uint8_t> BinBytes;
-                std::unique_ptr<llvm::object::Binary> Bin;
+                B::unique_ptr Bin;
 
                 //
                 // XXX memfd cover-up
@@ -1410,7 +1410,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           break;
 
         if (b.FixAmbiguousIndirectJump(TermAddr, *E,
-                                       *state.for_binary(b).ObjectFile, jv))
+                                       *state.for_binary(b).Bin, jv))
           ++NumChanged;
       }
     });
@@ -1465,9 +1465,9 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
     assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    assert(x.ObjectFile.get());
+    assert(x.Bin.get());
 
-    const void *Ptr = B::toMappedAddr(*x.ObjectFile, bbprop.Term.Addr);
+    const void *Ptr = B::toMappedAddr(x.Bin.get(), bbprop.Term.Addr);
 
     memcpy(&indbr.InsnBytes[0], Ptr, indbr.InsnBytes.size());
 
@@ -1525,8 +1525,8 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
     assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
 
-    assert(x.ObjectFile.get());
-    const void *Ptr = B::toMappedAddr(*x.ObjectFile, bbprop.Term.Addr);
+    assert(x.Bin.get());
+    const void *Ptr = B::toMappedAddr(x.Bin.get(), bbprop.Term.Addr);
 
     memcpy(&RetInfo.InsnBytes[0], Ptr, RetInfo.InsnBytes.size());
 
@@ -2855,10 +2855,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   try {
     if (TermType == TERMINATOR::INDIRECT_CALL) {
-      function_index_t FIdx =
-          E->explore_function(TargetBinary,
-                             *x.ObjectFile,
-                             va_of_pc(Target.Addr, Target.BIdx));
+      function_index_t FIdx = E->explore_function(
+          TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
 
@@ -2883,8 +2881,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // non-local goto (aka "long jump")
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
-            TargetBinary, *x.ObjectFile,
-            va_of_pc(Target.Addr, Target.BIdx));
+            TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
 
         assert(is_basic_block_index_valid(BBIdx));
 
@@ -2909,9 +2906,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
              exists_function_at_address(TargetBinary, va_of_pc(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
-          function_index_t FIdx =
-              E->explore_function(TargetBinary, *x.ObjectFile,
-                                 va_of_pc(Target.Addr, Target.BIdx));
+          function_index_t FIdx = E->explore_function(
+              TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
 
@@ -2926,9 +2922,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
           });
         } else {
-          const basic_block_index_t TargetBBIdx =
-              E->explore_basic_block(TargetBinary, *x.ObjectFile,
-                                    va_of_pc(Target.Addr, Target.BIdx));
+          const basic_block_index_t TargetBBIdx = E->explore_basic_block(
+              TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
@@ -3067,7 +3062,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   binary_t &binary = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(binary);
 
-  auto &ObjectFile = x.ObjectFile;
+  auto &Bin = x.Bin;
 
   if (IsVerbose())
     HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
@@ -3147,8 +3142,8 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    assert(ObjectFile.get());
-    const void *Ptr = B::toMappedAddr(*ObjectFile, bbprop.Term.Addr);
+    assert(Bin.get());
+    const void *Ptr = B::toMappedAddr(Bin.get(), bbprop.Term.Addr);
 
     memcpy(&IndBrInfo.InsnBytes[0], Ptr, IndBrInfo.InsnBytes.size());
 
@@ -3216,8 +3211,8 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     assert(RetInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    assert(ObjectFile.get());
-    const void *Ptr = B::toMappedAddr(*ObjectFile, bbprop.Term.Addr);
+    assert(Bin.get());
+    const void *Ptr = B::toMappedAddr(Bin.get(), bbprop.Term.Addr);
 
     memcpy(&RetInfo.InsnBytes[0], Ptr, RetInfo.InsnBytes.size());
 
@@ -4000,16 +3995,13 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
 
   assert(x.Loaded());
 
-  basic_block_index_t BBIdx = E->explore_basic_block(binary,
-                                                     *x.ObjectFile,
-                                                     va_of_pc(pc, BIdx));
+  basic_block_index_t BBIdx =
+      E->explore_basic_block(binary, x.Bin.get(), va_of_pc(pc, BIdx));
   if (!is_basic_block_index_valid(BBIdx))
     return std::make_pair(BIdx, invalid_function_index);
 
-  function_index_t FIdx = E->explore_function(
-      binary,
-      *x.ObjectFile,
-      va_of_pc(pc, BIdx));
+  function_index_t FIdx =
+      E->explore_function(binary, x.Bin.get(), va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, FIdx);
 }
@@ -4025,10 +4017,8 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
 
   assert(x.Loaded());
 
-  basic_block_index_t BBIdx = E->explore_basic_block(
-      binary,
-      *x.ObjectFile,
-      va_of_pc(pc, BIdx));
+  basic_block_index_t BBIdx =
+      E->explore_basic_block(binary, x.Bin.get(), va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, BBIdx);
 }
@@ -4097,7 +4087,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
         //
 
         ptrdiff_t off = pc - (pm.beg - pm.off);
-        uintptr_t Addr = B::va_of_offset(*x.ObjectFile, off);
+        uintptr_t Addr = B::va_of_offset(x.Bin.get(), off);
 
         if (opts.Symbolize) {
           std::string line = symbolizer->addr2line(b, Addr);

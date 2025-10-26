@@ -16,8 +16,8 @@ double compute_score(const jv_base_t<MT, MinSize> &jv,
   //
   // count the total number of executable bytes (N)
   //
-  size_t N = B::_X(
-      *Bin,
+  size_t N = B::_X<size_t>(
+      Bin.get(),
 
       [&](ELFO &O) -> size_t {
         const ELFF &Elf = O.getELFFile();

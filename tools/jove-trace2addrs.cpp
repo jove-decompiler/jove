@@ -19,7 +19,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
@@ -160,7 +160,7 @@ void Trace2AddrsTool::Process(llvm::raw_ostream &out, std::istream &in) {
 
 taddr_t Trace2AddrsTool::AddrOrOff(const auto &b, taddr_t Addr) {
   if (opts.Offsets)
-    return B::offset_of_va(*state.for_binary(b).Bin, Addr);
+    return B::offset_of_va(state.for_binary(b).Bin.get(), Addr);
 
   return Addr;
 }

@@ -433,7 +433,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
 bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        helpers_context_t &helpers,
                        llvm::Module &M,
-                       llvm::object::Binary &B,
+                       B::ref Bin,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
@@ -443,12 +443,12 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
     bbprop.Analysis.Stale.clear(boost::memory_order_release);
   };
 
-  const bool IsCOFF = B::is_coff(B);
+  const bool IsCOFF = B::is_coff(Bin);
 
   const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
 
-  TCG.set_binary(B);
+  TCG.set_binary(Bin);
 
   bbprop.Analysis.live.use.reset();
   bbprop.Analysis.live.def.reset();
@@ -813,7 +813,7 @@ int llvm_t<MT, MinSize>::go(void) {
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
 
-  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -964,7 +964,7 @@ int llvm_t<MT, MinSize>::go(void) {
       (rc = CreatePossibleTramps()))
     return rc;
 
-  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -1214,7 +1214,7 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
   {
     binary_state_t &x = state.for_binary(Binary);
 
-    B::_elf(*x.Bin, [&](ELFO &O) {
+    B::_elf(x.Bin.get(), [&](ELFO &O) {
       loadDynamicRelocations(O,
                              x._elf.DynamicTable,
                              x._elf.DynRelRegion,
@@ -1882,7 +1882,7 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   auto &b = jv.Binaries.at(BinaryIndex);
 
-  B::_elf(*state.for_binary(b).Bin, [&](ELFO &O) {
+  B::_elf(state.for_binary(b).Bin.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -2160,7 +2160,7 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
-  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -3203,8 +3203,8 @@ uint64_t llvm_t<MT, MinSize>::ExtractWordAtAddress(uint64_t Addr) {
 
   auto &Bin = state.for_binary(Binary).Bin;
 
-  const void *Ptr = B::toMappedAddr(*Bin, Addr);
-  return B::extractAddress(*Bin, Ptr);
+  const void *Ptr = B::toMappedAddr(Bin.get(), Addr);
+  return B::extractAddress(Bin.get(), Ptr);
 }
 
 struct unhandled_relocation_exception {};
@@ -3246,7 +3246,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](const function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
-            const void *Ptr = B::toMappedAddr(*Bin, Addr);
+            const void *Ptr = B::toMappedAddr(Bin.get(), Addr);
 
             auto &sav = Saved.at(index_of_function_in_binary(f, Binary));
             __builtin_memcpy(&sav[0], Ptr, TargetBrkptLen);
@@ -3260,7 +3260,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](const function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
-            void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
+            void *Ptr = const_cast<void *>(B::toMappedAddr(Bin.get(), Addr));
 
             __builtin_memcpy(Ptr, &TargetBrkpt[0], TargetBrkptLen);
           });
@@ -3279,7 +3279,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](const function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
-            void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
+            void *Ptr = const_cast<void *>(B::toMappedAddr(Bin.get(), Addr));
 
             auto &sav = Saved.at(index_of_function_in_binary(f, Binary));
             __builtin_memcpy(Ptr, &sav[0], TargetBrkptLen);
@@ -3321,7 +3321,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   });
 #endif
 
-  B::_elf(*Bin, [&](ELFO &O) {
+  B::_elf(Bin.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -3475,7 +3475,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
   });
 
-  B::_coff(*Bin, [&](COFFO &O) {
+  B::_coff(Bin.get(), [&](COFFO &O) {
     NumSections = O.getNumberOfSections();
     SectTable.resize(NumSections);
     SegContents.resize(NumSections);
@@ -4042,7 +4042,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
   if (opts.IsVeryVerbose()) {
 
-  B::_elf(*Bin, [&](ELFO &O) {
+  B::_elf(Bin.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -4211,7 +4211,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
   });
 
-  B::_coff(*Bin, [&](COFFO &O) {
+  B::_coff(Bin.get(), [&](COFFO &O) {
   auto printImportedSymbol = [&](const char *tableName,
                                  llvm::StringRef SymName, uint16_t Ordinal,
                                  uint64_t Addr, llvm::StringRef DLL) -> void {
@@ -4334,7 +4334,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     clear_section_stuff();
 
 
-    B::_elf(*Bin, [&](ELFO &O) {
+    B::_elf(Bin.get(), [&](ELFO &O) {
 
     const ELFF &Elf = O.getELFFile();
 
@@ -4403,7 +4403,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
     });
 
-    B::_coff(*Bin, [&](COFFO &O) {
+    B::_coff(Bin.get(), [&](COFFO &O) {
       coff::for_each_base_relocation(
           O, [&](uint8_t RelocType, uint64_t RVA) {
             // ABSOLUTE is a no-op. see wine/dlls/ntdll/unix/virtual.c
@@ -4445,7 +4445,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
     declare_sections();
 
-    B::_elf(*Bin, [&](ELFO &O) {
+    B::_elf(Bin.get(), [&](ELFO &O) {
 
     const ELFF &Elf = O.getELFFile();
 
@@ -4599,7 +4599,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
     });
 
-    B::_coff(*Bin, [&](COFFO &O) {
+    B::_coff(Bin.get(), [&](COFFO &O) {
       coff::for_each_base_relocation(
           O, [&](uint8_t RelocType, uint64_t RVA) {
             // ABSOLUTE is a no-op. see wine/dlls/ntdll/unix/virtual.c
@@ -5066,58 +5066,70 @@ llvm_t<MT, MinSize>::decipher_copy_relocation(const elf::RelSymbol &S) {
     if (!state.for_binary(b).Bin)
       continue;
 
-    assert(llvm::isa<ELFO>(state.for_binary(b).Bin.get()));
-    const ELFF &Elf =
-        llvm::cast<ELFO>(state.for_binary(b).Bin.get())->getELFFile();
+    if (auto MaybeRes = B::_must_be_elf<std::optional<
+                    std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>>(
+            state.for_binary(b).Bin.get(),
+            [&](ELFO &Obj)
+                -> std::optional<
+                    std::pair<binary_index_t, std::pair<uint64_t, unsigned>>> {
+              const ELFF &Elf = Obj.getELFFile();
 
-    if (!state.for_binary(b)._elf.OptionalDynSymRegion)
-      continue; /* no dynamic symbols */
+              if (!state.for_binary(b)._elf.OptionalDynSymRegion)
+                std::nullopt; /* no dynamic symbols */
 
-    auto DynSyms =
-        state.for_binary(b)
-            ._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+              auto DynSyms = state.for_binary(b)
+                                 ._elf.OptionalDynSymRegion
+                                 ->template getAsArrayRef<Elf_Sym>();
 
-    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
-      const Elf_Sym &Sym = DynSyms[SymNo];
+              for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
+                const Elf_Sym &Sym = DynSyms[SymNo];
 
-      if (Sym.isUndefined())
-        continue;
+                if (Sym.isUndefined())
+                  continue;
 
-      if (Sym.getType() != llvm::ELF::STT_OBJECT)
-        continue;
+                if (Sym.getType() != llvm::ELF::STT_OBJECT)
+                  continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName =
-          Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
-      if (!ExpectedSymName)
-        continue;
+                llvm::Expected<llvm::StringRef> ExpectedSymName =
+                    Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
+                if (!ExpectedSymName)
+                  continue;
 
-      llvm::StringRef SymName = *ExpectedSymName;
-      llvm::StringRef SymVers;
-      bool VisibilityIsDefault;
+                llvm::StringRef SymName = *ExpectedSymName;
+                llvm::StringRef SymVers;
+                bool VisibilityIsDefault;
 
-      //
-      // symbol versioning
-      //
-      if (state.for_binary(b)._elf.SymbolVersionSection) {
-        const Elf_Versym *Versym = unwrapOrError(Elf.getEntry<Elf_Versym>(
-            *state.for_binary(b)._elf.SymbolVersionSection, SymNo));
+                //
+                // symbol versioning
+                //
+                if (state.for_binary(b)._elf.SymbolVersionSection) {
+                  const Elf_Versym *Versym =
+                      unwrapOrError(Elf.getEntry<Elf_Versym>(
+                          *state.for_binary(b)._elf.SymbolVersionSection,
+                          SymNo));
 
-        SymVers = getSymbolVersionByIndex(state.for_binary(b)._elf.VersionMap,
-                                          state.for_binary(b)._elf.DynamicStringTable,
-                                          Versym->vs_index,
-                                          VisibilityIsDefault);
-      }
+                  SymVers = getSymbolVersionByIndex(
+                      state.for_binary(b)._elf.VersionMap,
+                      state.for_binary(b)._elf.DynamicStringTable,
+                      Versym->vs_index, VisibilityIsDefault);
+                }
 
-      if ((SymName == S.Name &&
-           SymVers == S.Vers)) {
-        //
-        // we have a match.
-        //
-        assert(Sym.st_value > state.for_binary(b).SectsStartAddr);
+                if ((SymName == S.Name && SymVers == S.Vers)) {
+                  //
+                  // we have a match.
+                  //
+                  assert(Sym.st_value > state.for_binary(b).SectsStartAddr);
 
-        return {BIdx, {Sym.st_value, Sym.st_value - state.for_binary(b).SectsStartAddr}};
-      }
-    }
+                  return std::make_optional<
+                      std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>(
+                      {BIdx,
+                       {Sym.st_value,
+                        Sym.st_value - state.for_binary(b).SectsStartAddr}});
+                }
+              }
+              return std::nullopt;
+            }))
+      return *MaybeRes;
   }
 
   WithColor::warning() << llvm::formatv(
@@ -5132,7 +5144,7 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
 
   std::map<uint64_t, llvm::Function *> ManualRelocs;
 
-  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
 
   auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
@@ -5460,7 +5472,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
               return llvm::ConstantInt::get(
                   WordType(),
                   B::offset_of_va(
-                      *state.for_binary(dynl_binary).Bin,
+                      state.for_binary(dynl_binary).Bin.get(),
                       ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
@@ -5495,7 +5507,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
               return llvm::ConstantInt::get(
                   WordType(),
                   B::offset_of_va(
-                      *state.for_binary(vdso_binary).Bin,
+                      state.for_binary(vdso_binary).Bin.get(),
                       ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
@@ -5574,7 +5586,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
                 const function_t &f = binary.Analysis.Functions.at(FIdx);
 
                 constantTable[FIdx] = llvm::ConstantInt::get(WordType(),
-                  B::offset_of_va(*Bin, ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
+                  B::offset_of_va(Bin.get(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
               }
 
               constantTable.back() = llvm::Constant::getNullValue(WordType());
@@ -7371,7 +7383,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
   }
 
-  TCG.set_binary(*state.for_binary(Binary).Bin);
+  TCG.set_binary(state.for_binary(Binary).Bin.get());
 
   llvm::BasicBlock *ExitBB = nullptr;
 

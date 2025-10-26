@@ -150,8 +150,8 @@ int InitTool::Run(void) {
 
   std::vector<std::string> binary_paths;
 
-  std::string rtld = fs::canonical(B::_X(
-    *Bin,
+  std::string rtld = fs::canonical(B::_X<std::string>(
+    Bin.get(),
 
     [&](ELFO &O) -> std::string {
       //
@@ -207,7 +207,7 @@ int InitTool::Run(void) {
       auto WineBin = B::CreateFromFile(path_to_wine.c_str(), WineBytes);
 
       std::optional<std::string> MaybeRTLD =
-          B::_must_be_elf(*WineBin, elf::program_interpreter);
+          B::_must_be_elf<std::optional<std::string>>(WineBin.get(), elf::program_interpreter);
 
       if (!MaybeRTLD)
         die("wine (not the preloader) is expected to be dynamically linked");
@@ -291,7 +291,7 @@ int InitTool::Run(void) {
           break;
         }
 
-        std::unique_ptr<llvm::object::Binary> Bin;
+        B::unique_ptr Bin;
         if (catch_exception([&]() { Bin = B::Create(b.data()); })) {
           WithColor::error()
               << llvm::formatv("not valid binary: \"{0}\"\n", b.Name.c_str());

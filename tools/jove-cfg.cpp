@@ -41,7 +41,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
@@ -187,8 +187,9 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
 
   auto &b = jv.Binaries.at(BinaryIndex);
 
-  llvm::object::Binary &Bin = *state.for_binary(b).Bin;
-  TCG.set_binary(Bin);
+  B::ref Bin(state.for_binary(b).Bin.get());
+
+  TCG.set_binary(state.for_binary(b).Bin.get());
 
   uint64_t End = G[V].Addr + G[V].Size;
 
@@ -343,7 +344,7 @@ int CFGTool::Run(void) {
   auto &ICFG = b.Analysis.ICFG;
   Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
   if (opts.Off)
-    Addr = B::va_of_offset(*state.for_binary(b).Bin, Addr);
+    Addr = B::va_of_offset(state.for_binary(b).Bin.get(), Addr);
 
   basic_block_index_t source_BBIdx = invalid_basic_block_index;
   if (exists_function_at_address(b, Addr)) {

@@ -7,7 +7,7 @@
 namespace jove {
 namespace B {
 
-std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
+unique_ptr Create(llvm::StringRef Data) {
   static std::conditional_t<AreWeMT, std::mutex, std::monostate> ContextMtx;
   static std::unique_ptr<llvm::LLVMContext> Context;
 
@@ -39,7 +39,8 @@ std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
   const bool Suitable = is_elf(Bin) || is_coff(Bin);
   if (auto *Obj = llvm::dyn_cast<llvm::object::ObjectFile>(&Bin)) {
     if (Suitable && Obj->getArch() == TripleArchType)
-      return std::move(TheBin);
+      return adopt_with_tag<llvm::object::Binary, TagBits>(
+          TheBin.release(), static_cast<unsigned>(is_coff(Bin)));
 
     Desc = Obj->makeTriple().str();
   } else {

@@ -112,7 +112,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).Bin,
+        E.explore_basic_block(CallerBinary, state.for_binary(CallerBinary).Bin,
                               ICFG[bb].Addr + ICFG[bb].Size + IsMIPSTarget * 4);
 
     assert(is_basic_block_index_valid(NextBBIdx));
@@ -140,7 +140,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t TargetBBIdx =
-      E.explore_basic_block(b, *state.for_binary(b).Bin, Addr);
+      E.explore_basic_block(b, state.for_binary(b).Bin.get(), Addr);
   if (!is_basic_block_index_valid(TargetBBIdx)) {
     throw std::runtime_error(
         (fmt("failed to recover control flow to %#lx") % Addr).str());
@@ -179,7 +179,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
   auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_index_t CalleeFIdx = E.explore_function(
-      CalleeBinary, *state.for_binary(CalleeBinary).Bin, CalleeAddr);
+      CalleeBinary, state.for_binary(CalleeBinary).Bin.get(), CalleeAddr);
   if (!is_function_index_valid(CalleeFIdx))
     throw std::runtime_error((fmt("failed to translate indirect call target %#lx") % CalleeAddr).str());
 
@@ -219,7 +219,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).Bin,
+        E.explore_basic_block(CallerBinary, state.for_binary(CallerBinary).Bin,
                               ICFG[bb].Addr + ICFG[bb].Size + IsMIPSTarget * 4);
 
     assert(is_basic_block_index_valid(NextBBIdx));
@@ -247,7 +247,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtOffset(
   auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   uint64_t CalleeAddr =
-      B::va_of_offset(*state.for_binary(CalleeBinary).Bin, CalleeOff);
+      B::va_of_offset(state.for_binary(CalleeBinary).Bin.get(), CalleeOff);
 
   return RecoverFunctionAtAddress(IndCallBIdx, IndCallBBIdx, CalleeBIdx, CalleeAddr);
 }
@@ -286,7 +286,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
   });
 
   basic_block_index_t NextBBIdx =
-      E.explore_basic_block(b, *state.for_binary(b).Bin, NextAddr);
+      E.explore_basic_block(b, state.for_binary(b).Bin.get(), NextAddr);
   assert(is_basic_block_index_valid(NextBBIdx));
 
   bb_t bb;

@@ -100,6 +100,15 @@ class Binary;
 
 namespace jove {
 
+template <class T, std::size_t N>
+struct tagged_reference_wrapper2;
+
+namespace B {
+static constexpr std::size_t TagBits = 1;
+
+using ref = tagged_reference_wrapper2<llvm::object::Binary, TagBits>;
+}
+
 #include "jove/host.h.inc"
 #include "jove/target.h.inc"
 
@@ -1148,7 +1157,7 @@ struct JoveBinaryHash {
 
   std::size_t operator()(const hash_t &x) const noexcept {
     static_assert(sizeof(std::size_t) <= sizeof(hash_t));
-
+ 
     return *reinterpret_cast<const std::size_t *>(&x);
   }
 };

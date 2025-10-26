@@ -13,7 +13,7 @@ extern "C" void tcg_dump_ops(TCGContext *s, FILE *f, bool have_prefs);
 extern "C" void tcg_register_thread(void);
 
 // using thread-local variables is an easy fix but a lesser fix FIXME
-static __THREAD_IF_WE_ARE_MT llvm::object::Binary *jv_Bin;
+static __THREAD_IF_WE_ARE_MT jove::B::ptr jv_Bin = nullptr;
 static __THREAD_IF_WE_ARE_MT uint64_t jv_end_pc;
 static __THREAD_IF_WE_ARE_MT jove::terminator_info_t jv_ti;
 
@@ -21,7 +21,7 @@ extern "C" void *_jv_g2h(uint64_t Addr) {
   if (unlikely(!jv_Bin))
     return NULL;
 
-  const void *const res = jove::B::toMappedAddr(*jv_Bin, Addr);
+  const void *const res = jove::B::toMappedAddr(jv_Bin, Addr);
   if (unlikely(!res))
     throw jove::g2h_exception(Addr);
 
@@ -225,8 +225,8 @@ tiny_code_generator_t::tiny_code_generator_t() {
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
 
-void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
-  ::jv_Bin = &Bin;
+void tiny_code_generator_t::set_binary(B::ref Bin) {
+  ::jv_Bin = Bin.ptr();
 }
 
 void tiny_code_generator_t::dump_ops(FILE *out) {

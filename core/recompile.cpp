@@ -243,7 +243,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     binary_state_t &x = state.for_binary(b);
 
     x.Bin = B::Create(b.data());
-    std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
+    std::tie(x.Base, x.End) = B::bounds_of_binary(x.Bin.get());
 
     if (b.is_file())
       x.chrooted_path = path_to_output / b.path_str();
@@ -251,7 +251,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     //
     // what is this binary called as far as dynamic linking goes?
     //
-    B::_elf(*x.Bin, [&](ELFO &O) {
+    B::_elf(x.Bin.get(), [&](ELFO &O) {
       x._elf.interp = elf::program_interpreter(O);
       if (auto MaybeSoName = elf::soname(O))
         x.soname = *MaybeSoName;
@@ -267,11 +267,11 @@ int recompiler_t<MT, MinSize>::go(void) {
     //
     // what does this binary need?
     //
-    if (!B::needed_libs(*x.Bin, x.needed_vec))
+    if (!B::needed_libs(x.Bin.get(), x.needed_vec))
       WithColor::warning() << llvm::formatv(
           "failed to get libraries needed by {0}\n", b.Name.c_str());
 
-    B::_coff(*x.Bin, [&](COFFO &O) {
+    B::_coff(x.Bin.get(), [&](COFFO &O) {
       coff::needed_delay_libs(O, x._coff.needed_delay_vec);
     });
   });
@@ -712,7 +712,7 @@ int recompiler_t<MT, MinSize>::go(void) {
                                    fs::perms::owner_write |
                                    fs::perms::owner_exe);
 
-    B::_elf(*x.Bin, [&](ELFO &O) {
+    B::_elf(x.Bin.get(), [&](ELFO &O) {
 
     if (!x.soname.empty()) {
       std::string binary_filename = fs::path(b.path_str()).filename().string();
@@ -737,7 +737,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
     });
 
-    B::_coff(*x.Bin, [&](COFFO &O) {
+    B::_coff(x.Bin.get(), [&](COFFO &O) {
       std::string def_path =
           fs::path(chrooted_path).replace_extension("def").string();
 
@@ -760,7 +760,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
     const binary_state_t &x = state.for_binary(b);
 
-    B::_coff(*x.Bin, [&](COFFO &O) {
+    B::_coff(x.Bin.get(), [&](COFFO &O) {
       std::string def_path =
           fs::path(x.chrooted_path).replace_extension("def").string();
 
@@ -895,7 +895,7 @@ int recompiler_t<MT, MinSize>::go(void) {
           // Arg("nocopyreloc");
 
           uint64_t Base, End;
-          std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
+          std::tie(Base, End) = B::bounds_of_binary(x.Bin.get());
 
           Arg("--section-start");
           Arg((fmt(".jove=0x%lx") % Base).str());
@@ -942,7 +942,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
 
       const char *rtld_path = nullptr;
-      B::_elf(*x.Bin, [&](ELFO &O) {
+      B::_elf(x.Bin.get(), [&](ELFO &O) {
         if (x._elf.interp) {
           for (auto &b : jv.Binaries) {
             if (b.IsDynamicLinker) {
@@ -998,7 +998,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       std::string subsystem;
 
       if (b.IsExecutable)
-        subsystem = B::_must_be_coff(*x.Bin, coff::link_subsystem);
+        subsystem = B::_must_be_coff<std::string>(x.Bin.get(), coff::link_subsystem);
 
       rc = RunExecutableToExit(locator().lld_link(), [&](auto Arg) {
         Arg(locator().lld_link());
@@ -1052,7 +1052,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
         if (b.IsExecutable && !b.IsPIC) { /* do we need to set base address? */
           uint64_t Base, End;
-          std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
+          std::tie(Base, End) = B::bounds_of_binary(x.Bin.get());
 
           Arg("/dynamicbase:no");
           Arg("/fixed");

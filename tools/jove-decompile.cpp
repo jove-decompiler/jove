@@ -38,7 +38,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
 
   struct {
     std::optional<std::string> interp;
@@ -53,7 +53,7 @@ struct binary_state_t {
     //
     // gather dynamic linking information
     //
-    B::_elf(*Bin, [&](ELFO &O) {
+    B::_elf(Bin.get(), [&](ELFO &O) {
       _elf.interp = elf::program_interpreter(O);
       if (auto MaybeSoName = elf::soname(O))
         soname = *MaybeSoName;
@@ -66,7 +66,7 @@ struct binary_state_t {
     });
 #endif
 
-    B::needed_libs(*Bin, needed);
+    B::needed_libs(Bin.get(), needed);
   }
 };
 
@@ -655,7 +655,7 @@ int DecompileTool::Run(void) {
           // the following has only been tested to work with the lld linker.
           //
           uint64_t Base, End;
-          std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
+          std::tie(Base, End) = B::bounds_of_binary(x.Bin.get());
 
           ofs << " --section-start " << (fmt(".jove=0x%lx") % Base).str();
         }
@@ -719,7 +719,7 @@ int DecompileTool::Run(void) {
         ofs << " -l :" << needed;
       }
 
-      B::_elf(*x.Bin, [&](ELFO &O) {
+      B::_elf(x.Bin.get(), [&](ELFO &O) {
         if (!x.soname.empty())
           ofs << " -soname=" << x.soname;
 

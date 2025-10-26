@@ -29,7 +29,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
@@ -345,7 +345,7 @@ open_events:
         // p:jove/JV_0_1 /tmp/XdoHpm/usr/bin/ls:0x0000000000005aee
         //
 
-        const uint64_t Off = B::offset_of_va(*x.Bin, ICFG[bb].Addr);
+        const uint64_t Off = B::offset_of_va(x.Bin.get(), ICFG[bb].Addr);
 
         std::string buff =
           (fmt("p:jove/JV_%" PRIu32 "_%" PRIu32 " %s:0x%" PRIx64 "\n")

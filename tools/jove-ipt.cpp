@@ -57,7 +57,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
 
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
@@ -909,7 +909,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
         auto &b1 = jv.Binaries.at(BIdx);
 
         for (const auto &pair : b2.bbbmap) {
-          Explorer.explore_basic_block(b1, *state.for_binary(b1).Bin, pair.first);
+          Explorer.explore_basic_block(b1, state.for_binary(b1).Bin.get(), pair.first);
         }
       }
     };

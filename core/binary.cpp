@@ -115,8 +115,10 @@ template <bool MT, bool MinSize>
 bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
     taddr_t TermAddr,
     explorer_t<MT, MinSize> &E,
-    llvm::object::Binary &Bin,
+    llvm::object::Binary &TheBin,
     jv_base_t<MT, MinSize> &jv) {
+  B::ref Bin = B::from_ref(TheBin);
+
   std::vector<taddr_t> SuccAddrVec;
 
   typename ip_icfg_base_t<MT>::vertex_descriptor bb;

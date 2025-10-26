@@ -336,7 +336,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     binary_t &b = this->Binaries.at(Res);
 
     if (Options.Objdump) {
-      std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
+      B::unique_ptr Bin = B::Create(b.data());
 
       b.Analysis.objdump_thinks.run(b.is_file() ? b.Name.c_str() : nullptr,
                                     *Bin);
@@ -362,7 +362,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   if (unlikely(data.empty()))
     throw std::runtime_error("adds_binary_t(): no data");
 
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
   try {
     Bin = B::Create(data);
 

@@ -13,8 +13,10 @@ namespace jove {
 
 template <bool MT, bool MinSize>
 void ScanForSjLj(binary_base_t<MT, MinSize> &b,
-                 llvm::object::Binary &Bin,
+                 llvm::object::Binary &TheBin,
                  explorer_t<MT, MinSize> &E) {
+  B::ref Bin(TheBin);
+
   std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
 
@@ -545,7 +547,7 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
         continue;
 
       llvm::StringRef SectionStr(
-          &Bin.getMemoryBufferRef().getBufferStart()[Section->PointerToRawData],
+          &O.getMemoryBufferRef().getBufferStart()[Section->PointerToRawData],
           Section->SizeOfRawData);
 
       for (const auto &pair : LjPatterns) {

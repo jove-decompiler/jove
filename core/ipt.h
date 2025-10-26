@@ -421,7 +421,7 @@ protected:
   static constexpr bool Lazy = true;
 
   struct binary_state_t {
-    std::unique_ptr<llvm::object::Binary> Bin;
+    B::unique_ptr Bin;
 
     binary_state_t(const binary_t &b) {
       Bin = B::Create(b.data());
@@ -1404,7 +1404,7 @@ protected:
 
       uint64_t off = IP - (mapping.Base - mapping.Offset);
 
-      Addr = B::va_of_offset(*x.Bin, off);
+      Addr = B::va_of_offset(x.Bin.get(), off);
     } catch (...) {
       if constexpr (IsVerbose())
         fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
@@ -1519,7 +1519,7 @@ protected:
 
       CurrPoint.SetBinary(b);
       CurrPoint.SetBlockIndex(
-          explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
+          explorer.explore_basic_block(b, x.Bin.get(), Addr, obp, obp_u));
       assert(CurrPoint.Valid());
 
       if (IsNewBlock) /* (FIXME? (should this be done here?)) */
@@ -1748,7 +1748,7 @@ protected:
 
     auto handle_indirect_call = [&](void) -> void {
       function_index_t FIdx =
-          explorer.explore_function(to_b, *state.for_binary(to_b).Bin, ToAddr);
+          explorer.explore_function(to_b, state.for_binary(to_b).Bin.get(), ToAddr);
 
       if (!is_function_index_valid(FIdx))
         return;

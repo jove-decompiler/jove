@@ -136,7 +136,7 @@ int IDATool::Run(void) {
   symbolizer_t symbolizer;
 
   auto process_binary = [&](binary_t &binary) -> void {
-    std::unique_ptr<obj::Binary> Bin;
+    B::unique_ptr Bin;
 
     try {
       Bin = B::Create(binary.data());
@@ -155,12 +155,8 @@ int IDATool::Run(void) {
     //
     // hide split debug information from IDA Pro (XXX HACK)
     //
-    if (!llvm::isa<ELFO>(Bin.get())) {
-      HumanOut() << "is not ELF of expected type\n";
-      return;
-    }
+    B::_must_be_elf<void>(Bin.get(), [&](ELFO &Obj) -> void {
 
-    ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
     const ELFF &Elf = Obj.getELFFile();
 
     bool DidWeHideSplitDebugInfoFromIDA = false;
@@ -281,12 +277,12 @@ int IDATool::Run(void) {
         //
         try {
           basic_block_index_t BBIdx =
-              E.explore_basic_block(binary, *Bin, entry_addr);
+              E.explore_basic_block(binary, Bin.get(), entry_addr);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
 
-          E.explore_function(binary, *Bin, entry_addr);
+          E.explore_function(binary, Bin.get(), entry_addr);
         } catch (const std::exception &e) {
           if (IsVerbose())
             WithColor::warning()
@@ -319,7 +315,7 @@ int IDATool::Run(void) {
         uint64_t node_addr = flowgraph[node].start_ea;
         try {
           basic_block_index_t BBIdx =
-              E.explore_basic_block(binary, *Bin, node_addr);
+              E.explore_basic_block(binary, Bin.get(), node_addr);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
@@ -546,6 +542,7 @@ int IDATool::Run(void) {
 
       process_flowgraph(binary, flowgraph);
     }
+    });
   };
 
   if (is_binary_index_valid(SingleBinaryIndex))

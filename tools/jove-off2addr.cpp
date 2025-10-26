@@ -62,7 +62,7 @@ int Off2Addr::Run(void) {
   auto Bin = B::Create(b.data());
   uint64_t Off = strtoull(opts.Off.c_str(), nullptr, 0x10);
 
-  llvm::outs() << llvm::formatv("{0:x}\n", B::va_of_offset(*Bin, Off));
+  llvm::outs() << llvm::formatv("{0:x}\n", B::va_of_offset(Bin.get(), Off));
   return 0;
 }
 

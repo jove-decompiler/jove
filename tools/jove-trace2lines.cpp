@@ -20,7 +20,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
+  B::unique_ptr Bin;
 
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };

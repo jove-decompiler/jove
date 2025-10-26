@@ -24,8 +24,10 @@ template <bool MT, bool MinSize>
 template <bool MT2, bool MinSize2>
 void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
                                    explorer_t<MT2, MinSize2> &explorer,
-                                   llvm::object::Binary &Bin,
+                                   llvm::object::Binary &TheBin,
                                    const AddOptions_t &Options) {
+  B::ref Bin = B::from_ref(TheBin);
+
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
   b.IsVDSO = false;
@@ -210,17 +212,15 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
         (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
 
     if (fs::exists(splitDbgInfo)) {
+    std::vector<uint8_t> SplitBinBytes;
+    auto SplitBin = B::CreateFromFile(splitDbgInfo.c_str(), SplitBinBytes);
+
+    B::_elf(SplitBin.get(), [&](ELFO &split_Obj) -> void {
 #if 0
       WithColor::note() << llvm::formatv("found split debug info file {0}\n",
                                          splitDbgInfo.c_str());
 #endif
 
-      std::vector<uint8_t> SplitBinBytes;
-      auto SplitBin = B::CreateFromFile(splitDbgInfo.c_str(), SplitBinBytes);
-
-      assert(llvm::isa<ELFO>(SplitBin.get()));
-
-      ELFO &split_Obj = *llvm::cast<ELFO>(SplitBin.get());
       const ELFF &split_Elf = split_Obj.getELFFile();
 
       //
@@ -257,6 +257,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
           }
         }
       }
+    });
     } else {
       //WithColor::note() << llvm::formatv("build ID is {0}, no split debug found at {1}\n", llvm::toHex(BuildID, /*LowerCase=*/true), splitDbgInfo.string());
     }

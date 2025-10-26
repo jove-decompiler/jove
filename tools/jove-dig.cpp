@@ -154,10 +154,8 @@ int CodeDigger::Run(void) {
     ignore_exception([&]() {
       auto Bin = B::Create(b.data());
 
-      assert(llvm::isa<ELFO>(Bin.get()));
-
       std::tie(state.for_binary(b).SectsStartAddr,
-               state.for_binary(b).SectsEndAddr) = B::bounds_of_binary(*Bin);
+               state.for_binary(b).SectsEndAddr) = B::bounds_of_binary(Bin.get());
     });
   });
 

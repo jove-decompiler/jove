@@ -1144,7 +1144,7 @@ bool needed_libs(ELFO &O, std::vector<std::string> &out) {
   return true;
 }
 
-std::optional<std::string> program_interpreter(const ELFO &O) {
+std::optional<std::string> program_interpreter(ELFO &O) {
   std::optional<std::string> res;
 
   const ELFF &Elf = O.getELFFile();
@@ -1162,7 +1162,7 @@ std::optional<std::string> program_interpreter(const ELFO &O) {
   return res;
 }
 
-std::optional<std::string> soname(const ELFO &O) {
+std::optional<std::string> soname(ELFO &O) {
   DynRegionInfo DynamicTable(O);
   loadDynamicTable(O, DynamicTable);
 

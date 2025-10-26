@@ -96,7 +96,7 @@ int TCGDumpTool::Run(void) {
   std::vector<uint8_t> BinBytes;
   auto Bin = B::CreateFromFile(opts.Binary.c_str(), BinBytes);
 
-  tcg.set_binary(*Bin);
+  tcg.set_binary(Bin.get());
 
   auto linear_scan_disassemble = [&](uint64_t Addr, uint64_t End = 0) -> bool {
     if (!End)
@@ -121,7 +121,7 @@ int TCGDumpTool::Run(void) {
       uint64_t InstLen;
       for (uint64_t _A = A; _A < A + BBSize; _A += InstLen) {
         const uint8_t *Ptr =
-            reinterpret_cast<const uint8_t *>(B::toMappedAddr(*Bin, _A));
+            reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin.get(), _A));
 
         llvm::MCInst Inst;
 
@@ -168,7 +168,7 @@ int TCGDumpTool::Run(void) {
   if (!opts.StartingFrom.empty()) {
     linear_scan_disassemble(StartingFrom.Addr);
   } else {
-    B::_elf(*Bin, [&](ELFO &O) {
+    B::_elf(Bin.get(), [&](ELFO &O) {
       const ELFF &Elf = O.getELFFile();
 
       elf::DynRegionInfo DynamicTable(O);
@@ -215,7 +215,7 @@ int TCGDumpTool::Run(void) {
       }
     });
 
-    B::_coff(*Bin, [&](COFFO &O) {
+    B::_coff(Bin.get(), [&](COFFO &O) {
       auto exp_itr = O.export_directories();
       for_each_if(exp_itr.begin(),
                   exp_itr.end(),

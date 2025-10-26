@@ -205,12 +205,12 @@ void for_each_dynamic_relocation_if(const ELFF &Elf,
                               });
 }
 
-static inline uint64_t extractAddress(ELFO &O, const void *ptr) {
+static inline uint64_t extractAddress(ELFO &O, const void *p) {
   constexpr unsigned TargetArchWordSize = ELFT::Is64Bits ? 8 : 4;
 
   uint64_t Offset = 0;
   llvm::DataExtractor DE(
-      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(ptr),
+      llvm::ArrayRef<uint8_t>(static_cast<const uint8_t *>(p),
                               2 * TargetArchWordSize),
       ELFT::TargetEndianness == llvm::support::endianness::little,
       TargetArchWordSize);
@@ -295,8 +295,8 @@ static inline const void *toMappedAddr(ELFO &O, uint64_t Addr) {
   return *ExpectedPtr;
 }
 
-std::optional<std::string> program_interpreter(const ELFO &);
-std::optional<std::string> soname(const ELFO &);
+std::optional<std::string> program_interpreter(ELFO &);
+std::optional<std::string> soname(ELFO &);
 
 bool needed_libs(ELFO &, std::vector<std::string> &out);
 

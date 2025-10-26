@@ -128,7 +128,7 @@ struct section_t {
 bool AnalyzeBasicBlock(tiny_code_generator_t &,
                        helpers_context_t &,
                        llvm::Module &,
-                       llvm::object::Binary &,
+                       B::ref,
                        bbprop_t &,
                        const analyzer_options_t &);
 
@@ -153,7 +153,7 @@ class llvm_t {
   using unordered_set = boost::unordered::unordered_flat_set<Args...>;
 
   struct binary_state_t {
-    std::unique_ptr<llvm::object::Binary> Bin;
+    B::unique_ptr Bin;
     struct {
       elf::DynRegionInfo DynamicTable;
       llvm::StringRef DynamicStringTable;
@@ -178,9 +178,9 @@ class llvm_t {
     binary_state_t(const binary_t &b) {
       Bin = B::Create(b.data());
 
-      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*Bin);
+      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(Bin.get());
 
-      B::_elf(*Bin, [&](ELFO &O) {
+      B::_elf(Bin.get(), [&](ELFO &O) {
         elf::loadDynamicTable(O, _elf.DynamicTable);
 
         if (_elf.DynamicTable.Addr) {
@@ -193,7 +193,7 @@ class llvm_t {
         }
       });
 
-      B::_coff(*Bin, [&](COFFO &O) {
+      B::_coff(Bin.get(), [&](COFFO &O) {
         coff::for_each_exported_function(
             O, [&](uint32_t Ordinal, llvm::StringRef Name, uint64_t RVA) {
               _coff.Name2RVA.emplace(Name, RVA);

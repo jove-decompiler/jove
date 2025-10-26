@@ -314,8 +314,7 @@ void Tool::HumanOutToFile(const std::string &path) {
 }
 
 [[noreturn]] void Tool::die(const std::string &reason) {
-  WithColor::error() << llvm::formatv("BUG ({0})\n", reason);
-  throw std::runtime_error(reason); /* we like destructors */
+  throw std::runtime_error(reason);
 }
 
 void Tool::CURIOSITY(const std::string &message) {

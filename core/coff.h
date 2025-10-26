@@ -34,13 +34,12 @@ static inline const void *toMappedAddr(COFFO &O, uint64_t Addr) {
   return reinterpret_cast<const void *>(UIntPtr);
 }
 
-static inline uint64_t extractAddress(COFFO &O, const void *ptr) {
+static inline uint64_t extractAddress(COFFO &O, const void *p) {
   const unsigned AddrBytes = O.getBytesInAddress();
 
   uint64_t Offset = 0;
   llvm::DataExtractor DE(
-      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(ptr),
-                              2 * AddrBytes),
+      llvm::ArrayRef<uint8_t>(static_cast<const uint8_t *>(p), 2 * AddrBytes),
       true /* little endian */, AddrBytes);
 
   return DE.getAddress(&Offset);

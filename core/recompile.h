@@ -115,7 +115,7 @@ class recompiler_t {
   locator_t &locator_;
 
   struct binary_state_t {
-    std::unique_ptr<llvm::object::Binary> Bin;
+    B::unique_ptr Bin;
 
     boost::filesystem::path chrooted_path;
 
