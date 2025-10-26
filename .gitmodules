@@ -3,7 +3,7 @@
 	url = https://github.com/jove-decompiler/llvm-project.git
 [submodule "carbon-copy"]
 	path = carbon-copy
-	url = https://github.com/aleden/carbon-copy.git
+	url = https://github.com/jove-decompiler/carbon-copy.git
 [submodule "prebuilts"]
 	path = prebuilts
 	url = https://github.com/jove-decompiler/prebuilts.git
