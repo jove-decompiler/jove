@@ -17,6 +17,10 @@
 #include "ansi.h"
 #include "ptrace.h"
 #include "robust.h"
+#include "fork.h"
+#include "pidfd.h"
+#include "autoreap.h"
+#include "jove/assert.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -55,11 +59,13 @@
 #include <asm/auxvec.h>
 #include <asm/unistd.h>
 #include <fcntl.h>
+#include <linux/prctl.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/mman.h>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -80,6 +86,8 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
+  bool Skip = false;
+
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
@@ -226,6 +234,11 @@ struct BootstrapTool
     cl::opt<bool> Longjmps;
     cl::opt<std::string> ShowMe;
     cl::opt<bool> Symbolize;
+    cl::opt<std::string> Group;
+    cl::alias GroupAlias;
+    cl::opt<std::string> User;
+    cl::alias UserAlias;
+    cl::list<std::string> SkipBins;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -296,7 +309,23 @@ struct BootstrapTool
           Symbolize("symbolize",
                  cl::desc("Whether to run addr2line"),
                  cl::init(true),
-                 cl::cat(JoveCategory)) {}
+                 cl::cat(JoveCategory)),
+
+          Group("group", cl::desc("Run as given group"),
+                cl::cat(JoveCategory)),
+
+          GroupAlias("g", cl::desc("Alias for --group"), cl::aliasopt(Group),
+                     cl::cat(JoveCategory)),
+
+          User("user", cl::desc("Run as given user"),
+               cl::cat(JoveCategory)),
+
+          UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
+                    cl::cat(JoveCategory)),
+
+          SkipBins("skip-binaries", cl::CommaSeparated, cl::value_desc("name"),
+                   cl::cat(JoveCategory))
+          {}
   } opts;
 
   template <typename Key, typename Value>
@@ -310,6 +339,9 @@ struct BootstrapTool
 
   bool RightArch = true;
   const bool IsCOFF;
+
+  bool ForkFirstTime = true;
+  unordered_set<pid_t> forked;
 
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
@@ -465,6 +497,8 @@ public:
   bool DidAttach(void) {
     return opts.PID != 0;
   }
+
+  void DropPrivileges(void);
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
@@ -526,6 +560,8 @@ int BootstrapTool::Run(void) {
     INSTALL_SIG(SIGSEGV);
     INSTALL_SIG(SIGABRT);
   }
+
+  AutomaticallyReap();
 
   //
   // bootstrap has two modes of execution.
@@ -760,6 +796,7 @@ uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
 int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
+  if (opts.Symbolize)
   symbolizer = std::make_unique<symbolizer_t>();
   E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
       jv_file, jv, *disas, *tcg, GetVerbosityLevel());
@@ -779,8 +816,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-          HumanOut() << "failed to resume tracee : " << strerror(errno)
-                     << '\n';
+          HumanOut() << llvm::formatv("failed to resume tracee {0}: {1}\n",
+                                      child, strerror(errno));
       }
 
       //
@@ -834,6 +871,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   description_of_program_counter(pc_of_cpu_state(cpu_state), true));
           }
 
+#if 0
           //
           // do *not* trace any more forks.
           //
@@ -841,7 +879,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                             /* PTRACE_O_EXITKILL   | */
                                PTRACE_O_TRACEEXIT  |
                                PTRACE_O_TRACEEXEC  |
-                            /* PTRACE_O_TRACEFORK  | */
+                               PTRACE_O_TRACEFORK  |
                             /* PTRACE_O_TRACEVFORK | */
                                PTRACE_O_TRACECLONE;
 
@@ -851,6 +889,92 @@ int BootstrapTool::TracerLoop(pid_t child) {
                                         __func__,
                                         strerror(err));
           }
+#endif
+        } else if (unlikely(forked.contains(child))) {
+          const pid_t new_child = child;
+
+          forked.erase(new_child);
+
+          if (IsVerbose()) {
+            llvm::errs() << "waited on forked child\n";
+          }
+
+          //
+          // upon a fork(), we detach, fork(), and then reattach.
+          //
+          if (::ptrace(PTRACE_DETACH, new_child, 0UL, reinterpret_cast<void *>(SIGSTOP)) < 0) {
+            int err = errno;
+            die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
+          } else {
+            WithColor::note()
+                << llvm::formatv("detached from {0}\n", new_child);
+          }
+
+          scoped_fd our_pfd(pidfd_open(::getpid(), 0));
+          if (jove::fork()) {
+            child = -1;
+          } else {
+            if (::prctl(PR_SET_PDEATHSIG, SIGKILL) < 0) {
+              int err = errno;
+              if (IsVerbose())
+                WithColor::warning()
+                    << llvm::formatv("prctl failed: {0}\n", strerror(err));
+            }
+
+            if (our_pfd) {
+              const int poll_ret = ({
+                struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
+                sys::retry_eintr(::poll, &pfd, 1, 0);
+              });
+
+              aassert(poll_ret >= 0);
+
+              our_pfd.close();
+              if (poll_ret != 0) {
+                //
+                // parent is already gone.
+                //
+                for (;;)
+                  _exit(0);
+                __builtin_unreachable();
+              }
+            }
+
+            if (::ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL) < 0) {
+              int err = errno;
+              die("PTRACE_ATTACH on fork() " + std::string(strerror(err)));
+            } else {
+              WithColor::note()
+                  << llvm::formatv("attached to {0}\n", new_child);
+              {
+                //
+                // trace exec for the following
+                //
+                int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                                  /* PTRACE_O_EXITKILL   | */
+                                     PTRACE_O_TRACEEXIT  |
+                                     PTRACE_O_TRACEEXEC  | /* needs to be set here */
+                                     PTRACE_O_TRACEFORK  |
+                                     PTRACE_O_TRACEVFORK |
+                                     PTRACE_O_TRACECLONE;
+
+                if (::ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
+                  int err = errno;
+                  HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                                    __func__,
+                                                    strerror(err));
+                }
+              }
+            }
+          }
+
+          continue;
+        } else if (unlikely(!RightArch)) {
+          if (::ptrace(PTRACE_DETACH, child, 0UL, reinterpret_cast<void *>(SIGCONT)) < 0) {
+            int err = errno;
+            die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
+          }
+          _exit(0);
         }
 
         if (unlikely(ToggleTurbo.load())) {
@@ -954,7 +1078,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         // examination, because it returns the value (status>>8) & 0xff.)
         //
         const int stopsig = WSTOPSIG(status);
-        if (stopsig == (SIGTRAP | 0x80)) {
+        if (likely(RightArch) && stopsig == (SIGTRAP | 0x80)) {
           //
           // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
           // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
@@ -1102,7 +1226,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               switch (no) {
 #ifdef __NR_rt_sigaction
               case __NR_rt_sigaction: {
-                if (IsVerbose())
+                if (IsVeryVerbose())
                   HumanOut() << llvm::formatv(
                       "rt_sigaction({0}, {1:x}, {2:x}, {3})\n", a1, a2, a3, a4);
 
@@ -1117,7 +1241,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                       ;
                   uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
-                  if (IsVerbose())
+                  if (IsVeryVerbose() && handler)
                     HumanOut() << llvm::formatv(
                         "on rt_sigaction(): handler={0:x}\n", handler);
 
@@ -1177,15 +1301,24 @@ int BootstrapTool::TracerLoop(pid_t child) {
           //
           if (unlikely(event)) {
             switch (event) {
+            default:
+              if (opts.PrintPtraceEvents)
+                HumanOut() << llvm::formatv("unknown ptrace event {0}\n",
+                                            event);
+
             case PTRACE_EVENT_VFORK:
-              if (opts.PrintPtraceEvents)
-                HumanOut() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
-                           << "]\n";
-              break;
             case PTRACE_EVENT_FORK: {
+              unsigned long new_child;
+              if (::ptrace(PTRACE_GETEVENTMSG, child, 0, &new_child) < 0)
+                die("PTRACE_GETEVENTMSG on fork()/vfork()");
+
               if (opts.PrintPtraceEvents)
-                HumanOut() << "ptrace event (PTRACE_EVENT_FORK) [" << child
-                           << "]\n";
+                HumanOut() << llvm::formatv(
+                    "ptrace event (PTRACE_EVENT_{0}) [{1}]\n",
+                    event == PTRACE_EVENT_VFORK ? "VFORK" : "FORK", new_child);
+
+              sig = SIGSTOP;
+              forked.insert(new_child);
               break;
             }
             case PTRACE_EVENT_CLONE: {
@@ -1235,9 +1368,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
               assert(len < exe_path.size());
               exe_path.resize(len);
 
-              if (opts.PrintPtraceEvents)
-                HumanOut() << "ptrace event (PTRACE_EVENT_EXEC) [" << new_pid
-                           << "]\n";
+               if (opts.PrintPtraceEvents)
+                 HumanOut() << llvm::formatv(
+                     "ptrace event (PTRACE_EVENT_EXEC) \"{0}\" [{1}]\n",
+                     exe_path, new_pid);
 
               if (IsVerbose())
                 HumanOut() << llvm::formatv(
@@ -1277,12 +1411,30 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   return 1;
                 }
 
-                if (!B::is_elf(*Bin) && !B::is_coff(*Bin))
+                if (!B::is_elf(*Bin) && !B::is_coff(*Bin)) {
                   RightArch = false;
+
+                  if (IsVerbose())
+                    WithColor::note() << "!RightArch\n";
+                }
               }
 
-              if (IsVerbose() && !RightArch)
-                HumanOut() << "executable has wrong arch. ignoring...\n";
+              if (RightArch) {
+                ScanAddressSpace(child, true);
+              } else {
+#if 0
+                if (ptrace(PTRACE_DETACH, child, 0, 0) < 0) {
+                  int err = errno;
+                  die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
+                }
+
+                ScanAddressSpace(child, true);
+                if (IsVerbose())
+                  HumanOut() << "executable has wrong arch. ignoring...\n";
+
+                _exit(0);
+#endif
+              }
 
               ScanAddressSpace(child, true);
               break;
@@ -1331,14 +1483,14 @@ int BootstrapTool::TracerLoop(pid_t child) {
           // deliver it
           sig = stopsig;
 
+          if (stopsig == SIGSEGV) {
+            cpu_state_t cpu_state;
+            _ptrace_get_cpu_state(child, cpu_state);
 #if defined(__mips64) || defined(__mips__)
           //
           // recognize the 'jr $zero' hack. This trickery is to avoid emulating
           // the delay slot instruction of a return instruction.
           //
-          if (stopsig == SIGSEGV) {
-            cpu_state_t cpu_state;
-            _ptrace_get_cpu_state(child, cpu_state);
 
             if (cpu_state.cp0_epc == 0) {
               //
@@ -1355,8 +1507,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
               on_return(child, invalid_binary_index, 0 /* XXX */, RetAddr);
             }
-          }
+#else
+            if (IsVerbose()) {
+              WithColor::error() << llvm::formatv("sigsegv @ {0}\n",
+                                                  description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+            }
 #endif
+          }
 
           if (sig && opts.Signals)
             HumanOut() << llvm::formatv("delivering signal {0} <{1}> [{2}]\n",
@@ -1437,6 +1594,9 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
 
   binary_state_t &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
+
+  if (x.Skip)
+    return;
 
   const binary_index_t BIdx = index_of_binary(b, jv);
   const basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
@@ -1791,7 +1951,10 @@ struct ScopedCPUState {
   cpu_state_t gpr;
 
   ScopedCPUState(pid_t child) : child(child) { _ptrace_get_cpu_state(child, gpr); }
-  ~ScopedCPUState()                          { _ptrace_set_cpu_state(child, gpr); }
+  ~ScopedCPUState()                          {
+    if (std::uncaught_exceptions() == 0)
+      _ptrace_set_cpu_state(child, gpr);
+  }
 };
 
 void BootstrapTool::on_breakpoint(pid_t child) {
@@ -3062,6 +3225,22 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   binary_t &binary = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(binary);
 
+#if 1
+  for (const std::string &name : opts.SkipBins) {
+    if (binary.Name.find(name) != ip_string::npos) {
+      if (IsVerbose())
+        WithColor::warning()
+            << llvm::formatv("skipping {0}\n", binary.Name.c_str());
+
+      x.Skip = true;
+      return;
+    }
+  }
+#else
+  x.Skip = true;
+  return;
+#endif
+
   auto &Bin = x.Bin;
 
   if (IsVerbose())
@@ -3120,6 +3299,12 @@ void BootstrapTool::on_binary_loaded(pid_t child,
       continue;
 
     uintptr_t Addr = pc_of_va(bbprop.Term.Addr, BIdx);
+
+    if (IndBrMap.find(Addr) != IndBrMap.end()) {
+      WithColor::error() << llvm::formatv("wtf? {0} {1:x}\n",
+                                          binary.Name.c_str(), Addr);
+      throw 1;
+    }
 
     assert(IndBrMap.find(Addr) == IndBrMap.end());
 
@@ -3321,6 +3506,8 @@ int BootstrapTool::ChildProc(int pipefd) {
     if (IsVeryVerbose())
       HumanOut() << llvm::formatv("(executing \"{0}\")\n", exe_path);
   }
+
+  DropPrivileges();
 
   /* "If the current program is being ptraced, a SIGTRAP signal is sent to it
    * after a successful execve()" */
@@ -3815,7 +4002,7 @@ void BootstrapTool::on_return(pid_t child,
         existing_block_at_program_counter(child, before_pc);
 
     if (unlikely(!is_basic_block_index_valid(Before_BBIdx))) {
-      if (IsVerbose())
+      if (IsVeryVerbose())
         HumanOut() << llvm::formatv("on_return: unknown block before @ {0}\n",
                                     description_of_program_counter(pc, true));
       return;
@@ -3928,11 +4115,11 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   binary_index_t BIdx = invalid_binary_index;
 
   bool IsVDSO = false; /* FIXME */
-  if (nm[0] != '/') {
+  if (nm.front() != '/') {
     //
     // [vdso], [vsyscall], ...
     //
-    if (nm[0] != '[')
+    if (nm.front() != '[')
       die("unrecognized mapping \"" + nm + "\"");
 
     IsVDSO = nm == "[vdso]";
@@ -4058,6 +4245,9 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
   }
 #endif
 
+  if (!pc)
+    return taddr2str(0x0, true);
+
   const std::string simple_desc = (fmt("%#lx") % pc).str();
 
   auto pm_it = intvl_map_find(pmm, pc);
@@ -4090,8 +4280,9 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
         ptrdiff_t off = pc - (pm.beg - pm.off);
         uintptr_t Addr = B::va_of_offset(x.Bin.get(), off);
 
-        if (opts.Symbolize) {
-          std::string line = symbolizer->addr2line(b, Addr);
+        symbolizer_t *const psymbolizer = symbolizer.get();
+        if (psymbolizer) {
+          std::string line = psymbolizer->addr2line(b, Addr);
           if (!line.empty())
             return line;
         }
@@ -4103,6 +4294,26 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
     }
 
     return (fmt("%s+%#lx%s") % pm.nm % (pc - (pm.beg - pm.off)) % extra).str();
+  }
+}
+
+void BootstrapTool::DropPrivileges(void) {
+  if (!opts.Group.empty()) {
+    unsigned gid = atoi(opts.Group.c_str());
+
+    if (::setgid(gid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setgid failed: {0}", strerror(err));
+    }
+  }
+
+  if (!opts.User.empty()) {
+    unsigned uid = atoi(opts.User.c_str());
+
+    if (::setuid(uid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
+    }
   }
 }
 
