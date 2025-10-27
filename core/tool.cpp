@@ -45,10 +45,7 @@ void RegisterTool(const char *name, ToolCreationProc proc) {
 using llvm::WithColor;
 
 int main(int argc, char **argv) {
-  //
-  // ld.lld --wrap is broken on MIPS.
-  //
-#if !defined(__mips64) && !defined(__mips__)
+#if !defined(__mips64) && !defined(__mips__) /* ld.lld --wrap is broken on MIPS. FIXME */
   boost::stacktrace::this_thread::set_capture_stacktraces_at_throw(true);
   assert(boost::stacktrace::this_thread::get_capture_stacktraces_at_throw());
 #endif
@@ -76,58 +73,34 @@ int main(int argc, char **argv) {
     return res;
   };
 
-#if 0
-  //
-  // scan for '--' on the command-line, and if found, collect trailing arguments
-  //
-  std::vector<char *> dashdash_args;
-  std::vector<char *> __argv;
-  for (unsigned i = 0; i < argc; ++i) {
-    if (strcmp(argv[i], "--") == 0) {
-      for (unsigned j = i + 1; j < argc; ++j)
-        dashdash_args.push_back(argv[j]);
-
-      //
-      // shuffle argc/argv
-      //
-      __argv.reserve(argc);
-      for (unsigned j = 0; j < i; ++j)
-        __argv.push_back(argv[j]);
-      __argv.push_back(nullptr);
-
-      argc = i;
-      argv = &__argv[0];
-      break;
-    }
+  if (argc < 1) {
+    llvm::errs() << usage();
+    return 1;
   }
-#endif
 
   //
   // examine argv[0]
   //
+  std::vector<char *> _argv;
   std::string name_str;
   const char *name = nullptr;
-  std::unique_ptr<jove::Tool> tool;
 
-  auto make_tool = [&](const char *tool_name) -> void {
-    auto it = jove::AllTools.find(tool_name);
+  auto select_tool =
+      [&](const char *nm) -> std::optional<jove::ToolCreationProc> {
+    auto it = jove::AllTools.find(nm);
     if (it != jove::AllTools.end()) {
       auto &x = *it;
 
       name_str = x.first;
       name = name_str.c_str();
-      tool.reset(x.second()); /* instantiate */
+      return x.second;
     }
+
+    return std::nullopt;
   };
 
-  if (argc < 1) {
-    llvm::errs() << usage();
-    return 1;
-  }
-  make_tool(argv[0]);
-
-  std::vector<char *> _argv;
-  if (!tool) {
+  auto MaybeToolCreationProc = select_tool(argv[0]);
+  if (!MaybeToolCreationProc) {
     if (argc < 2) {
       WithColor::error() << llvm::formatv("unknown tool requested (\"{0}\")\n",
                                           argv[0]);
@@ -135,9 +108,8 @@ int main(int argc, char **argv) {
       llvm::errs() << usage();
       return 1;
     }
-    make_tool(argv[1]);
-
-    if (tool) {
+    MaybeToolCreationProc = select_tool(argv[1]);
+    if (MaybeToolCreationProc) {
       //
       // shuffle argc/argv
       //
@@ -158,9 +130,7 @@ int main(int argc, char **argv) {
   }
 
   assert(name);
-  assert(tool);
-
-  tool->_name = name;
+  assert(MaybeToolCreationProc);
 
   std::string message;
   {
@@ -174,7 +144,6 @@ int main(int argc, char **argv) {
   //
   // select tool
   //
-  llvm::cl::HideUnrelatedOptions({&tool->JoveCategory, &llvm::getColorCategory()});
   llvm::cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
     static const char *rev_tbl[][2] = {
 #define VERS(NAME, REV) {NAME, REV},
@@ -185,10 +154,7 @@ int main(int argc, char **argv) {
     for (unsigned i = 0; i < std::size(rev_tbl); ++i)
       OS << llvm::formatv("{0}\t{1}\n", rev_tbl[i][0], rev_tbl[i][1]);
   });
-  std::string Desc = (std::string("jove-") + name) + "\n";
-  llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
-
-  tool->UpdateVerbosity();
+  const std::string Desc = (std::string("jove-") + name) + "\n";
 
   ::srand(time(NULL));
   ::setlocale(LC_ALL, "C");
@@ -206,9 +172,15 @@ int main(int argc, char **argv) {
 #endif
   jove::setup_crash_handler();
 
-  const bool smartterm = tool->is_smart_terminal();
-
+  bool smartterm = false;
   try {
+    std::unique_ptr<jove::Tool> tool((*MaybeToolCreationProc)());
+    tool->_name = name;
+
+    llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
+    tool->UpdateVerbosity();
+    smartterm = tool->is_smart_terminal();
+
     return tool->Run();
   } catch (const boost::interprocess::bad_alloc &) {
     WithColor::error()
@@ -220,7 +192,7 @@ int main(int argc, char **argv) {
 
     message = llvm::formatv(
       "==================================================\n"
-      "{2}JOVE ASSERTION FAILURE{3} ({4}{0}{5})\n{1}"
+      "{2}JOVE ASSERTION FAILURE{3} {4}{0}{5}\n{1}"
       "==================================================\n",
       x.what(),
       boost::stacktrace::to_string(trace),
