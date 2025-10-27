@@ -6,7 +6,7 @@
 #include "recompile.h"
 #include "fork.h"
 #include "robust.h"
-#include "reap.h"
+#include "autoreap.h"
 
 #ifndef JOVE_NO_BACKEND
 
