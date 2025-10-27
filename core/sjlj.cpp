@@ -15,7 +15,7 @@ template <bool MT, bool MinSize>
 void ScanForSjLj(binary_base_t<MT, MinSize> &b,
                  llvm::object::Binary &TheBin,
                  explorer_t<MT, MinSize> &E) {
-  B::ref Bin(TheBin);
+  B::ref Bin = B::from_ref(TheBin);
 
   std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
