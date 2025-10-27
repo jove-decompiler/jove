@@ -54,7 +54,9 @@ extern "C" void __assert_fail(const char *__assertion, const char *__file,
 #define aassert(cond)                                                          \
   ({                                                                           \
     if (unlikely(!(cond))) {                                                   \
-      constexpr ::jove::StaticString ____msg{BOOST_PP_STRINGIZE(cond)};        \
+      constexpr ::jove::StaticString ____msg{                                  \
+        "(" BOOST_PP_STRINGIZE(cond) ") @ "                                    \
+        BOOST_PP_STRINGIZE(__FILE__) ":" BOOST_PP_STRINGIZE(__LINE__)};        \
       throw ::jove::assertion_failure_exception<____msg>();                    \
     }                                                                          \
     (void)0;                                                                   \
