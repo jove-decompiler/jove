@@ -6,6 +6,7 @@
 #include "recompile.h"
 #include "fork.h"
 #include "robust.h"
+#include "reap.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -123,19 +124,7 @@ JOVE_REGISTER_TOOL("server", ServerTool);
 static std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen);
 
 int ServerTool::Run(void) {
-  //
-  // Ignore SIGCHLD — children will be reaped automatically
-  //
-  struct sigaction sa;
-  sa.sa_handler = SIG_IGN;
-  sa.sa_flags = SA_NOCLDWAIT;
-  sigemptyset(&sa.sa_mask);
-  if (sigaction(SIGCHLD, &sa, nullptr) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("sigaction failed: {0}\n",
-                                        strerror(err));
-    return 1;
-  }
+  AutomaticallyReap();
 
   //
   // Create TCP socket
