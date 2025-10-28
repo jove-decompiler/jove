@@ -751,7 +751,7 @@ void UnserializeJVFromFile(jv_base_t<MT, MinSize> &out,
 			   jv_file_t &jv_file,
                            const char *path,
 			   bool text) {
-  std::ifstream ifs(path);
+  std::ifstream ifs(path, std::ios::in | std::ios::binary);
   if (!ifs.is_open())
     throw std::runtime_error("UnserializeJVFromFile: failed to open " +
                              std::string(path));
