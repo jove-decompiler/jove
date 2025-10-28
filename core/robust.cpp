@@ -4,9 +4,11 @@
 #include "eintr.h"
 #include "fd.h"
 #include "util.h"
+#include "sizes.h"
 
 #include <cerrno>
 #include <cstring>
+#include <climits>
 
 #include <fcntl.h>
 
@@ -14,30 +16,39 @@ namespace jove {
 namespace robust {
 
 template <bool IsRead>
-static ssize_t read_or_write(int fd, void *const buf, const size_t count) {
-  uint8_t *const _buf = (uint8_t *)buf;
+static ssize_t read_or_write(int fd, void *buf, size_t count) {
+  if (count == 0)
+    return 0;
+  __builtin_assume(count > 0);
+  if (count > static_cast<size_t>(SSIZE_MAX))
+    return -EOVERFLOW;
 
-  unsigned n = 0;
-  do {
-    unsigned left = count - n;
+  auto *p = static_cast<unsigned char *>(buf);
+  size_t n = 0;
+  while (n != count) {
+    size_t left  = count - n;
+    size_t chunk = left > static_cast<size_t>(SSIZE_MAX)
+                        ? static_cast<size_t>(SSIZE_MAX)
+                        : left;
 
-    ssize_t ret = IsRead ? ::_jove_sys_read(fd,  (char *)&_buf[n], left)
-                         : ::_jove_sys_write(fd, (char *)&_buf[n], left);
-    if (unlikely(ret == 0))
-      return -EIO;
+    ssize_t ret = IsRead
+      ? _jove_sys_read (fd, reinterpret_cast<char*>(p + n), chunk)
+      : _jove_sys_write(fd, reinterpret_cast<char*>(p + n), chunk);
 
-    if (unlikely(ret < 0)) {
-      if (ret == -EINTR)
-        continue;
+    if (ret == 0)
+      return IsRead ? -EIO : -EPIPE;
+    if (ret == -EINTR)
+      continue;
+    if (ret == -EAGAIN)
+      continue;
+    if (ret < 0)
       return ret;
-    }
-
     __builtin_assume(ret > 0);
 
-    n += ret;
-  } while (n != count);
+    n += static_cast<size_t>(ret);
+  }
 
-  return n;
+  return static_cast<ssize_t>(n);
 }
 
 ssize_t read(int fd, void *const buf, const size_t count) {
@@ -98,7 +109,7 @@ ssize_t sendfile(int fd, const char *file_path, size_t file_size) {
 ssize_t sendfile_with_size(int fd, const char *file_path) {
   ssize_t ret;
 
-  uint32_t file_size = size_of_file32(file_path);
+  uint64_t file_size = size_of_file(file_path);
 
   std::string file_size_str = std::to_string(file_size);
 
@@ -114,71 +125,115 @@ ssize_t sendfile_with_size(int fd, const char *file_path) {
 }
 
 ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
-  uint64_t file_size;
-  {
-    std::string file_size_str;
+  uint64_t file_size = 0;
 
-    char ch;
-    do {
-      ssize_t n = robust::read(fd, &ch, sizeof(char));
+  {
+    std::string s;
+    for (;;) {
+      unsigned char ch;
+      ssize_t n = robust::read(fd, &ch, 1);
       if (n < 0)
         return n;
+      if (n == 0)
+        return -EPIPE;
+      if (ch == '\0')
+        break;
+      s.push_back(static_cast<char>(ch));
+      if (s.size() > 32)
+        return -EINVAL;
+    }
 
-      assert(n == sizeof(char));
-
-      file_size_str.push_back(ch);
-    } while (ch != '\0');
-
-    file_size = std::strtoul(file_size_str.c_str(), nullptr, 10);
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s.c_str(), &end, 10);
+    if (errno == ERANGE || end == s.c_str() || *end != '\0')
+      return -EINVAL;
+    file_size = static_cast<uint64_t>(v);
   }
 
-  if (unlikely(!file_size))
-    throw std::runtime_error("robust::receive_file_with_size: !file_size");
+  if (file_size > static_cast<uint64_t>(SSIZE_MAX))
+    return -EOVERFLOW;
 
   int pipefd[2];
-  if (::pipe(pipefd) < 0)
+  if (::pipe2(pipefd, O_CLOEXEC) < 0)
     return -errno;
 
   scoped_fd rfd(pipefd[0]);
   scoped_fd wfd(pipefd[1]);
 
-  scoped_fd out_fd(::open(out, O_WRONLY | O_TRUNC | O_CREAT | O_LARGEFILE, file_perm));
+  scoped_fd out_fd(::open(
+      out, O_WRONLY | O_TRUNC | O_CREAT | O_LARGEFILE | O_CLOEXEC, file_perm));
   if (!out_fd)
     return -errno;
 
-  size_t remaining = file_size;
-  const size_t SPLICE_CHUNK = 64 * 1024; // 64KB per splice
+  constexpr size_t SPLICE_CHUNK = 1 * MiB;
+
+  uint64_t remaining = file_size;
   while (remaining > 0) {
-    size_t to_move = std::min(remaining, SPLICE_CHUNK);
-
     // socket → pipe
-    ssize_t n = ::splice(fd, nullptr, wfd.get(), nullptr, to_move,
-                         SPLICE_F_MOVE | SPLICE_F_MORE);
-    if (n < 0)
-      return -errno;
+    ssize_t n;
+    for (;;) {
+      const size_t to_move =
+          static_cast<size_t>(std::min<uint64_t>(remaining, SPLICE_CHUNK));
 
-    if (n == 0)
-      break;
+      n = ::splice(fd, nullptr, wfd.get(), nullptr, to_move,
+                   SPLICE_F_MOVE | SPLICE_F_MORE);
+      if (n == 0)
+        return -EPIPE;
+      if (n > 0)
+        break;
+      int err = errno;
+      if (err == EINTR || err == EAGAIN)
+        continue;
+      return -err;
+    }
 
-    assert(n > 0);
+    // pipe → file (drain exactly 'n' bytes)
+    ssize_t left = n;
+    while (left > 0) {
+      ssize_t m;
+      for (;;) {
+        m = ::splice(rfd.get(), nullptr, out_fd.get(), nullptr, left,
+                     SPLICE_F_MOVE);
+        if (m == 0)
+          return -EIO;
+        if (m > 0)
+          break;
+        __builtin_assume(m < 0);
 
-    // pipe → file
-    ssize_t m = ::splice(rfd.get(), nullptr, out_fd.get(), nullptr, n,
-                         SPLICE_F_MOVE | SPLICE_F_MORE);
-    if (m < 0)
-      return -errno;
+        int err = errno;
+        if (err == EINTR || err == EAGAIN)
+          continue;
 
-    if (m == 0)
-      throw std::runtime_error("robust::receive_file_with_size: !m");
+        if (err == EIO || err == EOPNOTSUPP || err == EINVAL || err == ENOSYS) {
+          //
+          // fallback
+          //
+          std::vector<uint8_t> buf;
+          buf.resize(left);
 
-    assert(m > 0);
-    remaining -= m;
+          ssize_t rd = robust::read(rfd.get(), &buf[0], left);
+          if (rd < 0)
+            return rd;
+          ssize_t wr = robust::write(out_fd.get(), &buf[0], rd);
+          if (wr < 0)
+            return wr;
+
+          aassert(wr == rd);
+
+          m = rd;
+          break;
+        }
+
+        return -err;
+      }
+
+      left -= m;
+      remaining -= m;
+    }
   }
 
-  if (remaining != 0)
-    throw std::runtime_error("robust::receive_file_with_size: remaining > 0");
-
-  return file_size;
+  return static_cast<ssize_t>(file_size);
 }
 
 }
