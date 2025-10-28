@@ -31,15 +31,13 @@ static ssize_t read_or_write(int fd, void *buf, size_t count) {
                         ? static_cast<size_t>(SSIZE_MAX)
                         : left;
 
-    ssize_t ret = IsRead
+    const ssize_t ret = IsRead
       ? _jove_sys_read (fd, reinterpret_cast<char*>(p + n), chunk)
       : _jove_sys_write(fd, reinterpret_cast<char*>(p + n), chunk);
 
     if (ret == 0)
       return IsRead ? -EIO : -EPIPE;
-    if (ret == -EINTR)
-      continue;
-    if (ret == -EAGAIN)
+    if (ret == -EINTR || ret == -EAGAIN)
       continue;
     if (ret < 0)
       return ret;
@@ -125,9 +123,7 @@ ssize_t sendfile_with_size(int fd, const char *file_path) {
 }
 
 ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
-  uint64_t file_size = 0;
-
-  {
+  const uint64_t file_size = ({
     std::string s;
     for (;;) {
       unsigned char ch;
@@ -148,11 +144,13 @@ ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
     unsigned long long v = std::strtoull(s.c_str(), &end, 10);
     if (errno == ERANGE || end == s.c_str() || *end != '\0')
       return -EINVAL;
-    file_size = static_cast<uint64_t>(v);
-  }
 
-  if (file_size > static_cast<uint64_t>(SSIZE_MAX))
-    return -EOVERFLOW;
+    const size_t len = static_cast<uint64_t>(v);
+    if (len > static_cast<uint64_t>(SSIZE_MAX))
+      return -EOVERFLOW;
+
+    len;
+  });
 
   int pipefd[2];
   if (::pipe2(pipefd, O_CLOEXEC) < 0)
