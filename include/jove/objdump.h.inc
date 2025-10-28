@@ -30,7 +30,7 @@ public:
   objdump_thinks_t &operator=(objdump_thinks_t<Alloc, MT2> &&other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
-	return *this;
+        return *this;
     }
 
     begin = std::move(other.begin);
@@ -43,7 +43,7 @@ public:
   operator=(const objdump_thinks_t<Alloc, MT2> &other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
-	return *this;
+        return *this;
     }
 
     begin = other.begin;
