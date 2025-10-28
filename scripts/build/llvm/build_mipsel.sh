@@ -8,6 +8,8 @@ TRIPLE="mipsel-linux-gnu"
 OURCFLAGS=\
 "--target=$TRIPLE"\
 " -Oz"\
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
 " -gdwarf-4"\
 " -g1"\
 " -gz=none"\

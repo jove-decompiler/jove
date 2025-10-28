@@ -10,6 +10,8 @@ TRIPLE="x86_64-linux-gnu"
 OURCFLAGS=\
 "--target=$TRIPLE"\
 " -O3"\
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
 " -gdwarf-4"\
 " -g1"\
 " -gz=none"\
