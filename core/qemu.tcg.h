@@ -1,5 +1,13 @@
 #pragma once
 #ifdef __cplusplus
+//
+// We shouldn't be using *any* data structures from QEMU whose memory layout
+// is altered in some way under a C++ compilation. The CPUArchState, for
+// example, is intentionally never referenced directly. If we need to know the
+// offset of a particular field, we simply get it from asm-offsets.c.
+//
+#pragma GCC diagnostic error "-Wc++-compat"
+
 extern "C" {
 #endif
 
@@ -49,6 +57,7 @@ extern "C" {
 
 #ifdef __cplusplus
 }
+#pragma GCC diagnostic pop
 
 #include <type_traits>
 
