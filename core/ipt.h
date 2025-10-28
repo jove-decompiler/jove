@@ -432,7 +432,7 @@ protected:
 
           if (b.Analysis.objdump_thinks.empty_unlocked())
             const_cast<binary_t *>(&b)->Analysis.objdump_thinks.run(
-                b.is_file() ? b.Name.c_str() : nullptr, *Bin);
+                b.is_file() ? b.Name.c_str() : nullptr, Bin.get());
         }
       }
     }
@@ -1777,7 +1777,7 @@ protected:
       } else if (FrBIdx != ToBIdx) {
         handle_indirect_call();
         fr_b.FixAmbiguousIndirectJump(FrTermAddr, explorer,
-                                      *state.for_binary(fr_b).Bin, jv);
+                                      state.for_binary(fr_b).Bin.get(), jv);
       } else {
         assert(FrBIdx == ToBIdx);
 
@@ -1867,7 +1867,7 @@ public:
         sb_parser(sb_parser),
         state(jv),
         PageSize(sysconf(_SC_PAGESIZE)),
-        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
         exe(jv.Binaries.at(0)),
         CurrPoint(exe),
         ignore_trunc_aux(ignore_trunc_aux),

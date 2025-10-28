@@ -24,10 +24,8 @@ template <bool MT, bool MinSize>
 template <bool MT2, bool MinSize2>
 void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
                                    explorer_t<MT2, MinSize2> &explorer,
-                                   llvm::object::Binary &TheBin,
+                                   const B::ref &Bin,
                                    const AddOptions_t &Options) {
-  B::ref Bin = B::from_ref(TheBin);
-
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
   b.IsVDSO = false;
@@ -620,7 +618,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
                         GET_VALUE(BOOST_PP_SEQ_ELEM(3, product))> &,           \
           explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product)),                 \
                      GET_VALUE(BOOST_PP_SEQ_ELEM(3, product))> &,              \
-          llvm::object::Binary &, const AddOptions_t &);
+          const B::ref &, const AddOptions_t &);
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2)(VALUES_TO_INSTANTIATE_WITH3)(VALUES_TO_INSTANTIATE_WITH4))
 
 }

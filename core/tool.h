@@ -172,7 +172,8 @@ public:
         std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
   }
 
-  template <typename ComputeArgs, typename ComputeEnvs>
+  template <typename ComputeArgs,
+            typename ComputeEnvs>
   int RunTool(const char *tool_name,
       ComputeArgs compute_args,
       ComputeEnvs compute_envs,
@@ -247,7 +248,7 @@ public:
   static std::string jove_dir(void);
   static std::string get_path_to_jv(void);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
-  bool is_smart_terminal(int fd = STDOUT_FILENO);
+  bool is_smart_terminal(int fd = STDOUT_FILENO) const;
 
   const std::string &temporary_dir(void);
 

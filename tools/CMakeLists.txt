@@ -141,6 +141,7 @@ set(JOVE_SOURCES
     ../core/byval.cpp
     ../core/disas.cpp
     ../core/elf.cpp
+    ../core/except.cpp
     ../core/explore.cpp
     ../core/fd.cpp
     ../core/flow.cpp
@@ -172,6 +173,7 @@ set(JOVE_SOURCES
     ../core/symbolizer.cpp
     ../core/tcg.cpp
     ../core/temp.cpp
+    ../core/term.cpp
     ../core/tool.cpp # has to come before all the tools
     ../core/util.cpp
     ../core/vdso.cpp

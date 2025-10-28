@@ -304,7 +304,7 @@ int InitTool::Run(void) {
           if (catch_exception([&]() {
                 // TODO verbose print command
                 b.Analysis.objdump_thinks.run(
-                    b.is_file() ? b.Name.c_str() : nullptr, *Bin);
+                    b.is_file() ? b.Name.c_str() : nullptr, Bin.get());
               })) {
             if (IsVerbose()) {
               WithColor::warning() << llvm::formatv(
@@ -317,7 +317,7 @@ int InitTool::Run(void) {
         // explore them for real
         //
         try {
-          jv.DoAdd(b, explorer, *Bin, AddOptions);
+          jv.DoAdd(b, explorer, Bin.get(), AddOptions);
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());

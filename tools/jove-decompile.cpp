@@ -173,7 +173,7 @@ void DecompileTool::queue_binaries(void) {
 }
 
 int DecompileTool::Run(void) {
-  IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+  IsCOFF = B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get());
 
   unordered_map<std::string, binary_index_t> soname_map;
 
@@ -589,7 +589,7 @@ int DecompileTool::Run(void) {
       ofs << "\n";
     };
 
-    const bool IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+    const bool IsCOFF = B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get());
 
     std::string target_arg = "--target=" + getTargetTriple(IsCOFF).normalize();
     {

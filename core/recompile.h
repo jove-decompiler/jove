@@ -169,7 +169,7 @@ public:
         disas(disas),
         TCG(TCG),
         locator_(locator_), state(jv),
-        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {
     if (IsCOFF) {
       if (!opts.ForeignLibs)
         throw std::runtime_error("COFF is only supported in executable-only mode");

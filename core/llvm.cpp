@@ -688,9 +688,9 @@ int llvm_t<MT, MinSize>::go(void) {
   }
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
-  assert(state.for_binary(Binary).Bin.get());
+  assert(state.for_binary(Binary).Bin);
 
-  IsCOFF = B::is_coff(*state.for_binary(Binary).Bin);
+  IsCOFF = B::is_coff(state.for_binary(Binary).Bin.get());
   if (IsCOFF) {
     if (!opts.ForeignLibs)
       throw std::runtime_error("COFF is only supported in exe-only mode");
@@ -731,7 +731,7 @@ int llvm_t<MT, MinSize>::go(void) {
     for_each_binary_if(
         jv,
         [&](auto &b) -> bool {
-          return state.for_binary(b).Bin.get() != nullptr &&
+          return state.for_binary(b).Bin &&
                  state.for_binary(b)._elf.OptionalDynSymRegion;
         },
         [&](auto &b) {
@@ -1230,7 +1230,7 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
 
     binary_state_t &x = state.for_binary(Binary);
 
-    if (B::is_coff(*x.Bin))
+    if (B::is_coff(x.Bin.get()))
       _coff.DLL2Binary.emplace(
           lowered_string(fs::path(b.path_str()).filename().string()),
           index_of_binary(b, jv));
@@ -3017,7 +3017,7 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
 
     binary_state_t &x = state.for_binary(jv.Binaries.at((*b_it).second));
 
-    assert(B::is_coff(*x.Bin));
+    assert(B::is_coff(x.Bin.get()));
     COFFO &O = llvm::cast<COFFO>(*x.Bin);
 
     bool isCode = true;

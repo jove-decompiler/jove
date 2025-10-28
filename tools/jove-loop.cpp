@@ -105,6 +105,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> DumpPreOpt1;
     cl::opt<bool> Symbolize;
     cl::opt<bool> VerifyBitcode;
+    cl::opt<bool> ForceText;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -328,6 +329,12 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           VerifyBitcode(
               "verify-bitcode",
               cl::desc("Run the LLVM verifier"),
+              cl::cat(JoveCategory)),
+
+          ForceText(
+              "force-text",
+              cl::desc("Force text serialization"),
+              cl::init(true),
               cl::cat(JoveCategory))
 
           {}
@@ -356,7 +363,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 public:
   LoopTool()
       : opts(JoveCategory),
-        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {}
 
   int Run(void) override;
 };
@@ -735,7 +742,10 @@ skip_run:
         magic[4];
       });
 
-      const bool text = our_endianness != other_endianness;
+      const bool text = opts.ForceText || (our_endianness != other_endianness);
+      if (IsVerbose())
+        WithColor::note() << llvm::formatv("serializing to {0}\n",
+                                           text ? "text" : "binary");
 
       //
       // send header
@@ -757,6 +767,7 @@ skip_run:
         headerBits.set(11, IsToolMinSize);
         headerBits.set(12, opts.SoftfpuBitcode);
         headerBits.set(13, opts.VerifyBitcode);
+        headerBits.set(14, opts.ForceText);
 
         uint16_t header = headerBits.to_ullong();
 
@@ -1174,6 +1185,9 @@ skip_run:
           });
         });
       }
+
+      char ch = 'x';
+      aassert(robust::write(remote_fd.get(), &ch, sizeof(ch)) == sizeof(ch));
     } else { /* local */
 #ifdef JOVE_NO_BACKEND
       std::abort();

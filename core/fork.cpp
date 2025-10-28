@@ -4,6 +4,7 @@
 #include "pidfd.h"
 #include "eintr.h"
 #include "assert.h"
+#include "except.h"
 
 #include <poll.h>
 #include <linux/prctl.h>  /* Definition of PR_* constants */
@@ -36,8 +37,12 @@ pid_t long_fork(std::function<int(void)> f) {
       }
     }
 
-    int rc = 1;
-    ignore_exception([&] { rc = f(); });
+    std::string msg;
+    int rc = EXIT_FAILURE;
+    if (!handle_exceptions([&] { rc = f(); }, msg)) {
+      fprintf(stderr, "%s\n", msg.c_str());
+      fflush(stderr);
+    }
 
     for (;;)
       _exit(rc);

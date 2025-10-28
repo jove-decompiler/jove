@@ -230,7 +230,7 @@ int Trace2LinesTool::Run(void) {
       if (binary.IsVDSO)
         die("TODO: [vdso]");
 
-      bool IsCOFF = B::is_coff(*state.for_binary(binary).Bin);
+      bool IsCOFF = B::is_coff(state.for_binary(binary).Bin.get());
       if (IsCOFF) {
         std::string path_to_mingw32_addrline =
             locator().mingw_addr2line(IsTarget32);

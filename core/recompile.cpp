@@ -1276,7 +1276,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
 
     llvm_options_t llvm_opts(llvm_options);
 
-    if (B::is_coff(*state.for_binary(b).Bin)) {
+    if (B::is_coff(state.for_binary(b).Bin.get())) {
       if (b.IsExecutable)
         llvm_opts.LinkerScript = ldfp;
     } else {

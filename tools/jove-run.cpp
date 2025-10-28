@@ -237,7 +237,7 @@ public:
         shared_mem(boost::interprocess::anonymous_shared_memory(shared_region_size)),
         shared_buff(boost::interprocess::create_only, shared_mem.get_address(), shared_region_size),
         shared_data(*shared_buff.construct<shared_data_t>(boost::interprocess::anonymous_instance)()),
-        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin))
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get()))
   {}
 
   int Run(void) override;

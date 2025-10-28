@@ -67,14 +67,6 @@ static inline Result _must_be_coff(ref Bin, std::function<Result(COFFO &)> proc)
   return proc(*llvm::cast<COFFO>(&Bin.get()));
 }
 
-constexpr bool is_elf(const llvm::object::Binary &Bin) {
-  return llvm::isa<ELFO>(&Bin);
-}
-
-constexpr bool is_coff(const llvm::object::Binary &Bin) {
-  return llvm::isa<COFFO>(&Bin);
-}
-
 static inline bool is_elf(ref Bin) {
   const bool res = Bin.tag() == ELFTag;
   assert(res ? llvm::isa<ELFO>(&Bin.get()) : true);
@@ -91,10 +83,10 @@ static inline ref from_ref(llvm::object::Binary &TheRef) {
   aassert(llvm::isa<llvm::object::ObjectFile>(&TheRef));
 
   ref res(TheRef);
-  if (is_coff(TheRef)) {
+  if (llvm::isa<COFFO>(&TheRef)) {
     res.set_tag(COFFTag);
     return res;
-  } else if (is_elf(TheRef)) {
+  } else if (llvm::isa<ELFO>(&TheRef)) {
     res.set_tag(ELFTag);
     return res;
   }

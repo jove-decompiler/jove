@@ -956,7 +956,7 @@ struct binary_base_t {
   //
   bool FixAmbiguousIndirectJump(taddr_t TermAddr,
                                 explorer_t<MT, MinSize> &,
-                                llvm::object::Binary &,
+                                const B::ref &,
                                 jv_base_t<MT, MinSize> &);
 
   std::string_view data(void) const {
@@ -1363,7 +1363,7 @@ public:
   template <bool MT2, bool MinSize2>
   void DoAdd(binary_base_t<MT2, MinSize2> &,
              explorer_t<MT2, MinSize2> &,
-             llvm::object::Binary &,
+             const B::ref &,
              const AddOptions_t &);
 
   friend adds_binary_t;

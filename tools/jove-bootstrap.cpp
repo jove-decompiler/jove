@@ -1411,7 +1411,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   return 1;
                 }
 
-                if (!B::is_elf(*Bin) && !B::is_coff(*Bin)) {
+                if (!B::is_elf(Bin.get()) && !B::is_coff(Bin.get())) {
                   RightArch = false;
 
                   if (IsVerbose())
@@ -1567,7 +1567,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           break;
 
         if (b.FixAmbiguousIndirectJump(TermAddr, *E,
-                                       *state.for_binary(b).Bin, jv))
+                                       state.for_binary(b).Bin.get(), jv))
           ++NumChanged;
       }
     });

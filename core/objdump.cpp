@@ -13,13 +13,12 @@
 namespace jove {
 
 template <typename Alloc, bool MT>
-int objdump_thinks_t<Alloc, MT>::run(const char *filename,
-                                     llvm::object::Binary &Bin) {
+int objdump_thinks_t<Alloc, MT>::run(const char *filename, const B::ref &Bin) {
   std::unique_ptr<temp_exe> the_exe;
   if (!filename) {
     the_exe = std::make_unique<temp_exe>(
-        Bin.getMemoryBufferRef().getBufferStart(),
-        Bin.getMemoryBufferRef().getBufferSize(),
+        Bin.get().getMemoryBufferRef().getBufferStart(),
+        Bin.get().getMemoryBufferRef().getBufferSize(),
         "objdump-" TARGET_ARCH_NAME, false);
     the_exe->store();
     filename = the_exe->path().c_str();

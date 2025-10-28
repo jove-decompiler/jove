@@ -6,7 +6,9 @@
 #include "reflink.h"
 #include "ansi.h"
 #include "tbb_hacks.h"
+#include "except.h"
 #include "crash.h"
+#include "term.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -132,8 +134,10 @@ int main(int argc, char **argv) {
   assert(name);
   assert(MaybeToolCreationProc);
 
-  std::string message;
+  int rc = EXIT_FAILURE;
   {
+  std::string msg;
+
 #ifndef JOVE_NO_TBB
   BOOST_SCOPE_DEFER [] {
     jove::tbb_hacks::pre_fork();
@@ -172,59 +176,28 @@ int main(int argc, char **argv) {
 #endif
   jove::setup_crash_handler();
 
-  bool smartterm = false;
-  try {
-    std::unique_ptr<jove::Tool> tool((*MaybeToolCreationProc)());
-    tool->_name = name;
+  if (jove::handle_exceptions([&] {
+        std::unique_ptr<jove::Tool> tool((*MaybeToolCreationProc)());
+        tool->_name = name;
 
-    llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
-    tool->UpdateVerbosity();
-    smartterm = tool->is_smart_terminal();
+        llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
+        tool->UpdateVerbosity();
+        jove::smartterm = tool->is_smart_terminal();
 
-    return tool->Run();
-  } catch (const boost::interprocess::bad_alloc &) {
-    WithColor::error()
-        << "exhausted all available memory for .jv. try removing ~/.jv.* and "
-           "setting the JVSIZE environment variable to something larger than "
-           "the default (e.g. JVSIZE=8G jove init /path/to/program)\n";
-  } catch (const jove::assertion_failure_base &x) {
-    auto trace = boost::stacktrace::stacktrace::from_current_exception();
-
-    message = llvm::formatv(
-      "==================================================\n"
-      "{2}JOVE ASSERTION FAILURE{3} {4}{0}{5}\n{1}"
-      "==================================================\n",
-      x.what(),
-      boost::stacktrace::to_string(trace),
-      smartterm ? __ANSI_BOLD_RED : "",
-      smartterm ? __ANSI_NORMAL_COLOR : "",
-      smartterm ? __ANSI_YELLOW : "",
-      smartterm ? __ANSI_NORMAL_COLOR : "").str();
-  } catch (const std::exception &x) {
-    auto trace = boost::stacktrace::stacktrace::from_current_exception();
-
-    message = llvm::formatv("{2}{0}{3}\n{1}", x.what(),
-                            boost::stacktrace::to_string(trace),
-                            smartterm ? __ANSI_BOLD_RED : "",
-                            smartterm ? __ANSI_NORMAL_COLOR : "").str();
-  } catch (...) {
-    auto trace = boost::stacktrace::stacktrace::from_current_exception();
-
-    WithColor::error() << llvm::formatv("exception was thrown!\n{0}",
-                                        boost::stacktrace::to_string(trace));
-  }
-
-  }
+        rc = tool->Run();
+      }, msg))
+    return rc;
 
   //
-  // if we get here, an exception occurred. some thing may be in an "undefined"
+  // if we get here, an exception occurred. something *might* be in an undefined
   // state. At this point, behave as though `execve("/usr/bin/false")` occurred.
   //
-  llvm::errs() << message;
+  llvm::errs() << msg << '\n';
   llvm::errs().flush();
+  }
 
   for (;;)
-    _exit(1);
+    _exit(rc);
 
   __builtin_unreachable();
 }
@@ -423,7 +396,7 @@ std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
   return res;
 }
 
-bool Tool::is_smart_terminal(int fd) {
+bool Tool::is_smart_terminal(int fd) const {
   if (opt_DumbTerm)
     return false;
 

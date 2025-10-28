@@ -96,5 +96,5 @@ public:
     return false;
   }
 
-  int run(const char *filename, llvm::object::Binary &Bin);
+  int run(const char *filename, const B::ref &Bin);
 };

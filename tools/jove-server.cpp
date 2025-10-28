@@ -264,8 +264,6 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     magic[4];
   });
 
-  const bool text = our_endianness != other_endianness;
-
   //
   // create a temporary directory
   //
@@ -328,7 +326,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   // parse the header
   //
   struct {
-    bool DFSan, ForeignLibs, Trace, Optimize, SkipCopyRelocHack, DebugSjlj, ABICalls, RuntimeMT, CallStack, LayOutSections, MT, MinSize, SoftfpuBitcode, VerifyBitcode;
+    bool DFSan, ForeignLibs, Trace, Optimize, SkipCopyRelocHack, DebugSjlj, ABICalls, RuntimeMT, CallStack, LayOutSections, MT, MinSize, SoftfpuBitcode, VerifyBitcode, ForceText;
   } options;
 
   std::bitset<16> headerBits(header);
@@ -347,6 +345,12 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   options.MinSize           = headerBits.test(11);
   options.SoftfpuBitcode    = headerBits.test(12);
   options.VerifyBitcode     = headerBits.test(13);
+  options.ForceText         = headerBits.test(14);
+
+  const bool text = options.ForceText || (our_endianness != other_endianness);
+  if (IsVerbose())
+    WithColor::note() << llvm::formatv("serializing to {0}\n",
+                                       text ? "text" : "binary");
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -432,7 +436,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
 
     IsCOFF = ({
       auto Bin = B::Create(jv.Binaries.at(0).data());
-      B::is_coff(*Bin);
+      B::is_coff(Bin.get());
     });
 
     disas_t disas;
@@ -539,6 +543,10 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
               std::string("robust::sendfile_with_size failed: ") +
               strerror(-ret));
       }
+
+      char ch;
+      aassert(robust::read(data_socket, &ch, sizeof(ch)) == sizeof(ch));
+      aassert(ch == 'x');
     }
   };
 

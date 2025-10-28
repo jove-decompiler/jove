@@ -36,11 +36,11 @@ unique_ptr Create(llvm::StringRef Data) {
   llvm::object::Binary &Bin = *TheBin;
 
   std::string Desc;
-  const bool Suitable = is_elf(Bin) || is_coff(Bin);
+  const bool Suitable = llvm::isa<ELFO>(&Bin) || llvm::isa<COFFO>(&Bin);
   if (auto *Obj = llvm::dyn_cast<llvm::object::ObjectFile>(&Bin)) {
     if (Suitable && Obj->getArch() == TripleArchType)
       return adopt_with_tag<llvm::object::Binary, TagBits>(
-          TheBin.release(), static_cast<unsigned>(is_coff(Bin)));
+          TheBin.release(), static_cast<unsigned>(llvm::isa<COFFO>(&Bin)));
 
     Desc = Obj->makeTriple().str();
   } else {

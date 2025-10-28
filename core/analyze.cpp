@@ -41,7 +41,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
     : options(options), TCG(TCG), jv_file(jv_file), jv(jv), state(jv), cg(jv),
-      IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
+      IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
       Context(Context),
       inflight(inflight), done(done) {
   //

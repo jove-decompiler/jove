@@ -339,7 +339,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
       B::unique_ptr Bin = B::Create(b.data());
 
       b.Analysis.objdump_thinks.run(b.is_file() ? b.Name.c_str() : nullptr,
-                                    *Bin);
+                                    Bin.get());
     }
 
     on_newbin(b);
@@ -366,7 +366,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   try {
     Bin = B::Create(data);
 
-    if (!B::is_elf(*Bin) && !B::is_coff(*Bin))
+    if (!B::is_elf(Bin.get()) && !B::is_coff(Bin.get()))
       throw std::runtime_error("incorrect architecture for binary");
   } catch (...) {
     //
@@ -389,7 +389,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
       explorer_t<false /* !MT */, MinSize> explorer_(explorer);
       explorer_.set_jv(boost::none);
 
-      jv.DoAdd(b, explorer_, *Bin, Options);
+      jv.DoAdd(b, explorer_, Bin.get(), Options);
     }
 
     //
