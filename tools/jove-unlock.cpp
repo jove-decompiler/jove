@@ -1,6 +1,7 @@
 #include "tool.h"
 #include <iostream>
 #include <unistd.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 
 namespace cl = llvm::cl;
@@ -28,24 +29,38 @@ int UnlockTool::Run(void) {
     HumanOut() << "Standard input is not a TTY, skipping confirmation.\n";
   }
 
-  jv.Binaries.__force_reset_access();
+  static std::conditional_t<AreWeMT, std::mutex, std::monostate> Mtx;
+
+#define FORCE_RESET_ACCESS(var)                                                \
+  do {                                                                         \
+    std::conditional_t<AreWeMT, std::unique_lock<std::mutex>, nop_t> lck(Mtx); \
+                                                                               \
+    if (IsVerbose())                                                           \
+      HumanOut() << llvm::formatv("Unlocking {0}...\n",                        \
+                                  BOOST_PP_STRINGIZE(var));                    \
+    (var).__force_reset_access();                                              \
+    if (IsVerbose())                                                           \
+      HumanOut() << llvm::formatv("Unlocked {0}.\n",                           \
+                                  BOOST_PP_STRINGIZE(var));                    \
+  } while (false)
+
+  FORCE_RESET_ACCESS(jv.Binaries);
   std::for_each(
       maybe_par_unseq,
       jv.Binaries.begin(),
       jv.Binaries.end(), [&](binary_t &b) {
-        b.BBMap.__force_reset_access();
-        b.Analysis.ICFG.__force_reset_access();
-        b.Analysis.Functions.__force_reset_access();
+        FORCE_RESET_ACCESS(b.BBMap);
+        FORCE_RESET_ACCESS(b.Analysis.ICFG);
+        FORCE_RESET_ACCESS(b.Analysis.Functions);
 
-        auto &ICFG = b.Analysis.ICFG;
-        auto it_pair = boost::vertices(ICFG.container());
+        auto it_pair = boost::vertices(b.Analysis.ICFG.container());
         std::for_each(maybe_par_unseq,
                       it_pair.first,
                       it_pair.second, [&](bb_t bb) {
-                        auto &bbprop = ICFG.container()[bb];
+                        auto &bbprop = b.Analysis.ICFG.container()[bb];
 
-                        bbprop.__force_reset_access();
-                        bbprop.pub.__force_reset_access();
+                        FORCE_RESET_ACCESS(bbprop);
+                        FORCE_RESET_ACCESS(bbprop.pub);
         });
       });
 
