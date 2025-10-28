@@ -35,15 +35,20 @@ static ssize_t read_or_write(int fd, void *buf, size_t count) {
       ? _jove_sys_read (fd, reinterpret_cast<char*>(p + n), chunk)
       : _jove_sys_write(fd, reinterpret_cast<char*>(p + n), chunk);
 
-    if (ret == 0)
-      return IsRead ? -EIO : -EPIPE;
+    if (ret > 0) {
+      n += static_cast<size_t>(ret);
+      continue;
+    }
+
     if (ret == -EINTR || ret == -EAGAIN)
       continue;
-    if (ret < 0)
-      return ret;
-    __builtin_assume(ret > 0);
 
-    n += static_cast<size_t>(ret);
+    if (ret == 0)
+      return -EPIPE;
+
+    aassert(ret < 0);
+    return ret;
+
   }
 
   return static_cast<ssize_t>(n);
@@ -123,7 +128,7 @@ ssize_t sendfile_with_size(int fd, const char *file_path) {
 }
 
 ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
-  const uint64_t file_size = ({
+  const size_t file_size = ({
     std::string s;
     for (;;) {
       unsigned char ch;
@@ -132,6 +137,7 @@ ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
         return n;
       if (n == 0)
         return -EPIPE;
+      aassert(n == 1);
       if (ch == '\0')
         break;
       s.push_back(static_cast<char>(ch));
@@ -176,10 +182,10 @@ ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
 
       n = ::splice(fd, nullptr, wfd.get(), nullptr, to_move,
                    SPLICE_F_MOVE | SPLICE_F_MORE);
-      if (n == 0)
-        return -EPIPE;
       if (n > 0)
         break;
+      if (n == 0)
+        return -EPIPE;
       int err = errno;
       if (err == EINTR || err == EAGAIN)
         continue;
@@ -189,15 +195,15 @@ ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
     // pipe → file (drain exactly 'n' bytes)
     ssize_t left = n;
     while (left > 0) {
-      ssize_t m;
       for (;;) {
-        m = ::splice(rfd.get(), nullptr, out_fd.get(), nullptr, left,
-                     SPLICE_F_MOVE);
-        if (m == 0)
-          return -EIO;
-        if (m > 0)
+        const ssize_t m = ::splice(rfd.get(), nullptr,
+                                   out_fd.get(), nullptr,
+                                   left, SPLICE_F_MOVE);
+        if (m > 0) {
+          left -= m;
+          remaining -= m;
           break;
-        __builtin_assume(m < 0);
+        }
 
         int err = errno;
         if (err == EINTR || err == EAGAIN)
@@ -213,21 +219,22 @@ ssize_t receive_file_with_size(int fd, const char *out, unsigned file_perm) {
           ssize_t rd = robust::read(rfd.get(), &buf[0], left);
           if (rd < 0)
             return rd;
+          aassert(rd == left);
+
           ssize_t wr = robust::write(out_fd.get(), &buf[0], rd);
           if (wr < 0)
             return wr;
+          aassert(wr == left);
 
           aassert(wr == rd);
 
-          m = rd;
+          remaining -= left;
+          left = 0;
           break;
         }
 
         return -err;
       }
-
-      left -= m;
-      remaining -= m;
     }
   }
 
