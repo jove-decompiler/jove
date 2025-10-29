@@ -53,7 +53,7 @@ enum class ExecOpt : uint32_t {
   MergeStderrToStdout = 1u << 3, // make STDERR point to STDOUT
   AppendRedirects     = 1u << 4, // O_APPEND instead of O_TRUNC when redirecting
   CloseStdin          = 1u << 5, // connect stdin to /dev/null
-  // Slurp
+  // Slurp FIXME
 };
 
 constexpr std::underlying_type_t<ExecOpt>
