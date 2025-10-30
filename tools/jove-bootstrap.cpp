@@ -617,11 +617,11 @@ int BootstrapTool::Run(void) {
 
     return TracerLoop(child);
   }
-    //
-    // mode 2: create new process
-    //
-    const pid_t child = ({
 
+  //
+  // mode 2: create new process
+  //
+  const pid_t child = ({
     std::string path_to_exe;
     try {
       path_to_exe = fs::canonical(opts.Prog).string();
@@ -711,76 +711,76 @@ int BootstrapTool::Run(void) {
 
           DropPrivileges();
         });
-    });
+  });
 
+  //
+  // observe the (initial) stop
+  //
+  if (IsVerbose())
+    HumanOut() << "parent: waiting for initial stop of child " << child
+               << "...\n";
+
+  {
+    int status;
+    do
+      ::waitpid(child, &status, 0);
+    while (!WIFSTOPPED(status));
+  }
+
+  if (IsVerbose())
+    HumanOut() << "parent: initial stop observed\n";
+
+  //
+  // initialize objects required for exploration.
+  //
+  disas = std::make_unique<disas_t>();
+  tcg = std::make_unique<tiny_code_generator_t>();
+  if (opts.Symbolize)
+  symbolizer = std::make_unique<symbolizer_t>();
+  E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
+      jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+  E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
+                              std::placeholders::_1, std::placeholders::_2));
+  E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
+                              std::placeholders::_1, std::placeholders::_2));
+
+  //
+  // look around, what do we see?
+  //
+  ScanAddressSpace(child);
+
+  if (IsVerbose()) {
     //
-    // observe the (initial) stop
+    // we should be at the entry point of the dynamic linker
     //
+    cpu_state_t cpu_state;
+    _ptrace_get_cpu_state(child, cpu_state);
+
     if (IsVerbose())
-      HumanOut() << "parent: waiting for initial stop of child " << child
-                 << "...\n";
+      HumanOut() << llvm::formatv(
+          "first ptrace-stop @ {0}\n",
+          description_of_program_counter(pc_of_cpu_state(cpu_state), true));
 
-    {
-      int status;
-      do
-        ::waitpid(child, &status, 0);
-      while (!WIFSTOPPED(status));
+    auto BBPair = block_at_program_counter(child, pc_of_cpu_state(cpu_state));
+
+    if (unlikely(!is_basic_block_index_valid(BBPair.second)))
+      HumanOut() << llvm::formatv(
+          "failed to translate block at first ptrace-stop @ {0}\n",
+          description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+  }
+
+  {
+    //
+    // establish options
+    //
+    if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                  __func__, strerror(err));
     }
+  }
 
-    if (IsVerbose())
-      HumanOut() << "parent: initial stop observed\n";
-
-    //
-    // initialize objects required for exploration.
-    //
-    disas = std::make_unique<disas_t>();
-    tcg = std::make_unique<tiny_code_generator_t>();
-    if (opts.Symbolize)
-    symbolizer = std::make_unique<symbolizer_t>();
-    E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-    E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
-                                std::placeholders::_1, std::placeholders::_2));
-    E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
-                                std::placeholders::_1, std::placeholders::_2));
-
-    //
-    // look around, what do we see?
-    //
-    ScanAddressSpace(child);
-
-    if (IsVerbose()) {
-      //
-      // we should be at the entry point of the dynamic linker
-      //
-      cpu_state_t cpu_state;
-      _ptrace_get_cpu_state(child, cpu_state);
-
-      if (IsVerbose())
-        HumanOut() << llvm::formatv(
-            "first ptrace-stop @ {0}\n",
-            description_of_program_counter(pc_of_cpu_state(cpu_state), true));
-
-      auto BBPair = block_at_program_counter(child, pc_of_cpu_state(cpu_state));
-
-      if (unlikely(!is_basic_block_index_valid(BBPair.second)))
-        HumanOut() << llvm::formatv(
-            "failed to translate block at first ptrace-stop @ {0}\n",
-            description_of_program_counter(pc_of_cpu_state(cpu_state), true));
-    }
-
-    {
-      //
-      // establish options
-      //
-      if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                    __func__, strerror(err));
-      }
-    }
-
-    return TracerLoop(child);
+  return TracerLoop(child);
 }
 
 uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
