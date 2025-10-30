@@ -769,15 +769,13 @@ int BootstrapTool::Run(void) {
           description_of_program_counter(pc_of_cpu_state(cpu_state), true));
   }
 
-  {
-    //
-    // establish options
-    //
-    if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-      int err = errno;
-      HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                  __func__, strerror(err));
-    }
+  //
+  // establish options
+  //
+  if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+    int err = errno;
+    HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                __func__, strerror(err));
   }
 
   return TracerLoop(child);
