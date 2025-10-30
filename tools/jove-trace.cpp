@@ -277,7 +277,7 @@ open_events:
           ;
         } else {
           ssize_t ret = sys::retry_eintr(::write, fd, "0\n", sizeof("0\n") - 1);
-          (void)::close(fd);
+          (void)robust::close(fd);
 
           if (ret == sizeof("0\n") - 1) {
             //
@@ -363,7 +363,7 @@ open_events:
         if (ret < 0) {
           int err = errno;
 
-          (void)::close(events_fd);
+          (void)robust::close(events_fd);
 
           if (err == ENODEV) {
             WithColor::warning()
@@ -378,7 +378,7 @@ open_events:
         }
 
         if (ret != N) {
-          (void)::close(events_fd);
+          (void)robust::close(events_fd);
 
           WithColor::error()
               << llvm::formatv("only wrote {0} bytes to uprobe_events\n", ret);
@@ -388,7 +388,7 @@ open_events:
     }
 
 enable_uprobe:
-    (void)::close(events_fd);
+    (void)robust::close(events_fd);
   }
 
   //
@@ -421,14 +421,14 @@ do_enable_uprobe:
         goto do_enable_uprobe;
       }
 
-      (void)::close(fd);
+      (void)robust::close(fd);
 
       WithColor::error() << llvm::formatv(
           "failed to write to {0}: {1}\n", s.c_str(), strerror(err));
       return 1;
     }
 
-    (void)::close(fd);
+    (void)robust::close(fd);
 
     if (ret != sizeof("1\n") - 1) {
       WithColor::error() << llvm::formatv(
@@ -446,7 +446,7 @@ skip_uprobe:
     std::string s(opts.PathToTracefs);
     s.append("/trace");
 
-    (void)::close(::open(s.c_str(), O_TRUNC | O_WRONLY));
+    (void)robust::close(sys::retry_eintr(::open, s.c_str(), O_TRUNC | O_WRONLY));
   }
 
   if (opts.SkipExec)

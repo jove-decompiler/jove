@@ -83,7 +83,7 @@ bool capture_vdso(StringTy &out) {
 
         int nullfd = ::open("/dev/null", O_WRONLY);
         ::dup2(nullfd, STDERR_FILENO);
-        ::close(nullfd);
+        robust::close(nullfd);
       });
   wfd.close();
 

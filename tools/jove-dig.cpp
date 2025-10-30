@@ -202,7 +202,7 @@ int CodeDigger::Run(void) {
       llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
   }
 
-  ::close(pipe_wrfd);
+  robust::close(pipe_wrfd);
   recover_thread.join();
 
   if (opts.NoSave)
@@ -284,7 +284,7 @@ void CodeDigger::RecoverLoop(void) {
       HumanOut() << recovery_msg << '\n';
   }
 
-  ::close(pipe_rdfd);
+  robust::close(pipe_rdfd);
 }
 
 bool CodeDigger::pop_binary(binary_index_t &out) {
@@ -322,8 +322,8 @@ void CodeDigger::Worker(binary_index_t BIdx) {
     int rc = RunToolToExit(
         "llvm",
         [&](auto Arg) {
-          ::close(pipe_rdfd);
-          ::close(pipe_wrfd);
+          robust::close(pipe_rdfd);
+          robust::close(pipe_wrfd);
 
           Arg("-o");
           Arg(bcfp);
@@ -363,7 +363,7 @@ void CodeDigger::Worker(binary_index_t BIdx) {
     int rc = RunExecutableToExit(
         locator().klee(),
         [&](auto Arg) {
-          ::close(pipe_rdfd);
+          robust::close(pipe_rdfd);
 
           Arg(locator().klee());
 

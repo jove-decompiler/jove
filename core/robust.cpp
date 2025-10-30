@@ -15,6 +15,8 @@
 namespace jove {
 namespace robust {
 
+int close(int fd) { return sys::retry_eintr(::close, fd); }
+
 template <bool IsRead>
 static ssize_t read_or_write(int fd, void *buf, size_t count) {
   if (count == 0)

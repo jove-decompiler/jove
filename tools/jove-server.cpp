@@ -213,7 +213,7 @@ int ServerTool::Serve(const int connection_socket) {
       return ConnectionProc(args);
     });
 
-    ::close(data_socket);
+    robust::close(data_socket);
   }
 
   __attribute__((musttail)) return Serve(connection_socket);

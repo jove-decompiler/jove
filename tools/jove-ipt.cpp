@@ -496,7 +496,7 @@ int IPTTool::Analyze(void) {
               "", "",
               [&](const char **argv, const char **envp) {
                 rfd.close();
-                ::dup2(wfd.get(), STDOUT_FILENO);
+                sys::retry_eintr(::dup2, wfd.get(), STDOUT_FILENO);
                 wfd.close();
               });
           wfd.close();

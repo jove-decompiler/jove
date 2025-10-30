@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <cstdio>
 
+#include <boost/scope/defer.hpp>
+
 namespace jove {
 
 template <typename Alloc, bool MT>
@@ -43,13 +45,19 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename, const B::ref &Bin) {
       "", "",
       [&](const char **argv, const char **envp) {
         rfd.close();
-        ::dup2(wfd.get(), STDOUT_FILENO);
+        (void)sys::retry_eintr(::dup2, wfd.get(), STDOUT_FILENO);
         wfd.close();
       });
   wfd.close();
 
+  int rc = -1;
   taddr_t minaddr = ~0UL;
   taddr_t maxaddr = 0UL;
+
+  {
+  BOOST_SCOPE_DEFER [&] {
+    rc = WaitForProcessToExit(pid);
+  };
 
   pipe_line_reader pipe;
 
@@ -156,8 +164,7 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename, const B::ref &Bin) {
 
   while (auto o = pipe.get_line(rfd.get()))
     do_parse_line(*o);
-
-  int rc = WaitForProcessToExit(pid);
+  }
 
   if (rc) {
     this->begin = ~0UL;

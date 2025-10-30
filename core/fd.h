@@ -1,12 +1,17 @@
 #pragma once
 #include "assert.h"
 #include "likely.h"
+#include "eintr.h"
 
 #include <utility>
 
 #include <unistd.h>
 
 namespace jove {
+
+namespace robust {
+int close(int fd);
+}
 
 class scoped_fd {
   int fd = -1;
@@ -57,7 +62,7 @@ public:
       // since this may cause a reused file descriptor from another thread to be
       // closed." - close(2)
       //
-      (void)::close(fd);
+      (void)robust::close(fd);
 
       fd = -1; /* reset */
     }

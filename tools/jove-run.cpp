@@ -1241,7 +1241,8 @@ int RunTool::DoRun(void) {
 void touch(const fs::path &p) {
   fs::create_directories(p.parent_path());
   if (!fs::exists(p))
-    ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666));
+    robust::close(sys::retry_eintr(
+        ::open, p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666));
 }
 
 template <bool LivingDangerously>

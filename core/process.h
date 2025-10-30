@@ -202,7 +202,9 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
   // this is so we don't make progress in the parent until the child has exec'd
   //
   int pipefd[2] = {-1, -1};
-  (void)::pipe(pipefd);
+
+  (void)::pipe2(pipefd, O_CLOEXEC); /* this little trick will allow us to block
+                                       only until the exec has happened */
 
   scoped_fd rfd(pipefd[0]);
   scoped_fd wfd(pipefd[1]);
@@ -242,6 +244,9 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
 
     return pid;
   }
+
+  if (pipe_trick)
+    rfd.close(); /* unused in child. */
 
   (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
   if (our_pfd) {
@@ -294,15 +299,6 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
     scoped_fd fd(sys::retry_eintr(::open, "/dev/null", O_RDONLY, 0));
     if (fd)
       sys::retry_eintr(::dup2, fd.get(), STDIN_FILENO);
-  }
-
-  if (pipe_trick) {
-    rfd.close(); /* unused in child. */
-
-    //
-    // this little trick will allow us to block only until the exec has happened
-    //
-    (void)sys::retry_eintr(::fcntl, wfd.get(), F_SETFD, FD_CLOEXEC);
   }
 
   errno = 0; /* reset */
