@@ -334,9 +334,6 @@ struct BootstrapTool
   template <typename T>
   using unordered_set = boost::unordered::unordered_flat_set<T>;
 
-  boost::interprocess::mapped_region shared_mem;
-  int &shared_err;
-
   bool RightArch = true;
   const bool IsCOFF;
 
@@ -362,9 +359,16 @@ struct BootstrapTool
 
   unsigned TurboToggle = 0;
 
-  pid_t _child = 0; /* XXX */
+  static constexpr int ptrace_options =
+      PTRACE_O_TRACESYSGOOD |
+      PTRACE_O_EXITKILL     |
+      PTRACE_O_TRACEEXIT    |
+      PTRACE_O_TRACEEXEC    |
+      PTRACE_O_TRACEFORK    |
+      PTRACE_O_TRACEVFORK   |
+      PTRACE_O_TRACECLONE;
 
-  std::string path_to_exe;
+  pid_t _child = 0; /* XXX */
 
   unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
   unordered_map<uintptr_t, return_t> RetMap;
@@ -430,13 +434,10 @@ struct BootstrapTool
 public:
   BootstrapTool()
       : opts(JoveCategory),
-        shared_mem(boost::interprocess::anonymous_shared_memory(sizeof(int))),
-        shared_err(*static_cast<int *>(shared_mem.get_address())),
         IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {}
 
   int Run(void) override;
 
-  int ChildProc(int fd);
   int TracerLoop(pid_t child);
 
   // breakpoints aren't placed until on_binary_loaded()
@@ -489,7 +490,7 @@ public:
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
 
-  pid_t saved_child;
+  pid_t saved_child = -1;
   std::atomic<bool> ToggleTurbo = false;
 
   static_assert(sizeof(binary_index_t) + sizeof(basic_block_index_t) == 8);
@@ -615,10 +616,13 @@ int BootstrapTool::Run(void) {
     }
 
     return TracerLoop(child);
-  } else {
+  }
     //
     // mode 2: create new process
     //
+    const pid_t child = ({
+
+    std::string path_to_exe;
     try {
       path_to_exe = fs::canonical(opts.Prog).string();
     } catch (...) {
@@ -639,48 +643,82 @@ int BootstrapTool::Run(void) {
       return 1;
     }
 
-    int pipefd[2];
-    if (::pipe(pipefd) < 0) { /* first, create a pipe */
-      HumanOut() << "pipe(2) failed. bug?\n";
-      return 1;
+#ifdef JOVE_HAVE_MEMFD
+    scoped_fd memfd;
+    if (!IsCOFF) {
+      std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
+      memfd = ::memfd_create(name.c_str(), 0);
+      assert(memfd);
+
+      const unsigned N = jv.Binaries.at(0).Data.size();
+      if (robust::write(memfd.get(), &jv.Binaries.at(0).Data[0], N) == N)
+        path_to_exe = "/proc/self/fd/" + std::to_string(memfd.get());
+    }
+#endif
+
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("parent: running {0}\n", path_to_exe);
+
+    struct {
+      std::string path_to_wine;
+      std::string path_to_exe;
+    } _coff;
+
+    if (IsCOFF) {
+      _coff.path_to_wine = locator().wine(IsTarget32);
+      _coff.path_to_exe = path_to_exe;
     }
 
-    int rfd = pipefd[0];
-    int wfd = pipefd[1];
+    RunExecutable(
+        path_to_exe,
+        [&](auto Arg) {
+          if (IsCOFF) {
+            Arg(std::move(_coff.path_to_wine));
+            Arg(std::move(_coff.path_to_exe));
+          } else {
+            Arg(std::move(opts.Prog));
+          }
+          for (auto &x : opts.Args)
+            Arg(std::move(x));
+        },
+        [&](auto Env) {
+          for (char **env = ::environ; *env; ++env)
+            Env(*env);
+          SetupEnvironForRun(Env);
+          for (auto &y : opts.Envs)
+            Env(std::move(y));
 
-    __atomic_store_n(&shared_err, 0, __ATOMIC_RELAXED);
-    child = ::fork();
-    if (!child) {
-      {
-        int rc = ::close(rfd);
-        assert(!(rc < 0));
-      }
+          if (fs::exists("/firmadyne/libnvram.so"))
+            Env("LD_PRELOAD=/firmadyne/libnvram.so");
+        },
+        "", "",
+        [&](const char **argv, const char **envp) {
+          if (IsVerbose())
+            print_command(argv);
 
-      //
-      // make pipe close-on-exec
-      //
-      {
-        int rc = ::fcntl(wfd, F_SETFD, FD_CLOEXEC);
-        assert(!(rc < 0));
-      }
+          //
+          // the request
+          //
+          ::ptrace(PTRACE_TRACEME);
+          //
+          // turns the calling thread into a tracee.  the thread continues to
+          // run (doesn't enter ptrace-stop).  a common practice is to follow
+          // the PTRACE_TRACEME with raise(SIGSTOP), but if we did that here
+          // the parent would wait forever for the exec to (never) happen.
+          //
+          // we'll rely on the SIGTRAP being sent following a successful execve.
+          //
 
-      return ChildProc(wfd);
-    }
-
-    saved_child = child;
-    IgnoreCtrlC();
-
-    {
-      int rc = ::close(wfd);
-      assert(!(rc < 0));
-    }
+          DropPrivileges();
+        });
+    });
 
     //
-    // observe the (initial) signal-delivery-stop
+    // observe the (initial) stop
     //
     if (IsVerbose())
       HumanOut() << "parent: waiting for initial stop of child " << child
-                       << "...\n";
+                 << "...\n";
 
     {
       int status;
@@ -692,60 +730,57 @@ int BootstrapTool::Run(void) {
     if (IsVerbose())
       HumanOut() << "parent: initial stop observed\n";
 
+    //
+    // initialize objects required for exploration.
+    //
+    disas = std::make_unique<disas_t>();
+    tcg = std::make_unique<tiny_code_generator_t>();
+    if (opts.Symbolize)
+    symbolizer = std::make_unique<symbolizer_t>();
+    E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
+        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+    E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
+                                std::placeholders::_1, std::placeholders::_2));
+    E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
+                                std::placeholders::_1, std::placeholders::_2));
+
+    //
+    // look around, what do we see?
+    //
+    ScanAddressSpace(child);
+
+    if (IsVerbose()) {
+      //
+      // we should be at the entry point of the dynamic linker
+      //
+      cpu_state_t cpu_state;
+      _ptrace_get_cpu_state(child, cpu_state);
+
+      if (IsVerbose())
+        HumanOut() << llvm::formatv(
+            "first ptrace-stop @ {0}\n",
+            description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+
+      auto BBPair = block_at_program_counter(child, pc_of_cpu_state(cpu_state));
+
+      if (unlikely(!is_basic_block_index_valid(BBPair.second)))
+        HumanOut() << llvm::formatv(
+            "failed to translate block at first ptrace-stop @ {0}\n",
+            description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+    }
+
     {
       //
-      // trace exec for the following
+      // establish options
       //
-      int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                        /* PTRACE_O_EXITKILL   | */
-                           PTRACE_O_TRACEEXIT  |
-                           PTRACE_O_TRACEEXEC  | /* needs to be set here */
-                           PTRACE_O_TRACEFORK  |
-                           PTRACE_O_TRACEVFORK |
-                           PTRACE_O_TRACECLONE;
-
       if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                          __func__,
-                                          strerror(err));
+                                    __func__, strerror(err));
       }
     }
 
-    //
-    // allow the child to make progress (most importantly, execve)
-    //
-    if (::ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
-      int err = errno;
-      HumanOut() << llvm::formatv("failed to resume tracee! {0}", err);
-      return 1;
-    }
-
-    //
-    // "If a process attempts to read from an empty pipe, then read(2) will
-    // block until data is available."
-    //
-    {
-      ssize_t ret;
-      do {
-        uint8_t byte;
-        ret = ::read(rfd, &byte, 1);
-      } while (!(ret <= 0));
-
-      /* if we got here, the other end of the pipe must have been closed,
-       * most likely by close-on-exec */
-      ::close(rfd);
-    }
-
-    if (int err = __atomic_load_n(&shared_err, __ATOMIC_RELAXED)) {
-      //
-      // execve(2) failed. errno is in shared_err.
-      //
-      die("execve() failed: " + std::string(strerror(err)));
-    }
-
-    return TracerLoop(-1);
-  }
+    return TracerLoop(child);
 }
 
 uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
@@ -794,17 +829,6 @@ uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
 }
 
 int BootstrapTool::TracerLoop(pid_t child) {
-  disas = std::make_unique<disas_t>();
-  tcg = std::make_unique<tiny_code_generator_t>();
-  if (opts.Symbolize)
-  symbolizer = std::make_unique<symbolizer_t>();
-  E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-  E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
-                              std::placeholders::_1, std::placeholders::_2));
-  E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
-                              std::placeholders::_1, std::placeholders::_2));
-
   siginfo_t si;
   long sig = 0;
 
@@ -846,51 +870,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         //
         // this is an opportunity to examine the state of the tracee
         //
-        if (unlikely(FirstTime)) { /* is this the first ptrace-stop? */
-          FirstTime = false;
-
-          ScanAddressSpace(saved_child);
-
-          if (IsVerbose() && !DidAttach()) {
-            //
-            // we should be at the entry point of the dynamic linker
-            //
-            cpu_state_t cpu_state;
-            _ptrace_get_cpu_state(child, cpu_state);
-
-            if (IsVerbose())
-              HumanOut() << llvm::formatv(
-                  "first ptrace-stop @ {0}\n",
-                  description_of_program_counter(pc_of_cpu_state(cpu_state), true));
-
-            auto BBPair = block_at_program_counter(child, pc_of_cpu_state(cpu_state));
-
-            if (unlikely(!is_basic_block_index_valid(BBPair.second)))
-              HumanOut() << llvm::formatv(
-                  "failed to translate block at first ptrace-stop @ {0}\n",
-                  description_of_program_counter(pc_of_cpu_state(cpu_state), true));
-          }
-
-#if 0
-          //
-          // do *not* trace any more forks.
-          //
-          int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                            /* PTRACE_O_EXITKILL   | */
-                               PTRACE_O_TRACEEXIT  |
-                               PTRACE_O_TRACEEXEC  |
-                               PTRACE_O_TRACEFORK  |
-                            /* PTRACE_O_TRACEVFORK | */
-                               PTRACE_O_TRACECLONE;
-
-          if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-            int err = errno;
-            HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                        __func__,
-                                        strerror(err));
-          }
-#endif
-        } else if (unlikely(forked.contains(child))) {
+        if (unlikely(forked.contains(child))) {
           const pid_t new_child = child;
 
           forked.erase(new_child);
@@ -946,17 +926,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
             } else {
               WithColor::note()
                   << llvm::formatv("attached to {0}\n", new_child);
-              {
-                //
-                // trace exec for the following
-                //
-                int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                                  /* PTRACE_O_EXITKILL   | */
-                                     PTRACE_O_TRACEEXIT  |
-                                     PTRACE_O_TRACEEXEC  | /* needs to be set here */
-                                     PTRACE_O_TRACEFORK  |
-                                     PTRACE_O_TRACEVFORK |
-                                     PTRACE_O_TRACECLONE;
+
+              //
+              // establish options
+              //
+                static_assert(ptrace_options & PTRACE_O_TRACEEXEC, "needs to be set here");
 
                 if (::ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
                   int err = errno;
@@ -964,7 +938,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
                                                     __func__,
                                                     strerror(err));
                 }
-              }
             }
           }
 
@@ -3432,95 +3405,6 @@ void BootstrapTool::on_binary_loaded(pid_t child,
           "failed to place breakpoint at return: {0}\n", e.what());
     }
   }
-}
-
-int BootstrapTool::ChildProc(int pipefd) {
-  scoped_fd pipefd_(pipefd);
-
-#ifdef JOVE_HAVE_MEMFD
-  scoped_fd memfd;
-  if (!IsCOFF) {
-    std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
-    memfd = ::memfd_create(name.c_str(), 0);
-    assert(memfd);
-
-    const unsigned N = jv.Binaries.at(0).Data.size();
-    if (robust::write(memfd.get(), &jv.Binaries.at(0).Data[0], N) == N)
-      path_to_exe = "/proc/self/fd/" + std::to_string(memfd.get());
-  }
-#endif
-
-  std::vector<const char *> arg_vec;
-
-  std::string exe_path;
-  std::string path_to_wine;
-  if (IsCOFF) {
-    path_to_wine = locator().wine(IsTarget32);
-    exe_path = path_to_wine;
-
-    arg_vec.push_back(path_to_wine.c_str());
-    arg_vec.push_back(path_to_exe.c_str());
-  } else {
-    arg_vec.push_back(opts.Prog.c_str());
-    exe_path = path_to_exe;
-  }
-
-  for (const std::string &Arg : opts.Args)
-    arg_vec.push_back(Arg.c_str());
-
-  arg_vec.push_back(nullptr);
-
-  std::vector<const char *> env_vec;
-  for (char **env = ::environ; *env; ++env)
-    env_vec.push_back(*env);
-
-  SetupEnvironForRun([&](const char *Env) -> void {
-    env_vec.push_back(Env);
-  });
-
-  for (const std::string &Env : opts.Envs)
-    env_vec.push_back(Env.c_str());
-
-  if (fs::exists("/firmadyne/libnvram.so"))
-    env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
-
-  env_vec.push_back(nullptr);
-
-  //
-  // the request
-  //
-  ::ptrace(PTRACE_TRACEME);
-  //
-  // turns the calling thread into a tracee.  The thread continues to run
-  // (doesn't enter ptrace-stop).  A common practice is to follow the
-  // PTRACE_TRACEME with
-  //
-  raise(SIGSTOP);
-  //
-  // and allow the parent (which is our tracer now) to observe our
-  // signal-delivery-stop.
-  //
-
-  if (IsVerbose()) {
-    print_command(arg_vec.data());
-    if (IsVeryVerbose())
-      HumanOut() << llvm::formatv("(executing \"{0}\")\n", exe_path);
-  }
-
-  DropPrivileges();
-
-  /* "If the current program is being ptraced, a SIGTRAP signal is sent to it
-   * after a successful execve()" */
-  ::execve(exe_path.c_str(),
-           const_cast<char **>(&arg_vec[0]),
-           const_cast<char **>(&env_vec[0]));
-
-  /* if we got here, execve failed */
-  int err = errno;
-  assert(err != 0);
-  __atomic_store_n(&shared_err, err, __ATOMIC_RELAXED);
-
-  return 1;
 }
 
 bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
