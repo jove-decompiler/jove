@@ -78,11 +78,11 @@ bool capture_vdso(StringTy &out) {
       process::no_envs, "", "",
       [&](const char **argv, const char **envp) {
         rfd.close();
-        ::dup2(wfd.get(), STDOUT_FILENO);
+        robust::dup2(wfd.get(), STDOUT_FILENO);
         wfd.close();
 
         int nullfd = ::open("/dev/null", O_WRONLY);
-        ::dup2(nullfd, STDERR_FILENO);
+        robust::dup2(nullfd, STDERR_FILENO);
         robust::close(nullfd);
       });
   wfd.close();

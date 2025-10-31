@@ -7,6 +7,8 @@ namespace jove {
 namespace robust {
 
 int close(int fd);
+int dup2(int fd, int newfd);
+
 ssize_t read(int fd, void *const buf, const size_t count);
 ssize_t write(int fd, const void *const buf, const size_t count);
 ssize_t sendfile_from_fd(int out_fd, int in_fd, off_t *in_off, size_t file_size);

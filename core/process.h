@@ -2,6 +2,7 @@
 #include "fd.h"
 #include "eintr.h"
 #include "pidfd.h"
+#include "robust.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -279,10 +280,10 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
     scoped_fd fd(sys::retry_eintr(::open, stdout_path.c_str(),
                                   O_CREAT | AppendOrTrunc | O_WRONLY, 0666));
     if (fd) {
-      sys::retry_eintr(::dup2, fd.get(), STDOUT_FILENO);
+      robust::dup2(fd.get(), STDOUT_FILENO);
 
       if constexpr (has_flag_v<Opts, ExecOpt::MergeStderrToStdout>)
-        sys::retry_eintr(::dup2, fd.get(), STDERR_FILENO);
+        robust::dup2(fd.get(), STDERR_FILENO);
     }
   }
 
@@ -291,14 +292,14 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
       scoped_fd fd(sys::retry_eintr(::open, stderr_path.c_str(),
                                     O_CREAT | AppendOrTrunc | O_WRONLY, 0666));
       if (fd)
-        sys::retry_eintr(::dup2, fd.get(), STDERR_FILENO);
+        robust::dup2(fd.get(), STDERR_FILENO);
     }
   }
 
   if constexpr (has_flag_v<Opts, ExecOpt::CloseStdin>) {
     scoped_fd fd(sys::retry_eintr(::open, "/dev/null", O_RDONLY, 0));
     if (fd)
-      sys::retry_eintr(::dup2, fd.get(), STDIN_FILENO);
+      robust::dup2(fd.get(), STDIN_FILENO);
   }
 
   errno = 0; /* reset */

@@ -45,7 +45,7 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename, const B::ref &Bin) {
       "", "",
       [&](const char **argv, const char **envp) {
         rfd.close();
-        (void)sys::retry_eintr(::dup2, wfd.get(), STDOUT_FILENO);
+        (void)robust::dup2(wfd.get(), STDOUT_FILENO);
         wfd.close();
       });
   wfd.close();

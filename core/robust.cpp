@@ -16,6 +16,7 @@ namespace jove {
 namespace robust {
 
 int close(int fd) { return sys::retry_eintr(::close, fd); }
+int dup2(int fd, int newfd) { return sys::retry_eintr(::dup2, fd, newfd); }
 
 template <bool IsRead>
 static ssize_t read_or_write(int fd, void *buf, size_t count) {
