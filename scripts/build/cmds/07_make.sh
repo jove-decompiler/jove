@@ -1,3 +1,3 @@
 #!/bin/false
 
-cmds+=("make -C \"$jove_path\" --output-sync -j$(nproc)")
+cmds+=("retry \"make -C '$jove_path' --output-sync -j$(nproc)\"")
