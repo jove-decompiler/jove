@@ -14,6 +14,12 @@ enum class TERMINATOR : uint8_t {
   UNREACHABLE
 };
 
+constexpr static bool IsTerminatorIndirect(const TERMINATOR T) {
+  return T == TERMINATOR::INDIRECT_CALL
+      || T == TERMINATOR::INDIRECT_JUMP
+      || T == TERMINATOR::RETURN;
+}
+
 static inline const char *string_of_terminator(TERMINATOR TermTy) {
   switch (TermTy) {
   case TERMINATOR::UNKNOWN:
