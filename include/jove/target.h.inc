@@ -86,3 +86,17 @@ constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
         ;
   }
 }
+
+constexpr unsigned MaxInstLen =
+#if defined(TARGET_X86_64)
+                16
+#elif defined(TARGET_I386)
+                16
+#elif defined(TARGET_AARCH64)
+                4
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+                4
+#else
+#error
+#endif
+                ;
