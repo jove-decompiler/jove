@@ -37,12 +37,13 @@ struct assertion_failure_exception : public assertion_failure_base {
 //
 // FIXME record __FILE__, __LINE__, ...
 //
-#ifdef NO_JOVE_ASSERT
+
 extern "C" void __assert_fail(const char *__assertion, const char *__file,
                               unsigned int __line, const char *__function)
     __attribute__((noreturn));
 
-#define aassert(cond)                                                          \
+/* always assert (abort)" */
+#define aasserta(cond)                                                         \
   ({                                                                           \
     if (unlikely(!(cond)))                                                     \
       ::__assert_fail(BOOST_PP_STRINGIZE(cond), __FILE__, __LINE__,            \
@@ -50,6 +51,9 @@ extern "C" void __assert_fail(const char *__assertion, const char *__file,
                                                                                \
     (void)0;                                                                   \
   })
+
+#ifdef NO_JOVE_ASSERT
+#define aassert(cond) aasserta(cond)
 #else /* NO_JOVE_ASSERT */
 #define aassert(cond)                                                          \
   ({                                                                           \
