@@ -20,6 +20,11 @@ constexpr static bool IsTerminatorIndirect(const TERMINATOR T) {
       || T == TERMINATOR::RETURN;
 }
 
+constexpr static bool IsTerminatorCall(const TERMINATOR T) {
+  return T == TERMINATOR::INDIRECT_CALL
+      || T == TERMINATOR::CALL;
+}
+
 static inline const char *string_of_terminator(TERMINATOR TermTy) {
   switch (TermTy) {
   case TERMINATOR::UNKNOWN:
