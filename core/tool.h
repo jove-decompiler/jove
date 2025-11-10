@@ -345,10 +345,20 @@ struct StatefulJVTool : public JVTool<Kind> {
   static_assert(!(!IsToolKindCopyOnWrite(Kind) && !SubjectToChange),
                 "if !CoW then must be subject to change");
 
-  jv_state_t<BinaryStateT, FunctionStateT, BBStateT, MultiThreaded,
-             LazyInitialization, Eager, BoundsChecking, SubjectToChange,
-             JVTool<Kind>::IsToolMT, JVTool<Kind>::IsToolMinSize>
-      state;
+  using state_t =
+      jv_state_t<
+        BinaryStateT,
+        FunctionStateT,
+        BBStateT,
+        MultiThreaded,
+        LazyInitialization,
+        Eager,
+        BoundsChecking,
+        SubjectToChange,
+        JVTool<Kind>::IsToolMT,
+        JVTool<Kind>::IsToolMinSize>;
+
+  state_t state;
 
   template <typename... Args>
   StatefulJVTool(Args &&...args)
