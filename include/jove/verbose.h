@@ -15,6 +15,10 @@ struct VerboseThing {
       this->VerbosityLevel = 0;
   }
 
+  void SetVerbosityLevel(unsigned VerbosityLevel) {
+    this->VerbosityLevel = VerbosityLevel;
+  }
+
   VerboseThing() = default;
   VerboseThing(unsigned Level) : VerbosityLevel(Level) {}
 
