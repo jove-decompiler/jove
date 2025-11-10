@@ -327,7 +327,8 @@ constexpr void for_each_basic_block(_ExecutionPolicy &&__exec,
       jv, [&__exec, proc](auto &b) {
         auto it_pair = b.Analysis.ICFG.vertices();
 
-        std::for_each(std::forward<_ExecutionPolicy>(__exec), it_pair.first,
+        std::for_each(std::forward<_ExecutionPolicy>(__exec),
+                      it_pair.first,
                       it_pair.second, [&b, proc](auto bb) { proc(b, bb); });
       });
 }
@@ -341,6 +342,39 @@ constexpr void for_each_basic_block(jv_base_t<MT, MinSize> &jv, Proc proc) {
                   it_pair.second,
                   [&b, proc](auto bb) { proc(b, bb); });
   });
+}
+
+template <bool MT, bool MinSize, class _ExecutionPolicy, class Pred, class Proc>
+constexpr void for_each_basic_block_if(_ExecutionPolicy &&__exec,
+                                       jv_base_t<MT, MinSize> &jv,
+                                       Pred pred,
+                                       Proc proc) {
+  for_each_binary(
+      std::forward<_ExecutionPolicy>(__exec),
+      jv, [&__exec, pred, proc](auto &b) {
+        auto it_pair = b.Analysis.ICFG.vertices();
+
+        for_each_if(std::forward<_ExecutionPolicy>(__exec),
+                    it_pair.first,
+                    it_pair.second,
+                    [&b, pred](auto bb) -> bool { return pred(b, bb); },
+                    [&b, proc](auto bb) { proc(b, bb); });
+      });
+}
+
+template <bool MT, bool MinSize, class Pred, class Proc>
+constexpr void for_each_basic_block_if(jv_base_t<MT, MinSize> &jv,
+                                       Pred pred,
+                                       Proc proc) {
+  for_each_binary(
+      jv, [pred, proc](auto &b) {
+        auto it_pair = b.Analysis.ICFG.vertices();
+
+        for_each_if(it_pair.first,
+                    it_pair.second,
+                    [&b, pred](auto bb) -> bool { return pred(b, bb); },
+                    [&b, proc](auto bb) { proc(b, bb); });
+      });
 }
 
 template <bool MT, bool MinSize, class _ExecutionPolicy, class Proc>
@@ -419,6 +453,32 @@ for_each_basic_block_in_binary(const binary_analysis_t<MT, MinSize> &Analysis,
   std::for_each(it_pair.first,
                 it_pair.second,
                 [proc](auto bb) { proc(bb); });
+}
+
+template <bool MT, bool MinSize, class Pred, class Proc>
+static inline void
+for_each_basic_block_in_binary_if(const binary_analysis_t<MT, MinSize> &Analysis,
+                                  Pred pred,
+                                  Proc proc) {
+  auto it_pair = Analysis.ICFG.vertices();
+
+  for_each_if(it_pair.first,
+              it_pair.second,
+              pred,
+              proc);
+}
+
+template <bool MT, bool MinSize, class Pred, class Proc>
+static inline void
+for_each_basic_block_in_binary_if(const binary_base_t<MT, MinSize> &b,
+                                  Pred pred,
+                                  Proc proc) {
+  auto it_pair = b.Analysis.ICFG.vertices();
+
+  for_each_if(it_pair.first,
+              it_pair.second,
+              pred,
+              proc);
 }
 
 template <bool MT>
