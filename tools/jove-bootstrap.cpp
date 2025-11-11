@@ -179,7 +179,7 @@ struct BootstrapTool
     cl::alias SyscallsAlias;
     cl::opt<bool> Signals;
     cl::opt<bool> PrintLinkMap;
-    cl::alias ScanLinkMapAlias;
+    cl::alias PrintLinkMapAlias;
     cl::opt<unsigned> PID;
     cl::alias PIDAlias;
     cl::opt<bool> Fast;
@@ -237,8 +237,8 @@ struct BootstrapTool
           PrintLinkMap("print-link-map", cl::desc("Always scan link map"),
                        cl::cat(JoveCategory)),
 
-          ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
-                           cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory)),
+          PrintLinkMapAlias("l", cl::desc("Alias for -print-link-map."),
+                            cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory)),
 
           PID("attach", cl::desc("attach to existing process PID"),
               cl::cat(JoveCategory), cl::init(0)),
@@ -259,26 +259,21 @@ struct BootstrapTool
                  cl::value_desc("(n)ever|(a)lways|(s)ometimes"), cl::init("s"),
                  cl::cat(JoveCategory)),
 
-          Symbolize("symbolize",
-                 cl::desc("Whether to run addr2line"),
-                 cl::init(true),
-                 cl::cat(JoveCategory)),
+          Symbolize("symbolize", cl::desc("Whether to run addr2line"),
+                    cl::init(true), cl::cat(JoveCategory)),
 
-          Group("group", cl::desc("Run as given group"),
-                cl::cat(JoveCategory)),
+          Group("group", cl::desc("Run as given group"), cl::cat(JoveCategory)),
 
           GroupAlias("g", cl::desc("Alias for --group"), cl::aliasopt(Group),
                      cl::cat(JoveCategory)),
 
-          User("user", cl::desc("Run as given user"),
-               cl::cat(JoveCategory)),
+          User("user", cl::desc("Run as given user"), cl::cat(JoveCategory)),
 
           UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
                     cl::cat(JoveCategory)),
 
           SkipBins("skip-binaries", cl::CommaSeparated, cl::value_desc("name"),
-                   cl::cat(JoveCategory))
-          {}
+                   cl::cat(JoveCategory)) {}
   } opts;
 
   template <typename Key, typename Value>
@@ -328,13 +323,15 @@ struct BootstrapTool
 
   struct {
     bool Found = false;
-    uintptr_t Addr = 0;
-    uintptr_t r_brk = 0;
+
+    void *ptr = nullptr;
+    uintptr_t brk = 0;
 
     void Reset(void) {
       Found = false;
-      Addr = 0;
-      r_brk = 0;
+
+      ptr = nullptr;
+      brk = 0;
     }
   } _r_debug;
 
@@ -400,7 +397,7 @@ public:
 
   void place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
-  void on_breakpoint(pid_t);
+  [[clang::noinline]] void on_breakpoint(pid_t);
   void on_return(pid_t child,
                  binary_index_t RetBIdx,
                  uintptr_t AddrOfRet,
@@ -417,7 +414,7 @@ public:
   uintptr_t va_of_pc(uintptr_t Addr, binary_index_t BIdx);
 
   binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
-  std::pair<binary_index_t, basic_block_index_t>
+  block_t
   block_at_program_counter(pid_t, uintptr_t valid_pc);
   std::pair<binary_index_t, function_index_t>
   function_at_program_counter(pid_t, uintptr_t valid_pc);
@@ -1684,6 +1681,17 @@ void BootstrapTool::on_breakpoint(pid_t child) {
 
   trapped_t &trapped = trapmap.at(saved_pc);
 
+  {
+    const uintptr_t brk = _r_debug.brk;
+    if (unlikely(saved_pc == brk)) {
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("*_r_debug.r_brk [{0}]\n",
+                                    description_of_program_counter(brk, true));
+
+      scan_rtld_link_map(child);
+    }
+  }
+
   struct {
     uintptr_t Addr = 0UL;
     bool isNew = false;
@@ -1692,6 +1700,11 @@ void BootstrapTool::on_breakpoint(pid_t child) {
 
   Target.Addr = emulator->single_step(child, saved_pc, trapped);
   Target.BIdx = binary_at_program_counter(child, Target.Addr);
+  if (!is_binary_index_valid(Target.BIdx)) {
+    HumanOut() << StringOfMCInst(trapped.Inst) << '\n';
+  }
+
+  assert(is_binary_index_valid(Target.BIdx));
 
   auto &TargetBinary = jv.Binaries.at(Target.BIdx);
   auto &TargetICFG = TargetBinary.Analysis.ICFG;
@@ -2133,33 +2146,23 @@ struct r_debug {
 };
 
 void BootstrapTool::scan_rtld_link_map(pid_t child) {
-  if (!_r_debug.Addr)
+  void *const rdbg_ptr = _r_debug.ptr;
+  if (!rdbg_ptr)
     return;
 
-  std::vector<std::byte> r_dbg_bytes;
+  struct r_debug rdbg;
+  std::vector<std::byte> rdbg_bytes;
 
-  struct r_debug r_dbg;
-  memset(&r_dbg, 0, sizeof(r_dbg));
-
-  try {
-    ssize_t ret = ptrace::memcpy(child, r_dbg_bytes,
-                                 (void *)_r_debug.Addr,
-                                 sizeof(struct r_debug));
-
-    if (ret != sizeof(struct r_debug)) {
-      HumanOut() << __func__ << ": couldn't read r_debug structure\n";
-      return;
-    }
-
-    if (IsVerbose())
-      HumanOut() << llvm::formatv("{0}: couldn't read r_debug structure\n", __func__);
-
+  if (catch_exception([&] {
+        ptrace::memcpy(child,
+                       rdbg_bytes,
+                       rdbg_ptr,
+                       sizeof(rdbg));
+      }))
     return;
-  } catch (...) {
-    return;
-  }
 
-  memcpy(&r_dbg, &r_dbg_bytes[0], r_dbg_bytes.size());
+  aassert(rdbg_bytes.size() == sizeof(rdbg));
+  __builtin_memcpy_inline(&rdbg, rdbg_bytes.data(), sizeof(rdbg));
 
   if (opts.PrintLinkMap)
       HumanOut() << llvm::formatv("[r_debug] r_version = {0}\n"
@@ -2167,43 +2170,35 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
                                   "          r_brk     = {2}\n"
                                   "          r_state   = {3}\n"
                                   "          r_ldbase  = {4}\n",
-                                  (void *)r_dbg.r_version,
-                                  (void *)r_dbg.r_map,
-                                  (void *)r_dbg.r_brk,
-                                  (void *)r_dbg.r_state,
-                                  (void *)r_dbg.r_ldbase);
+                                  (void *)rdbg.r_version,
+                                  (void *)rdbg.r_map,
+                                  (void *)rdbg.r_brk,
+                                  (void *)rdbg.r_state,
+                                  (void *)rdbg.r_ldbase);
 
   if (IsVerbose()) {
-    WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT &&
-            r_dbg.r_state != r_debug::RT_ADD &&
-            r_dbg.r_state != r_debug::RT_DELETE);
+    WARN_ON(rdbg.r_state != r_debug::RT_CONSISTENT &&
+            rdbg.r_state != r_debug::RT_ADD &&
+            rdbg.r_state != r_debug::RT_DELETE);
   }
 
-  if (!r_dbg.r_map)
+  if (!rdbg.r_map)
     return;
-
-  std::vector<std::byte> lm_bytes;
 
   const unsigned SavedNumBinaries = jv.NumBinaries();
 
-  struct link_map *lmp = r_dbg.r_map;
+  struct link_map *lmp = rdbg.r_map;
   do {
     struct link_map lm;
+    std::vector<std::byte> lm_bytes;
 
-    try {
-      ssize_t ret = ptrace::memcpy(child, lm_bytes, lmp, sizeof(*lmp));
-
-      if (ret != sizeof(struct link_map)) {
-        HumanOut() << __func__
-                   << ": couldn't read link_map structure\n";
-        return;
-      }
-    } catch (...) {
-      HumanOut() << "failed to read link_map\n";
+    if (catch_exception([&] {
+          ptrace::memcpy(child, lm_bytes, lmp, sizeof(lm));
+        }))
       return;
-    }
 
-    memcpy(&lm, &lm_bytes[0], lm_bytes.size());
+    aassert(lm_bytes.size() == sizeof(lm));
+    __builtin_memcpy_inline(&lm, lm_bytes.data(), sizeof(lm));
 
     std::string s;
     try {
@@ -2229,7 +2224,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
     }
 
     lmp = lm.l_next;
-  } while (lmp && lmp != r_dbg.r_map);
+  } while (lmp && lmp != rdbg.r_map);
 
   if (jv.NumBinaries() > SavedNumBinaries)
     ScanAddressSpace(child);
@@ -2300,25 +2295,21 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
       llvm::StringRef SymName = *ExpectedSymName;
       if (SymName == "_r_debug" ||
           SymName == "_dl_debug_addr") {
-        WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
+        const uintptr_t pc = pc_of_offset(Sym.st_value, BIdx);
 
-        _r_debug.Addr = pc_of_va(Sym.st_value, BIdx);
         _r_debug.Found = true;
+        _r_debug.ptr = (void *)pc;
 
+        HumanOut() << llvm::formatv("_r_debug @ {0}\n", taddr2str(pc));
+
+        WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
         rendezvous_with_dynamic_linker(child);
-        goto Found;
+        return;
       }
     }
   }
 
-  //
-  // if we get here, we didn't find _r_debug
-  //
-  HumanOut() << llvm::formatv("{0}: could not find _r_debug\n",
-                              __func__);
-
-Found:
-  ;
+  HumanOut() << llvm::formatv("{0}: could not find _r_debug\n", __PRETTY_FUNCTION__);
 }
 
 void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
@@ -2328,100 +2319,34 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
   if (!_r_debug.Found)
     return;
 
-  std::vector<std::byte> r_dbg_bytes;
-
   //
   // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
   // to communicate details of shared object loading to the debugger."
   //
-  if (!_r_debug.r_brk) {
-    struct r_debug r_dbg;
-    memset(&r_dbg, 0, sizeof(r_dbg));
+  if (!_r_debug.brk) {
+    struct r_debug rdbg;
+    std::vector<std::byte> rdbg_bytes;
 
-    ssize_t ret;
-    try {
-      ret = ptrace::memcpy(child, r_dbg_bytes,
-                           (void *)_r_debug.Addr,
-                           sizeof(struct r_debug));
-    } catch (...) {
-      if (IsVerbose())
-        HumanOut() << "failed to read r_debug structure\n";
+    void *const rdbg_ptr = _r_debug.ptr;
+    if (catch_exception([&] {
+          ptrace::memcpy(child,
+                         rdbg_bytes,
+                         rdbg_ptr,
+                         sizeof(rdbg));
+        }))
       return;
-    }
 
-    memcpy(&r_dbg, &r_dbg_bytes[0], r_dbg_bytes.size());
+    aassert(rdbg_bytes.size() == sizeof(rdbg));
+    __builtin_memcpy_inline(&rdbg, rdbg_bytes.data(), sizeof(rdbg));
 
-    if (ret != sizeof(struct r_debug)) {
-      if (ret < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("couldn't read r_debug structure ({0})\n",
-                                    strerror(err));
-      } else {
-        HumanOut() << llvm::formatv("couldn't read r_debug structure [{0}]\n",
-                                    ret);
-      }
+    const uintptr_t pc = rdbg.r_brk;
+    if (!is_block_valid(block_at_program_counter(child, pc)))
       return;
-    }
 
-    _r_debug.r_brk = r_dbg.r_brk;
+    aassert(updateVariable(_r_debug.brk, pc));
 
-    if (_r_debug.r_brk <= 16) /* 0x3 has been witnessed */
-      _r_debug.r_brk = 0;
-    else if (unlikely(IsVerbose()))
-      HumanOut() << llvm::formatv("r_brk is now {0:x}\n", r_dbg.r_brk);
-  }
-
-  if (_r_debug.r_brk) {
-    if (unlikely(trapmap.find(_r_debug.r_brk) == trapmap.end())) {
-#if 0
-      try {
-        breakpoint_t brk;
-        brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1);
-        brk.InsnBytes.resize(2 * sizeof(uint32_t));
-        _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
-
-        {
-          uint64_t InstLen = 0;
-          bool Disassembled = disas->DisAsm->getInstruction(
-              brk.Inst,
-              InstLen,
-              brk.InsnBytes,
-              0 /* XXX should not matter */,
-              llvm::nulls());
-
-          if (unlikely(!Disassembled))
-            throw std::runtime_error("could not disassemble instruction at "
-                                     "address pointed to by _r_debug.r_brk");
-
-        }
-#if defined(__mips64) || defined(__mips__)
-        //
-        // disassemble delay slot
-        //
-        {
-          uint64_t InstLen = 0;
-          bool Disassembled =
-              disas->DisAsm->getInstruction(brk.DelaySlotInst,
-                                           InstLen,
-                                           llvm::ArrayRef<uint8_t>(brk.InsnBytes).slice(4),
-                                           4 /* should not matter */,
-                                           llvm::nulls());
-        }
-#endif
-
-        place_breakpoint(child, _r_debug.r_brk, brk);
-
-        BrkMap.insert({_r_debug.r_brk, brk});
-      } catch (const std::exception &e) {
-        if (IsVeryVerbose())
-          HumanOut() << llvm::formatv(
-              "{0}: couldn't place breakpoint at r_brk [{1:x}] ({2})\n",
-              __func__,
-              _r_debug.r_brk,
-              e.what());
-      }
-#endif
-    }
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("r_brk is now {0:x}\n", pc);
   }
 }
 
@@ -2601,9 +2526,11 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
 
     pm_it = intvl_map_find(pmm, pc);
     if (pm_it == pmm.end()) {
+#if 0
       HumanOut() << llvm::formatv(
           "binary_at_program_counter: unknown code @ {0}\n",
           description_of_program_counter(pc, true));
+#endif
       return invalid_binary_index;
     }
   }
@@ -2650,8 +2577,11 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   }
 
   if (!is_binary_index_valid(BIdx)) {
-    if (IsVerbose())
-      HumanOut() << llvm::formatv("failed to add binary at {0}\n", nm);
+    if (IsVerbose()) {
+      HumanOut() << llvm::formatv("failed to add {0} for {1} \n", nm, taddr2str(pc));
+      if (IsVeryVerbose())
+        HumanOut() << ProcMapsForPid(child);
+    }
 
     return invalid_binary_index;
   }
@@ -2696,7 +2626,7 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
   return std::make_pair(BIdx, FIdx);
 }
 
-std::pair<binary_index_t, basic_block_index_t>
+block_t
 BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
   binary_index_t BIdx = binary_at_program_counter(child, pc);
   if (!is_binary_index_valid(BIdx))
