@@ -9,113 +9,38 @@
 #endif
 
 namespace jove {
+namespace ptrace {
 
 typedef boost::format fmt;
 
-void _ptrace_get_cpu_state(pid_t child, cpu_state_t &out) {
-#if defined(__mips64) || defined(__mips__)
-  unsigned long _request = PTRACE_GETREGS;
-  unsigned long _pid = child;
-  unsigned long _addr = 0;
-  unsigned long _data = reinterpret_cast<unsigned long>(&out.regs[0]);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_GETREGS failed : ") +
-                             std::string(strerror(errno)));
-#else
-  struct iovec iov = {.iov_base = &out,
-                      .iov_len = sizeof(cpu_state_t)};
-
-  unsigned long _request = PTRACE_GETREGSET;
-  unsigned long _pid = child;
-  unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_GETREGSET failed : ") +
-                             std::string(strerror(errno)));
-#endif
-}
-
-void _ptrace_set_cpu_state(pid_t child, const cpu_state_t &in) {
-#if defined(__mips64) || defined(__mips__)
-  unsigned long _request = PTRACE_SETREGS;
-  unsigned long _pid = child;
-  unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&in.regs[0]);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_SETREGS failed : ") +
-                             std::string(strerror(errno)));
-#else
-  struct iovec iov = {.iov_base = const_cast<cpu_state_t *>(&in),
-                      .iov_len = sizeof(cpu_state_t)};
-
-  unsigned long _request = PTRACE_SETREGSET;
-  unsigned long _pid = child;
-  unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_SETREGSET failed : ") +
-                             std::string(strerror(errno)));
-#endif
-}
-
-unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
-  unsigned long res;
-
-  unsigned long _request = PTRACE_PEEKDATA;
-  unsigned long _pid = child;
-  unsigned long _addr = addr;
-  unsigned long _data = reinterpret_cast<unsigned long>(&res);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error((fmt("PTRACE_PEEKDATA(%d, %#lx) failed : %s") %
-                              child % addr % strerror(errno)).str());
-
-  return res;
-}
-
-void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
-  unsigned long _request = PTRACE_POKEDATA;
-  unsigned long _pid = child;
-  unsigned long _addr = addr;
-  unsigned long _data = data;
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_POKEDATA failed : ") +
-                             std::string(strerror(errno)));
-}
-
-ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
-  std::vector<uint8_t> buff;
-  buff.reserve(n);
+ssize_t memcpy(pid_t child,
+               std::vector<std::byte> &dst,
+               const void *src,
+               const size_t N) {
+  dst.reserve(N);
+  dst.clear();
 
   uintptr_t Addr = reinterpret_cast<uintptr_t>(src);
 
-  for (;;) {
-    auto word = _ptrace_peekdata(child, Addr);
+  size_t done = 0;
+  for (; done != N; done += sizeof(ptrace::word)) {
+    const auto chunk = peekdata(child, Addr);
+    Addr += sizeof(ptrace::word);
 
-    for (unsigned i = 0; i < sizeof(word); ++i) {
-      buff.push_back(reinterpret_cast<uint8_t *>(&word)[i]);
-      if (buff.size() == n) {
-        memcpy(dest, &buff[0], n); /* we're done */
-        return n;
-      }
-    }
+    static_assert(sizeof(chunk) == sizeof(ptrace::word));
 
-    Addr += sizeof(word);
+    const size_t M = dst.size();
+    dst.resize(dst.size() + sizeof(chunk));
+    __builtin_memcpy_inline(&dst[M], &chunk, sizeof(chunk));
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  return done;
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
 constexpr unsigned GDT_ENTRY_TLS_ENTRIES = 3;
 
-void _ptrace_get_segment_descriptors(
+static void get_segment_descriptors(
     pid_t child, std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> &out) {
   struct iovec iov = {.iov_base = out.data(),
                       .iov_len = sizeof(struct user_desc) * out.size()};
@@ -134,7 +59,7 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
   unsigned index = segsel >> 3;
 
   std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> seg_descs;
-  _ptrace_get_segment_descriptors(child, seg_descs);
+  get_segment_descriptors(child, seg_descs);
 
   auto it = std::find_if(seg_descs.begin(), seg_descs.end(),
                          [&](const struct user_desc &desc) -> bool {
@@ -148,11 +73,11 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
 }
 #endif
 
-std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
+std::string read_c_str(pid_t child, uintptr_t Addr) {
   std::string res;
 
   for (;;) {
-    auto word = _ptrace_peekdata(child, Addr);
+    auto word = peekdata(child, Addr);
 
     for (unsigned i = 0; i < sizeof(word); ++i) {
       char ch = reinterpret_cast<char *>(&word)[i];
@@ -167,4 +92,5 @@ std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
   return res;
 }
 
+}
 }

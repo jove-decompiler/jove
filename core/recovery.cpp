@@ -54,10 +54,10 @@ uint64_t CodeRecovery<MT, MinSize>::AddressOfTerminatorAtBasicBlock(
 
   uint64_t TermAddr = 0;
 
-  fallthru(jv, BIdx, BBIdx,
-           [&](const bbprop_t &bbprop, basic_block_index_t) {
-             TermAddr = bbprop.Term.Addr;
-           });
+  fallthru<void>(jv, BIdx, BBIdx,
+                 [&](const bbprop_t &bbprop, basic_block_index_t) {
+                   TermAddr = bbprop.Term.Addr;
+                 });
 
   assert(TermAddr);
   return TermAddr;

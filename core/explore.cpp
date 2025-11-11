@@ -597,7 +597,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
           "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
           description_of_terminator_info(T, false), b.Name.c_str());
 
-    get_newbb_proc()(b, bb);
+    get_newbb_proc()(b, bbprop, Idx);
   }
 
   auto control_flow_to = [&](taddr_t Target) -> void {

@@ -26,9 +26,8 @@ using onblockproc_t = std::function<void(
 using onblockproc_u_t = std::function<void(basic_block_index_t)>;
 
 template <bool MT, bool MinSize>
-using on_newbb_proc_t = std::function<void(
-    binary_base_t<MT, MinSize> &,
-    typename ip_icfg_base_t<MT>::vertex_descriptor)>;
+using on_newbb_proc_t = std::function<void(binary_base_t<MT, MinSize> &,
+                                           bbprop_t &, basic_block_index_t)>;
 
 template <bool MT, bool MinSize>
 using on_newfn_proc_t =
@@ -40,9 +39,8 @@ static inline void nop_on_block(typename ip_icfg_base_t<MT>::vertex_descriptor,
 static inline void nop_on_block_u(basic_block_index_t) {}
 
 template <bool MT, bool MinSize>
-static inline void
-nop_on_newbb_proc(binary_base_t<MT, MinSize> &,
-                  typename ip_icfg_base_t<MT>::vertex_descriptor) {}
+static inline void nop_on_newbb_proc(binary_base_t<MT, MinSize> &, bbprop_t &,
+                                     basic_block_index_t) {}
 
 template <bool MT, bool MinSize>
 static inline void nop_on_newfn_proc(binary_base_t<MT, MinSize> &,

@@ -20,6 +20,8 @@
 #include "fork.h"
 #include "pidfd.h"
 #include "autoreap.h"
+#include "emulate.h"
+#include "fallthru.h"
 #include "jove/assert.h"
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -31,7 +33,6 @@
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
 #include <boost/lockfree/queue.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/anonymous_shared_memory.hpp>
 
@@ -83,7 +84,36 @@ using llvm::WithColor;
 
 namespace jove {
 
-namespace {
+struct proc_map_t {
+  uintptr_t beg;
+  uintptr_t end;
+  std::ptrdiff_t off;
+
+  bool r, w, x; /* unix permissions */
+  bool p;       /* private memory? (i.e. not shared) */
+
+  std::string nm;
+
+  bool operator==(const proc_map_t &pm) const {
+    return beg == pm.beg && end == pm.end;
+  }
+
+  bool operator<(const proc_map_t &pm) const { return beg < pm.beg; }
+};
+
+using indirect_branch_t = trapped_t;
+using return_t          = trapped_t;
+using breakpoint_t      = trapped_t;
+
+struct child_syscall_state_t {
+  unsigned no;
+  unsigned long a1, a2, a3, a4, a5, a6;
+  unsigned int dir : 1;
+
+  unsigned long pc;
+
+  child_syscall_state_t() : dir(0), pc(0) {}
+};
 
 struct binary_state_t {
   bool Skip = false;
@@ -131,83 +161,6 @@ struct binary_state_t {
                            _elf.DynPLTRelRegion);
     });
   }
-};
-
-}
-
-struct proc_map_t {
-  uintptr_t beg;
-  uintptr_t end;
-  std::ptrdiff_t off;
-
-  bool r, w, x; /* unix permissions */
-  bool p;       /* private memory? (i.e. not shared) */
-
-  std::string nm;
-
-  bool operator==(const proc_map_t &pm) const {
-    return beg == pm.beg && end == pm.end;
-  }
-
-  bool operator<(const proc_map_t &pm) const {
-    return beg < pm.beg;
-  }
-};
-
-struct indirect_branch_t {
-  unsigned long words[2];
-
-  binary_index_t BIdx;
-
-  uintptr_t TermAddr;
-
-  std::vector<uint8_t> InsnBytes;
-  llvm::MCInst Inst;
-
-#if defined(__mips64) || defined(__mips__)
-  llvm::MCInst DelaySlotInst;
-#endif
-
-  bool IsCall;
-};
-
-struct return_t {
-  unsigned long words[2];
-
-  binary_index_t BIdx;
-
-  std::vector<uint8_t> InsnBytes;
-  llvm::MCInst Inst;
-
-#if defined(__mips64) || defined(__mips__)
-  llvm::MCInst DelaySlotInst;
-#endif
-
-  uintptr_t TermAddr;
-};
-
-// one-shot breakpoint
-struct breakpoint_t {
-  unsigned long words[2];
-
-  std::vector<uint8_t> InsnBytes;
-  llvm::MCInst Inst;
-
-#if defined(__mips64) || defined(__mips__)
-  llvm::MCInst DelaySlotInst;
-#endif
-
-  std::function<void(pid_t)> callback;
-};
-
-struct child_syscall_state_t {
-  unsigned no;
-  long a1, a2, a3, a4, a5, a6;
-  unsigned int dir : 1;
-
-  unsigned long pc;
-
-  child_syscall_state_t() : dir(0), pc(0) {}
 };
 
 struct BootstrapTool
@@ -262,7 +215,7 @@ struct BootstrapTool
                       cl::cat(JoveCategory)),
 
           RtldDbgBrk("rtld-dbg-brk", cl::desc("look for r_debug::r_brk"),
-                     cl::cat(JoveCategory), cl::init(true)),
+                     cl::cat(JoveCategory)),
 
           PrintPtraceEvents("events",
                             cl::desc("Print PTRACE events when they occur"),
@@ -336,9 +289,10 @@ struct BootstrapTool
 
   bool RightArch = true;
   const bool IsCOFF;
-
   bool ForkFirstTime = true;
   unordered_set<pid_t> forked;
+
+  std::unique_ptr<ptrace_emulator_t<IsToolMT, IsToolMinSize>> emulator;
 
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
@@ -370,9 +324,7 @@ struct BootstrapTool
 
   pid_t _child = 0; /* XXX */
 
-  unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
-  unordered_map<uintptr_t, return_t> RetMap;
-  unordered_map<uintptr_t, breakpoint_t> BrkMap;
+  unordered_map<uintptr_t, trapped_t> trapmap;
 
   struct {
     bool Found = false;
@@ -387,13 +339,6 @@ struct BootstrapTool
   } _r_debug;
 
   unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
-
-#if defined(__mips64) || defined(__mips__)
-  //
-  // we need to find a code cave that can hold two instructions (8 bytes)
-  //
-  uintptr_t ExecutableRegionAddress = 0;
-#endif
 
   bool ShowMeN = false;
   bool ShowMeA = false;
@@ -413,9 +358,7 @@ struct BootstrapTool
   void Reset(void) noexcept {
     RightArch = true;
 
-    IndBrMap.clear();
-    RetMap.clear();
-    BrkMap.clear();
+    trapmap.clear();
     Loaded.clear();
     cached_proc_maps.clear();
     pmm.clear();
@@ -423,10 +366,6 @@ struct BootstrapTool
     children_syscall_state.clear();
 
     _r_debug.Reset();
-
-#if defined(__mips64) || defined(__mips__)
-    ExecutableRegionAddress = 0;
-#endif
 
     TurboToggle = 0;
   }
@@ -447,8 +386,7 @@ public:
   binary_index_t BinaryFromData(pid_t, std::string_view data,
                                 const char *name = nullptr);
 
-  void on_new_basic_block(binary_t &, bb_t);
-
+  void on_new_basic_block(binary_t &, bbprop_t &, basic_block_index_t);
   void on_new_function(binary_t &, function_t &);
 
   void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
@@ -460,7 +398,7 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
-  void place_breakpoints_in_block(binary_t &b, bb_t);
+  void place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t);
   void on_return(pid_t child,
@@ -739,34 +677,44 @@ int BootstrapTool::Run(void) {
   symbolizer = std::make_unique<symbolizer_t>();
   E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
       jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+  emulator =
+      std::make_unique<ptrace_emulator_t<IsToolMT, IsToolMinSize>>(jv, *disas);
+  emulator->SetVerbosityLevel(GetVerbosityLevel());
   E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
-                              std::placeholders::_1, std::placeholders::_2));
+                              std::placeholders::_1,
+                              std::placeholders::_2,
+                              std::placeholders::_3));
   E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
-                              std::placeholders::_1, std::placeholders::_2));
+                              std::placeholders::_1,
+                              std::placeholders::_2));
 
   //
   // look around, what do we see?
   //
+  _child = child;
   ScanAddressSpace(child);
 
   if (IsVerbose()) {
     //
     // we should be at the entry point of the dynamic linker
     //
-    cpu_state_t cpu_state;
-    _ptrace_get_cpu_state(child, cpu_state);
+    ptrace::tracee_state_t tracee_state;
+    ptrace::get(child, tracee_state);
 
     if (IsVerbose())
       HumanOut() << llvm::formatv(
           "first ptrace-stop @ {0}\n",
-          description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+          description_of_program_counter(
+              ptrace::pc_of_tracee_state(tracee_state), true));
 
-    auto BBPair = block_at_program_counter(child, pc_of_cpu_state(cpu_state));
+    auto BBPair = block_at_program_counter(
+        child, ptrace::pc_of_tracee_state(tracee_state));
 
     if (unlikely(!is_basic_block_index_valid(BBPair.second)))
       HumanOut() << llvm::formatv(
           "failed to translate block at first ptrace-stop @ {0}\n",
-          description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+          description_of_program_counter(
+              ptrace::pc_of_tracee_state(tracee_state), true));
   }
 
   //
@@ -783,7 +731,7 @@ int BootstrapTool::Run(void) {
 
 uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
-  binary_state_t &x = state.for_binary(binary);
+  auto &x = state.for_binary(binary);
 
   if (!x.Loaded())
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
@@ -794,7 +742,7 @@ uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
 
 uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
-  binary_state_t &x = state.for_binary(binary);
+  auto &x = state.for_binary(binary);
 
   if (!x.Loaded())
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
@@ -811,7 +759,7 @@ uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
 
 uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
-  binary_state_t &x = state.for_binary(binary);
+  auto &x = state.for_binary(binary);
 
   if (!x.Loaded())
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
@@ -948,6 +896,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           _exit(0);
         }
 
+#if 0
         if (unlikely(ToggleTurbo.load())) {
           ToggleTurbo.store(false);
 
@@ -1031,6 +980,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
           TurboToggle ^= 1;
         }
+#endif
 
         rendezvous_with_dynamic_linker(child);
 
@@ -1058,13 +1008,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
           //
           child_syscall_state_t &syscall_state = children_syscall_state[child];
 
-          cpu_state_t cpu_state;
-          _ptrace_get_cpu_state(child, cpu_state);
+          ptrace::tracee_state_t tracee_state;
+          ptrace::get(child, tracee_state);
 
-          long pc = pc_of_cpu_state(cpu_state);
+          long pc = ptrace::pc_of_tracee_state(tracee_state);
           long ra =
 #if defined(__mips64) || defined(__mips__)
-              cpu_state.regs[31]
+              tracee_state.regs[31]
 #else
               0
 #endif
@@ -1074,7 +1024,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           // determine whether this syscall is entering or has exited
           //
 #if defined(__arm__)
-          unsigned dir = cpu_state.uregs[12]; /* unambiguous */
+          unsigned dir = tracee_state.uregs[12]; /* unambiguous */
 #else
           unsigned dir = syscall_state.dir;
 
@@ -1087,48 +1037,37 @@ int BootstrapTool::TracerLoop(pid_t child) {
             // syscall # and arguments
             //
 #if defined(__x86_64__)
-            long no = cpu_state.orig_rax;
-            long a1 = cpu_state.rdi;
-            long a2 = cpu_state.rsi;
-            long a3 = cpu_state.rdx;
-            long a4 = cpu_state.r10;
-            long a5 = cpu_state.r8;
-            long a6 = cpu_state.r9;
+            const auto no = tracee_state.orig_rax;
+            const auto a1 = tracee_state.rdi;
+            const auto a2 = tracee_state.rsi;
+            const auto a3 = tracee_state.rdx;
+            const auto a4 = tracee_state.r10;
+            const auto a5 = tracee_state.r8;
+            const auto a6 = tracee_state.r9;
 #elif defined(__i386__)
-            long no = cpu_state.orig_eax;
-            long a1 = cpu_state.ebx;
-            long a2 = cpu_state.ecx;
-            long a3 = cpu_state.edx;
-            long a4 = cpu_state.esi;
-            long a5 = cpu_state.edi;
-            long a6 = cpu_state.ebp;
+            const auto no = tracee_state.orig_eax;
+            const auto a1 = tracee_state.ebx;
+            const auto a2 = tracee_state.ecx;
+            const auto a3 = tracee_state.edx;
+            const auto a4 = tracee_state.esi;
+            const auto a5 = tracee_state.edi;
+            const auto a6 = tracee_state.ebp;
 #elif defined(__aarch64__)
-            long no = cpu_state.regs[8];
-            long a1 = cpu_state.regs[0];
-            long a2 = cpu_state.regs[1];
-            long a3 = cpu_state.regs[2];
-            long a4 = cpu_state.regs[3];
-            long a5 = cpu_state.regs[4];
-            long a6 = cpu_state.regs[5];
+            const auto no = tracee_state.regs[8];
+            const auto a1 = tracee_state.regs[0];
+            const auto a2 = tracee_state.regs[1];
+            const auto a3 = tracee_state.regs[2];
+            const auto a4 = tracee_state.regs[3];
+            const auto a5 = tracee_state.regs[4];
+            const auto a6 = tracee_state.regs[5];
 #elif defined(__mips64) || defined(__mips__)
-            long no = cpu_state.regs[2];
-            long a1 = cpu_state.regs[4];
-            long a2 = cpu_state.regs[5];
-            long a3 = cpu_state.regs[6];
-            long a4 = cpu_state.regs[7];
-            long a5;
-            long a6;
-            try {
-              a5 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 16);
-              a6 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 20);
-            } catch (const std::exception &e) {
-              HumanOut() << llvm::formatv(
-                  "{0}: couldn't read arguments 5 and 6: {1}\n", __func__,
-                  e.what());
-
-              a5 = 0;
-              a6 = 0;
-            }
+            const auto no = tracee_state.regs[2];
+            const auto a1 = tracee_state.regs[4];
+            const auto a2 = tracee_state.regs[5];
+            const auto a3 = tracee_state.regs[6];
+            const auto a4 = tracee_state.regs[7];
+            const auto a5 = ptrace::peekdata(child, tracee_state.regs[29 /* sp */] + 16);
+            const auto a6 = ptrace::peekdata(child, tracee_state.regs[29 /* sp */] + 20);
 #else
 #error
 #endif
@@ -1161,19 +1100,19 @@ int BootstrapTool::TracerLoop(pid_t child) {
             }
           } else { /* exit */
 #if defined(__mips64) || defined(__mips__)
-            long r7 = cpu_state.regs[7];
-            long r2 = cpu_state.regs[2];
+            long r7 = tracee_state.regs[7];
+            long r2 = tracee_state.regs[2];
 #endif
 
             long ret =
 #if defined(__x86_64__)
-                cpu_state.rax
+                tracee_state.rax
 #elif defined(__i386__)
-                cpu_state.eax
+                tracee_state.eax
 #elif defined(__aarch64__)
-                cpu_state.regs[0]
+                tracee_state.regs[0]
 #elif defined(__arm__)
-                cpu_state.uregs[0]
+                tracee_state.uregs[0]
 #elif defined(__mips64) || defined(__mips__)
                 r7 && r2 > 0 ? -r2 : r2
 #else
@@ -1210,7 +1149,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                       0
 #endif
                       ;
-                  uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
+                  uintptr_t handler = ptrace::peekdata(child, act + handler_offset);
 
                   if (IsVeryVerbose() && handler)
                     HumanOut() << llvm::formatv(
@@ -1455,24 +1394,24 @@ int BootstrapTool::TracerLoop(pid_t child) {
           sig = stopsig;
 
           if (stopsig == SIGSEGV) {
-            cpu_state_t cpu_state;
-            _ptrace_get_cpu_state(child, cpu_state);
+            ptrace::tracee_state_t tracee_state;
+            ptrace::get(child, tracee_state);
 #if defined(__mips64) || defined(__mips__)
           //
           // recognize the 'jr $zero' hack. This trickery is to avoid emulating
           // the delay slot instruction of a return instruction.
           //
 
-            if (cpu_state.cp0_epc == 0) {
+            if (tracee_state.cp0_epc == 0) {
               //
               // from here on out we are assuming a 'jr $ra' was replaced with
               // 'jr $zero', so we simply set the program counter to the return
               // address register.
               //
-              uintptr_t RetAddr = cpu_state.regs[31 /* ra */];
+              uintptr_t RetAddr = tracee_state.regs[31 /* ra */];
 
-              cpu_state.cp0_epc = RetAddr;
-              _ptrace_set_cpu_state(child, cpu_state);
+              tracee_state.cp0_epc = RetAddr;
+              ptrace::set(child, tracee_state);
 
               sig = 0; /* suppress */
 
@@ -1480,8 +1419,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
             }
 #else
             if (IsVerbose()) {
-              WithColor::error() << llvm::formatv("sigsegv @ {0}\n",
-                                                  description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+              WithColor::error() << llvm::formatv(
+                  "sigsegv @ {0}\n",
+                  description_of_program_counter(
+                      ptrace::pc_of_tracee_state(tracee_state), true));
             }
 #endif
           }
@@ -1552,149 +1493,49 @@ int BootstrapTool::TracerLoop(pid_t child) {
   return 0;
 }
 
-void BootstrapTool::on_new_basic_block(binary_t &b, bb_t bb) {
-  place_breakpoints_in_block(b, bb);
+void BootstrapTool::on_new_basic_block(binary_t &b,
+                                       bbprop_t &bbprop,
+                                       basic_block_index_t BBIdx) {
+  place_breakpoints_in_block(b, bbprop, BBIdx);
 }
 
 void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   //state.update();
 }
 
-void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
-  auto s_lck = b.BBMap.shared_access();
-
-  binary_state_t &x = state.for_binary(b);
+void BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
+                                               basic_block_index_t BBIdx) {
+  auto &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
 
   if (x.Skip)
     return;
 
   const binary_index_t BIdx = index_of_binary(b, jv);
-  const basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
   assert(x.Loaded());
 
-  const auto &bbprop = ICFG[bb];
+  const auto TermType = bbprop.Term.Type;
 
-  //
-  // if it's an indirect branch, we need to (1) add it to the indirect branch
-  // map and (2) install a breakpoint at the correct program counter
-  //
-  if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
-      bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-    uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
+  if (!IsTerminatorIndirect(TermType))
+    return;
 
-    assert(IndBrMap.find(termpc) == IndBrMap.end());
+  const uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
+  aassert(!trapmap.contains(termpc));
 
-    indirect_branch_t &indbr = IndBrMap[termpc];
-    indbr.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
-    indbr.BIdx = BIdx;
-    indbr.TermAddr = bbprop.Term.Addr;
-    indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#if defined(__mips64) || defined(__mips__)
-    indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
-    assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
-#endif
+  assert(disas);
 
-    assert(x.Bin.get());
+  auto trapmap_pair = trapmap.emplace(
+      termpc, trapped_t(jv, x.Bin.get(), *disas, BBIdx, BIdx, bbprop));
+  aassert(trapmap_pair.second);
+  trapped_t &trapped = (*trapmap_pair.first).second;
 
-    const void *Ptr = B::toMappedAddr(x.Bin.get(), bbprop.Term.Addr);
+  aasserta(trapped.Inst.getOpcode());
 
-    memcpy(&indbr.InsnBytes[0], Ptr, indbr.InsnBytes.size());
-
-    //
-    // now that we have the bytes for each indirect branch, disassemble them
-    //
-    llvm::MCInst &Inst = indbr.Inst;
-
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls());
-      assert(Disassembled);
-    }
-
-#if defined(__mips64) || defined(__mips__)
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          indbr.DelaySlotInst, InstLen,
-          llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
-          bbprop.Term.Addr + 4, llvm::nulls());
-      assert(Disassembled);
-    }
-#endif
-
-    try {
-#if 0
-      if (IsVeryVerbose())
-        HumanOut() << llvm::formatv("placing2 @ {0}\n",
-                                    description_of_program_counter(termpc));
-#endif
-      place_breakpoint_at_indirect_branch(_child, termpc, indbr);
-    } catch (const std::exception &e) {
-      HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
-    }
-  }
-
-  //
-  // if it's a return, we need to (1) add it to the return map and (2) install
-  // a breakpoint at the correct pc
-  //
-  if (bbprop.Term.Type == TERMINATOR::RETURN) {
-    uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
-
-    assert(RetMap.find(termpc) == RetMap.end());
-
-    return_t &RetInfo = RetMap[termpc];
-    RetInfo.BIdx = BIdx;
-    RetInfo.TermAddr = bbprop.Term.Addr;
-
-    RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#if defined(__mips64) || defined(__mips__)
-    RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
-    assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
-#endif
-
-    assert(x.Bin.get());
-    const void *Ptr = B::toMappedAddr(x.Bin.get(), bbprop.Term.Addr);
-
-    memcpy(&RetInfo.InsnBytes[0], Ptr, RetInfo.InsnBytes.size());
-
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          RetInfo.Inst, InstLen, RetInfo.InsnBytes, bbprop.Term.Addr,
-          llvm::nulls());
-      assert(Disassembled);
-    }
-
-#if defined(__mips64) || defined(__mips__)
-    //
-    // disassemble delay slot
-    //
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          RetInfo.DelaySlotInst, InstLen,
-          llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
-          bbprop.Term.Addr + 4, llvm::nulls());
-      assert(Disassembled);
-    }
-#endif
-
-    try {
-#if 0
-      if (IsVeryVerbose())
-        HumanOut() << llvm::formatv("rplacing2 @ {0}\n",
-                                    description_of_program_counter(termpc));
-#endif
-
-      place_breakpoint_at_return(_child, termpc, RetInfo);
-    } catch (const std::exception &e) {
-      HumanOut() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
-    }
-  }
+  if (TermType == TERMINATOR::RETURN)
+    place_breakpoint_at_return(_child, termpc, trapped);
+  else
+    place_breakpoint_at_indirect_branch(_child, termpc, trapped);
 }
 
 #if defined(__mips64) || defined(__mips__)
@@ -1732,46 +1573,6 @@ unsigned reg_of_idx(unsigned idx) {
     case 29:   return llvm::Mips::SP;
     case 30:   return llvm::Mips::FP;
     case 31:   return llvm::Mips::RA;
-
-    default:
-      __builtin_trap();
-      __builtin_unreachable();
-  }
-}
-uint32_t code_cave_idx_of_reg(unsigned r) {
-  switch (r) {
-    case llvm::Mips::ZERO: return 0;
-    case llvm::Mips::AT:   return 1;
-    case llvm::Mips::V0:   return 2;
-    case llvm::Mips::V1:   return 3;
-    case llvm::Mips::A0:   return 4;
-    case llvm::Mips::A1:   return 5;
-    case llvm::Mips::A2:   return 6;
-    case llvm::Mips::A3:   return 7;
-    case llvm::Mips::T0:   return 8;
-    case llvm::Mips::T1:   return 9;
-    case llvm::Mips::T2:   return 10;
-    case llvm::Mips::T3:   return 11;
-    case llvm::Mips::T4:   return 12;
-    case llvm::Mips::T5:   return 13;
-    case llvm::Mips::T6:   return 14;
-    case llvm::Mips::T7:   return 15;
-    case llvm::Mips::S0:   return 16;
-    case llvm::Mips::S1:   return 17;
-    case llvm::Mips::S2:   return 18;
-    case llvm::Mips::S3:   return 19;
-    case llvm::Mips::S4:   return 20;
-    case llvm::Mips::S5:   return 21;
-    case llvm::Mips::S6:   return 22;
-    case llvm::Mips::S7:   return 23;
-    case llvm::Mips::T8:   return 24;
-    case llvm::Mips::T9:   return 25;
-    case llvm::Mips::K0:   return 26;
-    case llvm::Mips::K1:   return 27;
-    case llvm::Mips::GP:   return 28;
-    case llvm::Mips::SP:   return 29;
-    case llvm::Mips::FP:   return 30;
-    case llvm::Mips::RA:   return 31;
 
     default:
       __builtin_trap();
@@ -1825,78 +1626,30 @@ static void arch_put_breakpoint(void *code);
 void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
                                                         uintptr_t Addr,
                                                         indirect_branch_t &indbr) {
-  llvm::MCInst &Inst = indbr.Inst;
+  if (IsVeryVerbose())
+    llvm::errs() << llvm::formatv("indjmp @ {0:x}\n", Addr);
 
-  auto is_opcode_handled = [](unsigned opc) -> bool {
-#if defined(__x86_64__)
-    return opc == llvm::X86::JMP64r
-        || opc == llvm::X86::JMP64m
-        || opc == llvm::X86::CALL64m
-        || opc == llvm::X86::CALL64r;
-#elif defined(__i386__)
-    return opc == llvm::X86::JMP32r
-        || opc == llvm::X86::JMP32m
-        || opc == llvm::X86::CALL32m
-        || opc == llvm::X86::CALL32r;
-#elif defined(__aarch64__)
-    return opc == llvm::AArch64::BLR
-        || opc == llvm::AArch64::BR;
-#elif defined(__mips64) || defined(__mips__)
-    return opc == llvm::Mips::JALR
-        || opc == llvm::Mips::JR;
-#else
-#error
-#endif
-  };
-
-  if (!is_opcode_handled(Inst.getOpcode())) {
-    binary_t &Binary = jv.Binaries.at(indbr.BIdx);
-    throw std::runtime_error(
-      (fmt("could not place breakpoint @ %#lx\n"
-           "%s BB %#lx\n"
-           "%s")
-       % Addr
-       % Binary.Name.c_str()
-       % indbr.TermAddr
-       % StringOfMCInst(Inst)).str());
-  }
-
-  // read a word of the branch instruction
-  unsigned long word = _ptrace_peekdata(child, Addr);
-
-  indbr.words[0] = word;
-
-  // insert breakpoint
+  unsigned long word = ptrace::peekdata(child, Addr);
   arch_put_breakpoint(&word);
-
-  indbr.words[1] = word;
-
-  // write the word back
-  _ptrace_pokedata(child, Addr, word);
+  ptrace::pokedata(child, Addr, word);
 }
 
 void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
                                      breakpoint_t &brk) {
-  // read a word of the instruction
-  unsigned long word = _ptrace_peekdata(child, Addr);
+  if (IsVeryVerbose())
+    llvm::errs() << llvm::formatv("break @ {0:x}\n", Addr);
 
-  brk.words[0] = word;
-
+  unsigned long word = ptrace::peekdata(child, Addr);
   arch_put_breakpoint(&word);
-
-  brk.words[1] = word;
-
-  // write the word back
-  _ptrace_pokedata(child, Addr, word);
+  ptrace::pokedata(child, Addr, word);
 }
 
 void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
                                                return_t &r) {
-  // read a word of the instruction
+  if (IsVeryVerbose())
+    llvm::errs() << llvm::formatv("return @ {0:x}\n", Addr);
 
-  unsigned long word = _ptrace_peekdata(child, Addr);
-
-  r.words[0] = word;
+  unsigned long word = ptrace::peekdata(child, Addr);
 
 #if defined(__mips64) || defined(__mips__)
   //
@@ -1911,28 +1664,14 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
   arch_put_breakpoint(&word);
 #endif
 
-  r.words[1] = word;
-
-  // write the word back
-  _ptrace_pokedata(child, Addr, word);
+  ptrace::pokedata(child, Addr, word);
 }
 
-struct ScopedCPUState {
-  pid_t child;
-  cpu_state_t gpr;
-
-  ScopedCPUState(pid_t child) : child(child) { _ptrace_get_cpu_state(child, gpr); }
-  ~ScopedCPUState()                          {
-    if (std::uncaught_exceptions() == 0)
-      _ptrace_set_cpu_state(child, gpr);
-  }
-};
-
 void BootstrapTool::on_breakpoint(pid_t child) {
-  ScopedCPUState  _scoped_cpu_state(child);
+  ptrace::scoped_tracee_state_t scoped_tracee_state(child, emulator->tracee_state);
 
-  auto &gpr = _scoped_cpu_state.gpr;
-  auto &pc = pc_of_cpu_state(_scoped_cpu_state.gpr);
+  auto &tracee_state = scoped_tracee_state.tracee_state;
+  auto &pc = ptrace::pc_of_tracee_state(tracee_state);
 
 #if defined(__x86_64__) || defined(__i386__)
   //
@@ -1941,1072 +1680,59 @@ void BootstrapTool::on_breakpoint(pid_t child) {
   pc -= 1; /* int3 */
 #endif
 
-  //
-  // lookup indirect branch info
-  //
   const uintptr_t saved_pc = pc;
 
-  //
-  // define some helper functions for accessing the cpu state
-  //
-#if defined(__x86_64__)
-  typedef unsigned long long RegValue_t;
-#elif defined(__i386__)
-  typedef long RegValue_t;
-#elif defined(__aarch64__)
-  typedef unsigned long long RegValue_t;
-#elif defined(__mips64)
-  typedef unsigned long RegValue_t;
-#elif defined(__mips__)
-  typedef unsigned long long RegValue_t;
-#else
-#error
-#endif
+  trapped_t &trapped = trapmap.at(saved_pc);
 
-#if defined(__i386__)
-  struct {
-    long ss;
-    long cs;
-    long ds;
-    long es;
-    long fs;
-    long gs;
-  } _hack; /* purely so we can take a reference to the segment fields */
-#endif
-
-  auto RegValue = [&](unsigned llreg) -> RegValue_t & {
-    switch (llreg) {
-#if defined(__x86_64__)
-    case llvm::X86::RAX:
-      return gpr.rax;
-    case llvm::X86::RBP:
-      return gpr.rbp;
-    case llvm::X86::RBX:
-      return gpr.rbx;
-    case llvm::X86::RCX:
-      return gpr.rcx;
-    case llvm::X86::RDI:
-      return gpr.rdi;
-    case llvm::X86::RDX:
-      return gpr.rdx;
-    case llvm::X86::RIP:
-      return gpr.rip;
-    case llvm::X86::RSI:
-      return gpr.rsi;
-    case llvm::X86::RSP:
-      return gpr.rsp;
-
-#define __REG_CASE(n, i, data)                                                 \
-  case BOOST_PP_CAT(llvm::X86::R, i):                                          \
-    return BOOST_PP_CAT(gpr.r, i);
-
-BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
-
-#undef __REG_CASE
-
-#elif defined(__i386__)
-
-    case llvm::X86::EAX:
-      return gpr.eax;
-    case llvm::X86::EBP:
-      return gpr.ebp;
-    case llvm::X86::EBX:
-      return gpr.ebx;
-    case llvm::X86::ECX:
-      return gpr.ecx;
-    case llvm::X86::EDI:
-      return gpr.edi;
-    case llvm::X86::EDX:
-      return gpr.edx;
-    case llvm::X86::EIP:
-      return gpr.eip;
-    case llvm::X86::ESI:
-      return gpr.esi;
-    case llvm::X86::ESP:
-      return gpr.esp;
-
-    //
-    // for segment registers, return the base address of the segment descriptor
-    // which they reference (bits 15-3)
-    //
-    case llvm::X86::SS:
-      _hack.ss = segment_address_of_selector(child, gpr.xss);
-      return _hack.ss;
-
-    case llvm::X86::CS:
-      _hack.cs = segment_address_of_selector(child, gpr.xcs);
-      return _hack.cs;
-
-    case llvm::X86::DS:
-      _hack.ds = segment_address_of_selector(child, gpr.xds);
-      return _hack.ds;
-
-    case llvm::X86::ES:
-      _hack.es = segment_address_of_selector(child, gpr.xes);
-      return _hack.es;
-
-    case llvm::X86::FS:
-      _hack.fs = segment_address_of_selector(child, gpr.xfs);
-      return _hack.fs;
-
-    case llvm::X86::GS:
-      _hack.gs = segment_address_of_selector(child, gpr.xgs);
-      return _hack.gs;
-
-#elif defined(__aarch64__)
-
-#define __REG_CASE(n, i, data)                                                 \
-  case BOOST_PP_CAT(llvm::AArch64::X, i):                                      \
-    return gpr.regs[i];
-
-BOOST_PP_REPEAT(29, __REG_CASE, void)
-
-#undef __REG_CASE
-
-    case llvm::AArch64::FP:
-      return gpr.regs[29];
-    case llvm::AArch64::LR:
-      return gpr.regs[30];
-    case llvm::AArch64::SP:
-      return gpr.sp;
-
-#elif defined(__mips64) || defined(__mips__)
-
-    case llvm::Mips::ZERO: assert(gpr.regs[0] == 0); return gpr.regs[0];
-    case llvm::Mips::AT: return gpr.regs[1];
-    case llvm::Mips::V0: return gpr.regs[2];
-    case llvm::Mips::V1: return gpr.regs[3];
-    case llvm::Mips::A0: return gpr.regs[4];
-    case llvm::Mips::A1: return gpr.regs[5];
-    case llvm::Mips::A2: return gpr.regs[6];
-    case llvm::Mips::A3: return gpr.regs[7];
-    case llvm::Mips::T0: return gpr.regs[8];
-    case llvm::Mips::T1: return gpr.regs[9];
-    case llvm::Mips::T2: return gpr.regs[10];
-    case llvm::Mips::T3: return gpr.regs[11];
-    case llvm::Mips::T4: return gpr.regs[12];
-    case llvm::Mips::T5: return gpr.regs[13];
-    case llvm::Mips::T6: return gpr.regs[14];
-    case llvm::Mips::T7: return gpr.regs[15];
-    case llvm::Mips::S0: return gpr.regs[16];
-    case llvm::Mips::S1: return gpr.regs[17];
-    case llvm::Mips::S2: return gpr.regs[18];
-    case llvm::Mips::S3: return gpr.regs[19];
-    case llvm::Mips::S4: return gpr.regs[20];
-    case llvm::Mips::S5: return gpr.regs[21];
-    case llvm::Mips::S6: return gpr.regs[22];
-    case llvm::Mips::S7: return gpr.regs[23];
-    case llvm::Mips::T8: return gpr.regs[24];
-    case llvm::Mips::T9: return gpr.regs[25];
-
-
-    case llvm::Mips::GP: return gpr.regs[28];
-    case llvm::Mips::SP: return gpr.regs[29];
-    case llvm::Mips::FP: return gpr.regs[30];
-    case llvm::Mips::RA: return gpr.regs[31];
-
-#else
-#error
-#endif
-
-    default:
-      throw std::runtime_error(
-          (fmt("RegValue: unknown llreg %u\n") % llreg).str());
-    }
-  };
-
-#if defined(__mips64) || defined(__mips__)
-  auto emulate_delay_slot = [&](llvm::MCInst &I,
-                                const std::vector<uint8_t> &InsnBytes,
-                                unsigned reg) -> void {
-    const unsigned opc = I.getOpcode();
-
-    //
-    // emulate delay slot instruction
-    //
-    switch (opc) {
-    default: { /* fallback to code cave XXX */
-      if (IsVerbose())
-        HumanOut() << llvm::formatv("delayslot: {0} ({1})\n", I,
-                                    StringOfMCInst(I));
-
-      assert(ExecutableRegionAddress);
-
-      unsigned idx = code_cave_idx_of_reg(reg);
-      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
-                                  idx * (2 * sizeof(uint32_t));
-      uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
-
-      {
-        uint32_t val = ((uint32_t *)InsnBytes.data())[1];
-        _ptrace_pokedata(child, delay_slot_addr, val);
-      }
-
-      pc = jumpr_insn_addr;
-      return;
-    }
-
-    case llvm::Mips::LW:
-    case llvm::Mips::SW: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      auto &Reg = RegValue(I.getOperand(0).getReg());
-      long Base = RegValue(I.getOperand(1).getReg());
-      long Offs = I.getOperand(2).getImm();
-      long Addr = Base + Offs;
-
-      if (opc == llvm::Mips::LW)
-        Reg = _ptrace_peekdata(child, Addr);
-      else /* SW */
-        _ptrace_pokedata(child, Addr, Reg);
-
-      break;
-    }
-
-    case llvm::Mips::LB: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      auto &Reg = RegValue(I.getOperand(0).getReg());
-      long Base = RegValue(I.getOperand(1).getReg());
-      long Offs = I.getOperand(2).getImm();
-      long Addr = Base + Offs;
-
-      unsigned long word = _ptrace_peekdata(child, Addr);
-
-      int8_t byte = *((int8_t *)&word);
-
-      Reg = byte;
-      break;
-    }
-
-    case llvm::Mips::LHu: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      long Base = RegValue(b);
-      long Offs = I.getOperand(2).getImm();
-      long Addr = Base + Offs;
-
-      unsigned long word = _ptrace_peekdata(child, Addr);
-
-      static_assert(sizeof(word) >= sizeof(uint16_t));
-
-      RegValue(a) = static_cast<unsigned long>(((uint16_t *)&word)[0]);
-
-      break;
-    }
-
-    case llvm::Mips::SH: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      int64_t Base = RegValue(b);
-      int64_t Offs = I.getOperand(2).getImm();
-      int64_t Addr = Base + Offs;
-
-      unsigned long word = _ptrace_peekdata(child, Addr);
-      ((uint16_t *)&word)[0] = RegValue(a);
-      _ptrace_pokedata(child, Addr, word);
-
-      break;
-    }
-
-    case llvm::Mips::OR: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      RegValue(a) = RegValue(b) | RegValue(c);
-      break;
-    }
-
-    case llvm::Mips::ADDiu: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      unsigned long x = I.getOperand(2).getImm();
-
-      RegValue(a) = static_cast<unsigned long>(RegValue(b)) + x;
-      break;
-    }
-
-    case llvm::Mips::ADDu: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      RegValue(a) = static_cast<unsigned long>(RegValue(b)) +
-                    static_cast<unsigned long>(RegValue(c));
-      break;
-    }
-
-    case llvm::Mips::SUBu: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      RegValue(a) = static_cast<unsigned long>(RegValue(b)) -
-                    static_cast<unsigned long>(RegValue(c));
-      break;
-    }
-
-    case llvm::Mips::SLL: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      unsigned long x = I.getOperand(2).getImm();
-
-      RegValue(a) = static_cast<unsigned long>(RegValue(b)) << x;
-      break;
-    }
-
-    case llvm::Mips::SRL: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      unsigned long x = I.getOperand(2).getImm();
-
-      RegValue(a) = static_cast<unsigned long>(RegValue(b)) >> x;
-      break;
-    }
-
-    case llvm::Mips::MOVZ_I_I: {
-      assert(I.getNumOperands() == 4);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-      assert(I.getOperand(3).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-      unsigned d = I.getOperand(3).getReg();
-
-      WARN_ON(a != d);
-
-      if (RegValue(c) == 0)
-        RegValue(a) = RegValue(b);
-
-      break;
-    }
-
-    case llvm::Mips::MFLO: {
-      assert(I.getNumOperands() == 1);
-      assert(I.getOperand(0).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-
-      RegValue(a) = gpr.lo;
-
-      break;
-    }
-
-    case llvm::Mips::XOR: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      RegValue(a) = RegValue(b) ^ RegValue(c);
-
-      break;
-    }
-
-    case llvm::Mips::LUi: {
-      assert(I.getNumOperands() == 2);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-
-      unsigned long x = I.getOperand(1).getImm();
-
-      RegValue(a) = x << 16;
-
-      break;
-    }
-
-    case llvm::Mips::AND: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      RegValue(a) = RegValue(b) & RegValue(c);
-
-      break;
-    }
-
-    case llvm::Mips::MUL: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      int64_t x = RegValue(b);
-      int64_t y = RegValue(c);
-      int64_t z = x * y;
-
-      RegValue(a) = ((uint32_t *)&z)[0];
-
-      break;
-    }
-
-    case llvm::Mips::SLTu: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-
-      unsigned long x = RegValue(b);
-      unsigned long y = RegValue(c);
-
-      RegValue(a) = x < y;
-      break;
-    }
-
-    case llvm::Mips::SLTiu: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).isReg();
-      unsigned b = I.getOperand(1).isReg();
-
-      unsigned long x = I.getOperand(2).getImm();
-
-      RegValue(a) = static_cast<unsigned long>(RegValue(b)) < x;
-      break;
-    }
-
-    case llvm::Mips::SB: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      int64_t Base = RegValue(b);
-      int64_t Offset = I.getOperand(2).getImm();
-      int64_t Addr = Base + Offset;
-
-      unsigned long word = _ptrace_peekdata(child, Addr);
-      ((uint8_t *)&word)[0] = RegValue(a);
-      _ptrace_pokedata(child, Addr, word);
-
-      break;
-    }
-
-    case llvm::Mips::ORi: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      unsigned long x = I.getOperand(2).getImm();
-      RegValue(a) = RegValue(b) | x;
-      break;
-    }
-
-    case llvm::Mips::MOVN_I_I: {
-      assert(I.getNumOperands() == 4);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isReg());
-      assert(I.getOperand(3).isReg());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-      unsigned c = I.getOperand(2).getReg();
-      unsigned d = I.getOperand(3).getReg();
-
-      WARN_ON(a != d);
-
-      if (RegValue(c) != 0)
-        RegValue(a) = RegValue(b);
-
-      break;
-    }
-
-    case llvm::Mips::ANDi: {
-      assert(I.getNumOperands() == 3);
-      assert(I.getOperand(0).isReg());
-      assert(I.getOperand(1).isReg());
-      assert(I.getOperand(2).isImm());
-
-      unsigned a = I.getOperand(0).getReg();
-      unsigned b = I.getOperand(1).getReg();
-
-      unsigned long x = I.getOperand(2).getImm();
-
-      RegValue(a) = RegValue(b) & x;
-
-      break;
-    }
-
-    case llvm::Mips::NOP:
-      break;
-    }
-
-    if (IsVeryVerbose())
-      HumanOut() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
-                                  StringOfMCInst(I));
-
-    uintptr_t target = RegValue(reg);
-
-    target &= ~1UL;
-
-    pc = target;
-  };
-#endif
-
-  //
-  // helper function to emulate a return instruction
-  //
-  auto emulate_return = [&](llvm::MCInst &Inst,
-#if defined(__mips64) || defined(__mips__)
-                            llvm::MCInst &DelaySlotInst,
-#endif
-                            const std::vector<uint8_t> &InsnBytes) -> void {
-#if defined(__x86_64__)
-    pc = _ptrace_peekdata(child, gpr.rsp);
-    gpr.rsp += sizeof(uint64_t);
-#elif defined(__i386__)
-    pc = _ptrace_peekdata(child, gpr.esp);
-    gpr.esp += sizeof(uint32_t);
-#elif defined(__aarch64__)
-    if (Inst.getNumOperands() == 0 || Inst.getOpcode() == llvm::AArch64::BRK) {
-      pc = gpr.regs[30] /* lr */;
-    } else {
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-
-      unsigned r = Inst.getOperand(0).getReg();
-      pc = r == llvm::AArch64::NoRegister ? gpr.regs[30] : RegValue(r);
-    }
-#elif defined(__mips64) || defined(__mips__)
-    assert(InsnBytes.size() == 2 * sizeof(uint32_t));
-
-    if (!(Inst.getOpcode() == llvm::Mips::JR &&
-          Inst.getNumOperands() == 1 &&
-          Inst.getOperand(0).isReg() &&
-          Inst.getOperand(0).getReg() == llvm::Mips::RA)) {
-      HumanOut() << llvm::formatv(
-          "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
-          Inst, StringOfMCInst(Inst),
-          description_of_program_counter(saved_pc, true));
-    }
-
-    emulate_delay_slot(DelaySlotInst, InsnBytes, llvm::Mips::RA);
-#else
-#error
-#endif
-
-#if defined(__x86_64__) || defined(__i386__)
-    if (Inst.getNumOperands() > 0) {
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isImm());
-
-      auto &sp =
-#if defined(__x86_64__)
-          gpr.rsp
-#else
-          gpr.esp
-#endif
-          ;
-
-      sp += Inst.getOperand(0).getImm();
-    }
-#endif
-  };
-
-  //
-  // is the dynamic linker doing something?
-  //
-  {
-    if (unlikely(saved_pc == _r_debug.r_brk)) {
-      if (IsVerbose()) {
-        HumanOut() << llvm::formatv(
-            "*_r_debug.r_brk [{0}]\n",
-            description_of_program_counter(_r_debug.r_brk, true));
-      }
-
-      //
-      // we assume that this is a 'ret' TODO verify this assumption
-      //
-      auto it = BrkMap.find(saved_pc);
-      assert(it != BrkMap.end());
-      breakpoint_t &brk = (*it).second;
-
-      brk.callback(child);
-
-      try {
-        emulate_return(brk.Inst,
-#if defined(__mips64) || defined(__mips__)
-                       brk.DelaySlotInst,
-#endif
-                       brk.InsnBytes);
-      } catch (const std::exception &e) {
-        HumanOut() << llvm::formatv("failed to emulate return: {0}\n", e.what());
-      }
-      return;
-    }
-  }
-
-  //
-  // is it a return?
-  //
-  {
-    auto it = RetMap.find(saved_pc);
-    if (it != RetMap.end()) {
-      return_t &ret = (*it).second;
-
-      try {
-        emulate_return(ret.Inst,
-#if defined(__mips64) || defined(__mips__)
-                       ret.DelaySlotInst,
-#endif
-                       ret.InsnBytes);
-      } catch (const std::exception &e) {
-        HumanOut() << llvm::formatv("failed to emulate return: {0}\n", e.what());
-      }
-
-      const uintptr_t AddrOfRet = saved_pc;
-      const uintptr_t RetAddr = pc;
-
-    //llvm::errs() << "<RET>\n";
-      try {
-        on_return(child, ret.BIdx, AddrOfRet, RetAddr);
-      } catch (const std::exception &e) {
-        HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
-      }
-
-      return;
-  }
-  }
-
-
-  //
-  // is it a one-shot breakpoint?
-  //
-  {
-    auto it = BrkMap.find(saved_pc);
-    if (it != BrkMap.end()) {
-      breakpoint_t &brk = (*it).second;
-      brk.callback(child);
-
-      if (IsVerbose())
-        HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
-                                    description_of_program_counter(saved_pc));
-
-      try {
-        _ptrace_pokedata(child, saved_pc, brk.words[0]);
-      } catch (const std::exception &e) {
-        HumanOut() << "failed restoring breakpoint instruction bytes\n";
-      }
-
-      return;
-    }
-  }
-
-  auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
-    auto it = IndBrMap.find(addr);
-    if (it == IndBrMap.end())
-      throw std::runtime_error("unknown breakpoint @ " +
-                               description_of_program_counter(addr, true));
-
-    return (*it).second;
-  };
-
-  //
-  // it's an indirect branch.
-  //
-  indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
-  binary_t &binary = jv.Binaries.at(IndBrInfo.BIdx);
-  auto &ICFG = binary.Analysis.ICFG;
-  bool IsLj = false;
-  unsigned out_deg;
-  bool HasDynTarget = false;
-  const TERMINATOR TermType = ({
-    auto s_lck = binary.BBMap.shared_access();
-
-    bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-    out_deg = ICFG.out_degree(bb);
-
-    const auto &bbprop = ICFG[bb];
-
-    HasDynTarget = bbprop.hasDynTarget();
-    IsLj = bbprop.Term._indirect_jump.IsLj;
-
-    bbprop.Term.Type;
-  });
-
-  llvm::MCInst &Inst = IndBrInfo.Inst;
-
-  //
-  // push program counter past instruction (on x86_64 this is necessary to make
-  // EIP-relative expressions correct)
-  //
-  pc += IndBrInfo.InsnBytes.size();
-
-  //
-  // shorthand-functions for reading the tracee's memory and registers
-  //
-  auto LoadAddr = [&](uintptr_t addr) -> uintptr_t {
-    return _ptrace_peekdata(child, addr);
-  };
-
-  auto GetTarget = [&](void) -> uintptr_t {
-    switch (Inst.getOpcode()) {
-
-#if defined(__x86_64__)
-
-    case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
-      assert(Inst.getNumOperands() == 5);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(1).isImm());
-      assert(Inst.getOperand(2).isReg());
-      assert(Inst.getOperand(3).isImm());
-      assert(Inst.getOperand(4).isReg());
-
-      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
-        unsigned x_r = Inst.getOperand(0).getReg();
-        unsigned y_r = Inst.getOperand(2).getReg();
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = Inst.getOperand(1).getImm();
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-        long B = Inst.getOperand(3).getImm();
-
-        return LoadAddr(x + A * y + B);
-      } else {
-        abort();
-      }
-
-    case llvm::X86::JMP64r: /* jmp reg0 */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-
-      return RegValue(Inst.getOperand(0).getReg());
-
-    case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
-      assert(Inst.getNumOperands() == 5);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(1).isImm());
-      assert(Inst.getOperand(2).isReg());
-      assert(Inst.getOperand(3).isImm());
-      assert(Inst.getOperand(4).isReg());
-
-      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
-        unsigned x_r = Inst.getOperand(0).getReg();
-        unsigned y_r = Inst.getOperand(2).getReg();
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = Inst.getOperand(1).getImm();
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-        long B = Inst.getOperand(3).getImm();
-
-        return LoadAddr(x + A * y + B);
-      } else {
-        abort();
-      }
-
-    case llvm::X86::CALL64r: /* call rax */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-
-      return RegValue(Inst.getOperand(0).getReg());
-
-#elif defined(__i386__)
-
-    case llvm::X86::JMP32m: /* jmp dword ptr [ebx + 20] */
-      assert(Inst.getNumOperands() == 5);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(1).isImm());
-      assert(Inst.getOperand(2).isReg());
-      assert(Inst.getOperand(3).isImm());
-      assert(Inst.getOperand(4).isReg());
-
-      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
-        unsigned x_r = Inst.getOperand(0).getReg();
-        unsigned y_r = Inst.getOperand(2).getReg();
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = Inst.getOperand(1).getImm();
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-        long B = Inst.getOperand(3).getImm();
-
-        return LoadAddr(x + A * y + B);
-      } else {
-        /* e.g. jmp dword ptr gs:[16] */
-        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
-                        Inst.getOperand(3).getImm());
-      }
-
-    case llvm::X86::JMP32r: { /* jmp eax */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      unsigned r = Inst.getOperand(0).getReg();
-      assert(r != llvm::X86::NoRegister);
-      return RegValue(r);
-    }
-
-    case llvm::X86::CALL32m:
-      assert(Inst.getNumOperands() == 5);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(1).isImm());
-      assert(Inst.getOperand(2).isReg());
-      assert(Inst.getOperand(3).isImm());
-      assert(Inst.getOperand(4).isReg());
-
-      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
-        /* e.g. call dword ptr [esi + 4*edi - 280] */
-
-        unsigned x_r = Inst.getOperand(0).getReg();
-        unsigned y_r = Inst.getOperand(2).getReg();
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = Inst.getOperand(1).getImm();
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-        long B = Inst.getOperand(3).getImm();
-
-        return LoadAddr(x + A * y + B);
-      } else {
-        /* e.g. call dword ptr gs:[16] */
-        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
-                        Inst.getOperand(3).getImm());
-      }
-
-    case llvm::X86::CALL32r: /* call edx */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
-
-#elif defined(__aarch64__)
-
-    case llvm::AArch64::BLR: /* blr x3 */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
-
-    case llvm::AArch64::BR: /* br x17 */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
-
-#elif defined(__mips64) || defined(__mips__)
-
-    case llvm::Mips::JALR: /* jalr $25 */
-      assert(Inst.getNumOperands() == 2);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
-      assert(Inst.getOperand(1).isReg());
-      return RegValue(Inst.getOperand(1).getReg());
-
-    case llvm::Mips::JR: /* jr $25 */
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
-
-#else
-#error
-#endif
-
-    default:
-      abort();
-    }
-  };
-
-  //
-  // determine the target address of the indirect control transfer
-  //
   struct {
     uintptr_t Addr = 0UL;
-    binary_index_t BIdx = invalid_binary_index;
     bool isNew = false;
+    binary_index_t BIdx = invalid_binary_index;
   } Target;
 
-  try {
-    Target.Addr = GetTarget();
-  } catch (const std::exception &e) {
-    HumanOut() << llvm::formatv("failed to determine target address: {0}\n", e.what());
-    throw;
-  }
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-  Target.Addr &= ~1UL;
-#endif
-
-  //
-  // if the instruction is a call, we need to emulate whatever happens to the
-  // return address
-  //
-  if (TermType == TERMINATOR::INDIRECT_CALL) {
-#if defined(__x86_64__)
-    gpr.rsp -= sizeof(uintptr_t);
-    _ptrace_pokedata(child, gpr.rsp, pc);
-#elif defined(__i386__)
-    gpr.esp -= sizeof(uintptr_t);
-    _ptrace_pokedata(child, gpr.esp, pc);
-#elif defined(__aarch64__)
-    gpr.regs[30 /* lr */] = pc;
-#elif defined(__mips64) || defined(__mips__)
-    gpr.regs[31 /* ra */] = pc;
-#else
-#error
-#endif
-  }
-
-  //
-  // set program counter to be branch target
-  //
-#if !defined(__mips64) && !defined(__mips__)
-  pc = Target.Addr;
-#else /* delay slot madness */
-  try {
-    assert(ExecutableRegionAddress);
-
-    assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
-
-    unsigned reg = std::numeric_limits<unsigned>::max();
-    if (Inst.getOpcode() == llvm::Mips::JR) {
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-
-      reg = Inst.getOperand(0).getReg();
-    } else if (Inst.getOpcode() == llvm::Mips::JALR) {
-      assert(Inst.getNumOperands() == 2);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
-      assert(Inst.getOperand(1).isReg());
-
-      reg = Inst.getOperand(1).getReg();
-    } else {
-      HumanOut() << llvm::formatv(
-          "unknown indirect branch instruction {2} ({0}:{1})", __FILE__,
-          __LINE__, Inst);
-    }
-    assert(reg != std::numeric_limits<unsigned>::max());
-
-    emulate_delay_slot(IndBrInfo.DelaySlotInst,
-                       IndBrInfo.InsnBytes,
-                       reg);
-  } catch (const std::exception &e) {
-    HumanOut() << llvm::formatv("failed to emulate delay slot: {0}\n", e.what());
-  }
-#endif
-
+  Target.Addr = emulator->single_step(child, saved_pc, trapped);
   Target.BIdx = binary_at_program_counter(child, Target.Addr);
-  if (unlikely(!is_binary_index_valid(Target.BIdx))) {
-    if (IsVerbose())
-      HumanOut() << llvm::formatv(
-          "{0} -> {1} (unknown binary)\n",
-          description_of_program_counter(saved_pc, true),
-          description_of_program_counter(Target.Addr, true));
-    return;
-  }
 
-  //
-  // update the jv based on the target
-  //
-  binary_t &TargetBinary = jv.Binaries.at(Target.BIdx);
+  auto &TargetBinary = jv.Binaries.at(Target.BIdx);
   auto &TargetICFG = TargetBinary.Analysis.ICFG;
-  binary_state_t &x = state.for_binary(TargetBinary);
 
+  const auto BIdx     = trapped.BIdx;
+  const auto BBIdx    = trapped.BBIdx;
+  const auto TermType = static_cast<TERMINATOR>(trapped.TT);
+  const auto TermAddr = trapped.TermAddr;
+  const bool IsCall   = static_cast<bool>(trapped.IC);
+  const bool IsLj     = static_cast<bool>(trapped.LJ);
+  const unsigned OutDeg = trapped.OD;
+  const unsigned HasDynTarget = trapped.DT;
+
+  auto &x = state.for_binary(TargetBinary);
   assert(x.Loaded()); /* XXX this is important */
 
   struct {
     bool IsGoto = false;
   } ControlFlow;
 
+  binary_t &binary = jv.Binaries.at(BIdx);
+
   try {
-    if (TermType == TERMINATOR::INDIRECT_CALL) {
+    if (TermType == TERMINATOR::RETURN) {
+      const uintptr_t AddrOfRet = saved_pc;
+      const uintptr_t RetAddr = Target.Addr;
+
+      on_return(child, BIdx, AddrOfRet, RetAddr);
+    } else if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx = E->explore_function(
           TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
 
-      {
-        auto s_lck = binary.BBMap.shared_access();
+      Target.isNew = fallthru<bool>(
+          jv, BIdx, BBIdx, [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
+            assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
-        bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-        auto &bbprop = ICFG[bb];
-
-        assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
-
-        Target.isNew =
-            bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
-
-        out_deg = ICFG.out_degree(bb);
-      }
+            return bbprop.insertDynTarget(trapped.BIdx, {Target.BIdx, FIdx}, jv);
+          });
+      trapped.DT = 1;
     } else {
       assert(TermType == TERMINATOR::INDIRECT_JUMP);
 
@@ -3022,7 +1748,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
 
-        TargetICFG[basic_block_of_index(BBIdx, ICFG)].InvalidateAnalysis(
+        TargetICFG[basic_block_of_index(BBIdx, TargetICFG)].InvalidateAnalysis(
             jv, TargetBinary);
       } else {
         // on an indirect jump, we must determine one of two possibilities.
@@ -3034,9 +1760,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // (2) transfers control to a function (i.e. calling a function pointer)
         //
         bool isTailCall =
-            HasDynTarget /* IsDefinitelyTailCall(ICFG, bb) */ ||
-            IndBrInfo.BIdx != Target.BIdx ||
-            (out_deg == 0 &&
+            HasDynTarget /* IsDefinitelyTailCall(TargetICFG, bb) */ ||
+            BIdx != Target.BIdx ||
+            (OutDeg == 0 &&
              exists_function_at_address(TargetBinary, va_of_pc(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
@@ -3045,36 +1771,37 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
           assert(is_function_index_valid(FIdx));
 
-          Target.isNew = ({
-            auto s_lck = binary.BBMap.shared_access();
+          Target.isNew = fallthru<bool>(
+              jv, BIdx, BBIdx,
+              [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
+                assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-            bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-            auto &bbprop = ICFG[bb];
-
-            assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-            bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
-          });
+                return bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
+              });
+          trapped.DT = 1;
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
               TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
-          bb_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
+          bb_t TargetBB = basic_block_of_index(TargetBBIdx, TargetICFG);
 
-          {
-            auto s_lck = binary.BBMap.shared_access();
+          Target.isNew = fallthru<bool>(
+              jv, BIdx, BBIdx,
+              [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) -> bool {
+                assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-            bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-            auto &bbprop = ICFG[bb];
+                bool res = TargetICFG
+                               .add_edge<false>(
+                                   binary.Analysis.ICFG.vertex<false>(TheBBIdx),
+                                   TargetBB)
+                               .second;
 
-            assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
+                if (res)
+                  bbprop.InvalidateAnalysis(jv, binary);
 
-            Target.isNew = ICFG.add_edge(bb, TargetBB).second;
-
-            if (Target.isNew)
-              bbprop.InvalidateAnalysis(jv, binary);
-          }
+                return res;
+              });
 
           ControlFlow.IsGoto = true;
         }
@@ -3180,13 +1907,16 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
     intvl_map_add(AddressSpace, right_open_addr_intvl(pm.beg, pm.end), BIdx);
 
-    bool NewlyLoaded = Loaded.insert(BIdx).second;
-    if (updateVariable(state.for_binary(b).LoadAddr,
-                       std::min(state.for_binary(b).LoadAddr, pm.beg)))
-      state.for_binary(b).LoadOffset = pm.off;
+    auto &x = state.for_binary(b);
 
-    if (NewlyLoaded)
+    bool NewlyLoaded = Loaded.insert(BIdx).second;
+    if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, pm.beg)))
+      x.LoadOffset = pm.off;
+
+    if (NewlyLoaded) {
+      assert(x.Loaded());
       on_binary_loaded(child, BIdx, pm);
+    }
   }
 }
 
@@ -3194,7 +1924,8 @@ void BootstrapTool::on_binary_loaded(pid_t child,
                                      binary_index_t BIdx,
                                      const proc_map_t &pm) {
   binary_t &binary = jv.Binaries.at(BIdx);
-  binary_state_t &x = state.for_binary(binary);
+  auto &ICFG = binary.Analysis.ICFG;
+  auto &x = state.for_binary(binary);
 
 #if 1
   for (const std::string &name : opts.SkipBins) {
@@ -3232,14 +1963,14 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 
 #if defined(__mips64) || defined(__mips__)
   if (binary.IsVDSO) {
-    WARN_ON(ExecutableRegionAddress);
+    WARN_ON(emulator->ExecutableRegionAddress);
 
     constexpr unsigned num_trampolines = 32;
 
     //
     // find a code cave that can hold 2*num_trampolines instructions
     //
-    ExecutableRegionAddress = pm.end - num_trampolines * (2 * sizeof(uint32_t));
+    emulator->ExecutableRegionAddress = pm.end - num_trampolines * (2 * sizeof(uint32_t));
 
     //
     // "initialize" code cave
@@ -3247,162 +1978,35 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     for (unsigned i = 0; i < 32; ++i) {
       uint32_t insn = encoding_of_jump_to_reg(reg_of_idx(i));
 
-      _ptrace_pokedata(child, ExecutableRegionAddress + i * (2 * sizeof(uint32_t)), insn);
+      ptrace::pokedata(
+          child, emulator->ExecutableRegionAddress + i * (2 * sizeof(uint32_t)),
+          insn);
     }
 
     if (IsVerbose())
-        HumanOut()
-            << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
-                             ExecutableRegionAddress);
+      HumanOut() << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
+                                  emulator->ExecutableRegionAddress);
   }
 #endif
 
-  //
-  // place breakpoints for indirect branches
-  //
-  for (basic_block_index_t bbidx = 0;
-       bbidx < binary.Analysis.ICFG.num_vertices(); ++bbidx) {
-    bb_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
+  for_each_basic_block_in_binary_if(
+      binary,
+      [&](bb_t bb) -> bool {
+        const auto TermType = binary.Analysis.ICFG[bb].Term.Type;
+        return IsTerminatorIndirect(TermType);
+      },
+      [&](bb_t bb) {
+        bbprop_t &bbprop = ICFG[bb];
 
-    auto &bbprop = binary.Analysis.ICFG[bb];
-    if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
-        bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
-      continue;
+        if constexpr (IsToolMT) {
+          if (!bbprop.pub.is.test(boost::memory_order_acquire))
+            bbprop.pub.template shared_access<IsToolMT>();
+        }
 
-    uintptr_t Addr = pc_of_va(bbprop.Term.Addr, BIdx);
-
-    if (IndBrMap.find(Addr) != IndBrMap.end()) {
-      WithColor::error() << llvm::formatv("wtf? {0} {1:x}\n",
-                                          binary.Name.c_str(), Addr);
-      throw 1;
-    }
-
-    assert(IndBrMap.find(Addr) == IndBrMap.end());
-
-#if 0
-    if (IsVeryVerbose())
-      llvm::errs() << llvm::formatv(
-          "IndBr1 {0} {1}\tTERM @ {2}\n",
-          description_of_program_counter(Addr),
-          taddr2str(bbprop.Addr, false),
-          taddr2str(bbprop.Term.Addr, false));
-#endif
-
-    indirect_branch_t &IndBrInfo = IndBrMap[Addr];
-    IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
-    IndBrInfo.BIdx = BIdx;
-    IndBrInfo.TermAddr = bbprop.Term.Addr;
-    IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#if defined(__mips64) || defined(__mips__)
-    IndBrInfo.InsnBytes.resize(IndBrInfo.InsnBytes.size() + 4 /* delay slot */);
-    assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
-#endif
-
-    assert(Bin.get());
-    const void *Ptr = B::toMappedAddr(Bin.get(), bbprop.Term.Addr);
-
-    memcpy(&IndBrInfo.InsnBytes[0], Ptr, IndBrInfo.InsnBytes.size());
-
-    //
-    // now that we have the bytes for each indirect branch, disassemble them
-    //
-    llvm::MCInst &Inst = IndBrInfo.Inst;
-
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr, llvm::nulls());
-      assert(Disassembled);
-    }
-
-#if defined(__mips64) || defined(__mips__)
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          IndBrInfo.DelaySlotInst, InstLen,
-          llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
-          bbprop.Term.Addr + 4, llvm::errs());
-      assert(Disassembled);
-    }
-#endif
-
-    try {
-      if (opts.Fast && bbprop.hasDynTarget()) {
-        ;
-      } else {
-#if 0
-        if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("placing1 @ {0}\n", description_of_program_counter(Addr));
-#endif
-        place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo);
-      }
-    } catch (const std::exception &e) {
-      HumanOut() << llvm::formatv(
-          "failed to place breakpoint at indirect branch: {0}\n", e.what());
-    }
-  }
-
-  //
-  // place breakpoints for returns
-  //
-  for (basic_block_index_t bbidx = 0;
-       bbidx < binary.Analysis.ICFG.num_vertices(); ++bbidx) {
-    bb_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
-
-    auto &bbprop = binary.Analysis.ICFG[bb];
-    if (bbprop.Term.Type != TERMINATOR::RETURN)
-      continue;
-
-    uintptr_t Addr = pc_of_va(bbprop.Term.Addr, BIdx);
-
-    assert(RetMap.find(Addr) == RetMap.end());
-
-    auto &RetInfo = RetMap[Addr];
-    RetInfo.BIdx = BIdx;
-    RetInfo.TermAddr = bbprop.Term.Addr;
-
-    RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#if defined(__mips64) || defined(__mips__)
-    RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
-    assert(RetInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
-#endif
-
-    assert(Bin.get());
-    const void *Ptr = B::toMappedAddr(Bin.get(), bbprop.Term.Addr);
-
-    memcpy(&RetInfo.InsnBytes[0], Ptr, RetInfo.InsnBytes.size());
-
-    {
-      uint64_t InstLen;
-      bool Disassembled =
-          disas->DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
-                                       bbprop.Term.Addr, llvm::nulls());
-      assert(Disassembled);
-      assert(InstLen <= RetInfo.InsnBytes.size());
-    }
-
-#if defined(__mips64) || defined(__mips__)
-    {
-      uint64_t InstLen;
-      bool Disassembled = disas->DisAsm->getInstruction(
-          RetInfo.DelaySlotInst, InstLen,
-          llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
-          bbprop.Term.Addr + 4, llvm::nulls());
-      assert(Disassembled);
-    }
-#endif
-
-    try {
-      if (opts.Fast) {
-        ;
-      } else {
-        place_breakpoint_at_return(child, Addr, RetInfo);
-      }
-    } catch (const std::exception &e) {
-      HumanOut() << llvm::formatv(
-          "failed to place breakpoint at return: {0}\n", e.what());
-    }
-  }
+        auto s_lck = bbprop.shared_access<IsToolMT>();
+        place_breakpoints_in_block(binary, bbprop,
+                                   index_of_basic_block(ICFG, bb));
+      });
 }
 
 bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
@@ -3532,12 +2136,13 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
   if (!_r_debug.Addr)
     return;
 
+  std::vector<std::byte> r_dbg_bytes;
+
   struct r_debug r_dbg;
   memset(&r_dbg, 0, sizeof(r_dbg));
 
   try {
-    ssize_t ret = _ptrace_memcpy(child,
-                                 &r_dbg,
+    ssize_t ret = ptrace::memcpy(child, r_dbg_bytes,
                                  (void *)_r_debug.Addr,
                                  sizeof(struct r_debug));
 
@@ -3545,12 +2150,16 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
       HumanOut() << __func__ << ": couldn't read r_debug structure\n";
       return;
     }
-  } catch (const std::exception &e) {
+
     if (IsVerbose())
-      HumanOut() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
+      HumanOut() << llvm::formatv("{0}: couldn't read r_debug structure\n", __func__);
 
     return;
+  } catch (...) {
+    return;
   }
+
+  memcpy(&r_dbg, &r_dbg_bytes[0], r_dbg_bytes.size());
 
   if (opts.PrintLinkMap)
       HumanOut() << llvm::formatv("[r_debug] r_version = {0}\n"
@@ -3573,6 +2182,8 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
   if (!r_dbg.r_map)
     return;
 
+  std::vector<std::byte> lm_bytes;
+
   const unsigned SavedNumBinaries = jv.NumBinaries();
 
   struct link_map *lmp = r_dbg.r_map;
@@ -3580,21 +2191,23 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
     struct link_map lm;
 
     try {
-      ssize_t ret = _ptrace_memcpy(child, &lm, lmp, sizeof(struct link_map));
+      ssize_t ret = ptrace::memcpy(child, lm_bytes, lmp, sizeof(*lmp));
 
       if (ret != sizeof(struct link_map)) {
         HumanOut() << __func__
                    << ": couldn't read link_map structure\n";
         return;
       }
-    } catch (const std::exception &e) {
-      HumanOut() << llvm::formatv("failed to read link_map: {0}\n", e.what());
+    } catch (...) {
+      HumanOut() << "failed to read link_map\n";
       return;
     }
 
+    memcpy(&lm, &lm_bytes[0], lm_bytes.size());
+
     std::string s;
     try {
-      s = _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
+      s = ptrace::read_c_str(child, reinterpret_cast<uintptr_t>(lm.l_name));
     } catch (const std::exception &e) {
       ;
     }
@@ -3630,7 +2243,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc([](binary_t &, bb_t) -> void {});
+      tool.E->set_newbb_proc(nop_on_newbb_proc<IsToolMT, IsToolMinSize>);
     }
 
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
@@ -3653,7 +2266,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc([](binary_t &, bb_t) -> void {});
+      tool.E->set_newbb_proc(nop_on_newbb_proc<IsToolMT, IsToolMinSize>);
     }
 
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
@@ -3715,22 +2328,28 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
   if (!_r_debug.Found)
     return;
 
+  std::vector<std::byte> r_dbg_bytes;
+
   //
   // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
   // to communicate details of shared object loading to the debugger."
   //
   if (!_r_debug.r_brk) {
     struct r_debug r_dbg;
+    memset(&r_dbg, 0, sizeof(r_dbg));
 
     ssize_t ret;
     try {
-      ret = _ptrace_memcpy(child, &r_dbg, (void *)_r_debug.Addr, sizeof(struct r_debug));
-    } catch (const std::exception &e) {
+      ret = ptrace::memcpy(child, r_dbg_bytes,
+                           (void *)_r_debug.Addr,
+                           sizeof(struct r_debug));
+    } catch (...) {
       if (IsVerbose())
-        HumanOut() << llvm::formatv("failed to read r_debug structure: {0}\n",
-                                    e.what());
+        HumanOut() << "failed to read r_debug structure\n";
       return;
     }
+
+    memcpy(&r_dbg, &r_dbg_bytes[0], r_dbg_bytes.size());
 
     if (ret != sizeof(struct r_debug)) {
       if (ret < 0) {
@@ -3753,7 +2372,8 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
   }
 
   if (_r_debug.r_brk) {
-    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end())) {
+    if (unlikely(trapmap.find(_r_debug.r_brk) == trapmap.end())) {
+#if 0
       try {
         breakpoint_t brk;
         brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1);
@@ -3800,6 +2420,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
               _r_debug.r_brk,
               e.what());
       }
+#endif
     }
   }
 }
@@ -4007,21 +2628,20 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
     IsVDSO = nm == "[vdso]";
 
     std::string_view sv;
-    std::string _buff;
+    std::vector<std::byte> buff_bytes;
     if (IsVDSO) { /* FIXME? */
       sv = get_vdso();
     } else {
-      _buff.resize(pm.end - pm.beg);
-
       try {
-        _ptrace_memcpy(child, &_buff[0], (const void *)pm.beg, _buff.size());
+        ptrace::memcpy(child, buff_bytes, (const void *)pm.beg, pm.end - pm.beg);
       } catch (const std::exception &e) {
         if (IsVerbose())
           HumanOut() << llvm::formatv("failed to read {0} in tracee\n", nm);
         return invalid_binary_index;
       }
 
-      sv = std::string_view(_buff);
+      sv = std::string_view(reinterpret_cast<const char *>(buff_bytes.data()),
+                            buff_bytes.size());
     }
 
     BIdx = BinaryFromData(child, sv, nm.c_str());
@@ -4061,7 +2681,7 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
     return std::make_pair(invalid_binary_index, invalid_function_index);
 
   binary_t &binary = jv.Binaries.at(BIdx);
-  binary_state_t &x = state.for_binary(binary);
+  auto &x = state.for_binary(binary);
 
   assert(x.Loaded());
 
@@ -4083,7 +2703,7 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
   binary_t &binary = jv.Binaries.at(BIdx);
-  binary_state_t &x = state.for_binary(binary);
+  auto &x = state.for_binary(binary);
 
   assert(x.Loaded());
 
@@ -4152,7 +2772,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
     if (it != AddressSpace.end()) {
       binary_index_t BIdx = (*it).second;
       binary_t &b = jv.Binaries.at(BIdx);
-      binary_state_t &x = state.for_binary(b);
+      auto &x = state.for_binary(b);
 
       if (x.Loaded()) {
         //

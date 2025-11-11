@@ -141,6 +141,7 @@ set(JOVE_SOURCES
     ../core/byval.cpp
     ../core/disas.cpp
     ../core/elf.cpp
+    ../core/emulate.cpp
     ../core/except.cpp
     ../core/explore.cpp
     ../core/fd.cpp
