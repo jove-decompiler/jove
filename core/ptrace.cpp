@@ -23,18 +23,19 @@ ssize_t memcpy(pid_t child,
   uintptr_t Addr = reinterpret_cast<uintptr_t>(src);
 
   size_t done = 0;
-  for (; done != N; done += sizeof(ptrace::word)) {
+  for (; done < N; done += sizeof(ptrace::word)) {
     const auto chunk = peekdata(child, Addr);
-    Addr += sizeof(ptrace::word);
-
     static_assert(sizeof(chunk) == sizeof(ptrace::word));
+
+    Addr += sizeof(chunk);
 
     const size_t M = dst.size();
     dst.resize(dst.size() + sizeof(chunk));
     __builtin_memcpy_inline(&dst[M], &chunk, sizeof(chunk));
   }
 
-  return done;
+  dst.resize(N);
+  return N;
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
