@@ -1700,9 +1700,6 @@ void BootstrapTool::on_breakpoint(pid_t child) {
 
   Target.Addr = emulator->single_step(child, saved_pc, trapped);
   Target.BIdx = binary_at_program_counter(child, Target.Addr);
-  if (!is_binary_index_valid(Target.BIdx)) {
-    HumanOut() << StringOfMCInst(trapped.Inst) << '\n';
-  }
 
   assert(is_binary_index_valid(Target.BIdx));
 
