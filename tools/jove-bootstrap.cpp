@@ -1117,14 +1117,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
 #endif
                 ;
 
-            long no = syscall_state.no;
-
-            long a1 = syscall_state.a1;
-            long a2 = syscall_state.a2;
-            long a3 = syscall_state.a3;
-            long a4 = syscall_state.a4;
-            long a5 = syscall_state.a5;
-            long a6 = syscall_state.a6;
+            const auto no = syscall_state.no;
+            const auto a1 = syscall_state.a1;
+            const auto a2 = syscall_state.a2;
+            const auto a3 = syscall_state.a3;
+            const auto a4 = syscall_state.a4;
+            const auto a5 = syscall_state.a5;
+            const auto a6 = syscall_state.a6;
 
             auto on_syscall_exit = [&](void) -> void {
               if (unlikely(ret < 0 && ret > -4096))
