@@ -796,9 +796,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
       // wait for a child process to stop or terminate
       //
       int status;
-      child = sys::retry_eintr(::waitpid, -1, &status, __WALL);
+      child = _jove_sys_wait4(-1, &status, __WALL, NULL);
       if (unlikely(child < 0)) {
-        const int err = errno;
+        const int err = -child;
         assert(err != EINTR);
 
         if (IsVerbose())
