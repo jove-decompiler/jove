@@ -117,9 +117,6 @@ ptrace_emulator_t<MT, MinSize>::single_step(const pid_t child,
                                             const uintptr_t saved_pc,
                                             const trapped_t &trapped) {
   auto &gpr = this->tracee_state;
-  auto &b = jv.Binaries.at(trapped.BIdx);
-  auto &ICFG = b.Analysis.ICFG;
-  auto bb = ICFG.vertex(trapped.BBIdx);
 
   //
   // define some helper functions for accessing the cpu state
@@ -707,29 +704,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #else
 
-  auto emulate_call = [&](void) -> void {
-    assert(static_cast<TERMINATOR>(trapped.TT) == TERMINATOR::INDIRECT_CALL);
-
-#if defined(__x86_64__)
-    gpr.rsp -= 8;
-    ptrace::pokedata(child, gpr.rsp, nextpc);
-#elif defined(__i386__)
-    gpr.esp -= 4;
-    ptrace::pokedata(child, gpr.esp, nextpc);
-#elif defined(__aarch64__)
-    gpr.regs[30 /* lr */] = nextpc;
-#elif defined(__mips64) || defined(__mips__)
-    gpr.regs[31 /* ra */] = nextnextpc;
-#else
-#error
-#endif
-  };
-
   auto emulate = [&](const llvm::MCInst &Inst) -> uintptr_t {
     switch (Inst.getOpcode()) {
 
 #if defined(__x86_64__)
 
+    case llvm::X86::CALL64m:
+      assert(trapped.IC);
     case llvm::X86::JMP64m:
       assert(Inst.getNumOperands() == 5);
       assert(Inst.getOperand(0).isReg());
@@ -752,39 +733,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         abort();
       }
 
-    case llvm::X86::JMP64r:
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-
-      return RegValue(Inst.getOperand(0).getReg());
-
-    case llvm::X86::CALL64m:
-      emulate_call();
-
-      assert(Inst.getNumOperands() == 5);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(1).isImm());
-      assert(Inst.getOperand(2).isReg());
-      assert(Inst.getOperand(3).isImm());
-      assert(Inst.getOperand(4).isReg());
-
-      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
-        unsigned x_r = Inst.getOperand(0).getReg();
-        unsigned y_r = Inst.getOperand(2).getReg();
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = Inst.getOperand(1).getImm();
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-        long B = Inst.getOperand(3).getImm();
-
-        return LoadAddr(x + A * y + B);
-      } else {
-        abort();
-      }
-
     case llvm::X86::CALL64r:
-      emulate_call();
-
+      assert(trapped.IC);
+    case llvm::X86::JMP64r:
       assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
 
@@ -806,6 +757,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #elif defined(__i386__)
 
+    case llvm::X86::CALL32m:
+      assert(trapped.IC);
     case llvm::X86::JMP32m:
       assert(Inst.getNumOperands() == 5);
       assert(Inst.getOperand(0).isReg());
@@ -825,50 +778,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         return LoadAddr(x + A * y + B);
       } else {
-        /* e.g. jmp dword ptr gs:[16] */
-        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
-                        Inst.getOperand(3).getImm());
-      }
-
-    case llvm::X86::JMP32r: {
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      unsigned r = Inst.getOperand(0).getReg();
-      assert(r != llvm::X86::NoRegister);
-      return RegValue(r);
-    }
-
-    case llvm::X86::CALL32m:
-      emulate_call();
-
-      assert(Inst.getNumOperands() == 5);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(1).isImm());
-      assert(Inst.getOperand(2).isReg());
-      assert(Inst.getOperand(3).isImm());
-      assert(Inst.getOperand(4).isReg());
-
-      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
-        /* e.g. call dword ptr [esi + 4*edi - 280] */
-
-        unsigned x_r = Inst.getOperand(0).getReg();
-        unsigned y_r = Inst.getOperand(2).getReg();
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = Inst.getOperand(1).getImm();
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-        long B = Inst.getOperand(3).getImm();
-
-        return LoadAddr(x + A * y + B);
-      } else {
         /* e.g. call dword ptr gs:[16] */
         return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
                         Inst.getOperand(3).getImm());
       }
 
     case llvm::X86::CALL32r:
-      emulate_call();
-
+      assert(trapped.IC);
+    case llvm::X86::JMP32r:
       assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
@@ -890,12 +807,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__aarch64__)
 
     case llvm::AArch64::BLR:
-      emulate_call();
-
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
-
+      assert(trapped.IC);
     case llvm::AArch64::BR:
       assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
@@ -917,12 +829,34 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
     }
 
+    auto &b = jv.Binaries.at(trapped.BIdx);
+    auto &ICFG = b.Analysis.ICFG;
+    auto bb = ICFG.vertex(trapped.BBIdx);
+
     throw std::runtime_error(
         "unknown opcode " + std::to_string(Inst.getOpcode()) + " @ " +
         taddr2str(ICFG[bb].Term.Addr) + " " + std::string(b.Name.c_str()) +
         " #operands=" + std::to_string(Inst.getNumOperands()));
   };
 #endif
+
+  auto emulate_call = [&](void) -> void {
+    assert(static_cast<TERMINATOR>(trapped.TT) == TERMINATOR::INDIRECT_CALL);
+
+#if defined(__x86_64__)
+    gpr.rsp -= 8;
+    ptrace::pokedata(child, gpr.rsp, nextpc);
+#elif defined(__i386__)
+    gpr.esp -= 4;
+    ptrace::pokedata(child, gpr.esp, nextpc);
+#elif defined(__aarch64__)
+    gpr.regs[30 /* lr */] = nextpc;
+#elif defined(__mips64) || defined(__mips__)
+    gpr.regs[31 /* ra */] = nextnextpc;
+#else
+#error
+#endif
+  };
 
   //
   // determine the target address of the indirect control transfer and update
@@ -939,6 +873,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     (TheTargetAddr = emulate(trapped.Inst));
 #endif
   });
+
+  if (trapped.IC)
+    emulate_call();
 
   return TheTargetAddr;
 }
