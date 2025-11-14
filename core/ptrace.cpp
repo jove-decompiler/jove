@@ -13,10 +13,10 @@ namespace ptrace {
 
 typedef boost::format fmt;
 
-ssize_t memcpy(pid_t child,
-               std::vector<std::byte> &dst,
-               const void *src,
-               const size_t N) {
+ssize_t memcpy_from(pid_t child,
+                    std::vector<std::byte> &dst,
+                    const void *src,
+                    size_t N) {
   dst.reserve(N);
   dst.clear();
 
@@ -35,6 +35,30 @@ ssize_t memcpy(pid_t child,
   }
 
   dst.resize(N);
+  return N;
+}
+
+ssize_t memcpy_to(pid_t child,
+                  void *dst,
+                  const std::byte *src,
+                  size_t N) {
+  uintptr_t Addr = reinterpret_cast<uintptr_t>(dst);
+
+  ssize_t left = N;
+  for (; left > 0; left -= sizeof(ptrace::word)) {
+    size_t offset = N - left;
+
+    ptrace::word chunk;
+    size_t M = std::min<size_t>(left, sizeof(chunk));
+    if (M < sizeof(chunk))
+      chunk = peekdata(child, Addr);
+    memcpy(&chunk, &src[offset], M);
+
+    pokedata(child, Addr, chunk);
+
+    Addr += sizeof(chunk);
+  }
+
   return N;
 }
 

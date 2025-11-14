@@ -397,7 +397,7 @@ public:
 
   void place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
-  [[clang::noinline]] void on_breakpoint(pid_t);
+  void on_breakpoint(pid_t);
   void on_return(pid_t child,
                  binary_index_t RetBIdx,
                  uintptr_t AddrOfRet,
@@ -1521,101 +1521,16 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
 
   assert(disas);
 
-  auto trapmap_pair = trapmap.emplace(
-      termpc, trapped_t(jv, x.Bin.get(), *disas, BBIdx, BIdx, bbprop));
+  auto trapmap_pair =
+      trapmap.emplace(termpc, trapped_t(*emulator, BBIdx, BIdx, x.Bin.get()));
   aassert(trapmap_pair.second);
   trapped_t &trapped = (*trapmap_pair.first).second;
-
-  aasserta(trapped.Inst.getOpcode());
 
   if (TermType == TERMINATOR::RETURN)
     place_breakpoint_at_return(_child, termpc, trapped);
   else
     place_breakpoint_at_indirect_branch(_child, termpc, trapped);
 }
-
-#if defined(__mips64) || defined(__mips__)
-unsigned reg_of_idx(unsigned idx) {
-  switch (idx) {
-    case 0:    return llvm::Mips::ZERO;
-    case 1:    return llvm::Mips::AT;
-    case 2:    return llvm::Mips::V0;
-    case 3:    return llvm::Mips::V1;
-    case 4:    return llvm::Mips::A0;
-    case 5:    return llvm::Mips::A1;
-    case 6:    return llvm::Mips::A2;
-    case 7:    return llvm::Mips::A3;
-    case 8:    return llvm::Mips::T0;
-    case 9:    return llvm::Mips::T1;
-    case 10:   return llvm::Mips::T2;
-    case 11:   return llvm::Mips::T3;
-    case 12:   return llvm::Mips::T4;
-    case 13:   return llvm::Mips::T5;
-    case 14:   return llvm::Mips::T6;
-    case 15:   return llvm::Mips::T7;
-    case 16:   return llvm::Mips::S0;
-    case 17:   return llvm::Mips::S1;
-    case 18:   return llvm::Mips::S2;
-    case 19:   return llvm::Mips::S3;
-    case 20:   return llvm::Mips::S4;
-    case 21:   return llvm::Mips::S5;
-    case 22:   return llvm::Mips::S6;
-    case 23:   return llvm::Mips::S7;
-    case 24:   return llvm::Mips::T8;
-    case 25:   return llvm::Mips::T9;
-    case 26:   return llvm::Mips::K0;
-    case 27:   return llvm::Mips::K1;
-    case 28:   return llvm::Mips::GP;
-    case 29:   return llvm::Mips::SP;
-    case 30:   return llvm::Mips::FP;
-    case 31:   return llvm::Mips::RA;
-
-    default:
-      __builtin_trap();
-      __builtin_unreachable();
-  }
-}
-uint32_t encoding_of_jump_to_reg(unsigned r) {
-  switch (r) {
-    case llvm::Mips::ZERO: return 0x00000008;
-    case llvm::Mips::AT:   return 0x00200008;
-    case llvm::Mips::V0:   return 0x00400008;
-    case llvm::Mips::V1:   return 0x00600008;
-    case llvm::Mips::A0:   return 0x00800008;
-    case llvm::Mips::A1:   return 0x00a00008;
-    case llvm::Mips::A2:   return 0x00c00008;
-    case llvm::Mips::A3:   return 0x00e00008;
-    case llvm::Mips::T0:   return 0x01000008;
-    case llvm::Mips::T1:   return 0x01200008;
-    case llvm::Mips::T2:   return 0x01400008;
-    case llvm::Mips::T3:   return 0x01600008;
-    case llvm::Mips::T4:   return 0x01800008;
-    case llvm::Mips::T5:   return 0x01a00008;
-    case llvm::Mips::T6:   return 0x01c00008;
-    case llvm::Mips::T7:   return 0x01e00008;
-    case llvm::Mips::S0:   return 0x02000008;
-    case llvm::Mips::S1:   return 0x02200008;
-    case llvm::Mips::S2:   return 0x02400008;
-    case llvm::Mips::S3:   return 0x02600008;
-    case llvm::Mips::S4:   return 0x02800008;
-    case llvm::Mips::S5:   return 0x02a00008;
-    case llvm::Mips::S6:   return 0x02c00008;
-    case llvm::Mips::S7:   return 0x02e00008;
-    case llvm::Mips::T8:   return 0x03000008;
-    case llvm::Mips::T9:   return 0x03200008;
-    case llvm::Mips::K0:   return 0x03400008;
-    case llvm::Mips::K1:   return 0x03600008;
-    case llvm::Mips::GP:   return 0x03800008;
-    case llvm::Mips::SP:   return 0x03a00008;
-    case llvm::Mips::FP:   return 0x03c00008;
-    case llvm::Mips::RA:   return 0x03e00008;
-
-    default:
-      __builtin_trap();
-      __builtin_unreachable();
-  }
-}
-#endif
 
 static void arch_put_breakpoint(void *code);
 
@@ -1664,49 +1579,68 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
 }
 
 void BootstrapTool::on_breakpoint(pid_t child) {
-  ptrace::scoped_tracee_state_t scoped_tracee_state(child, emulator->tracee_state);
+  uintptr_t SavedPC = ~0UL;
+  trapped_t *ptrapped  = nullptr;
 
-  auto &tracee_state = scoped_tracee_state.tracee_state;
-  auto &pc = ptrace::pc_of_tracee_state(tracee_state);
+  const uintptr_t TargetAddr = ({
+    ptrace::tracee_state_t tracee_state;
+    ptrace::scoped_tracee_state_t scoped_tracee_state(child, tracee_state);
+
+    auto &pc = ptrace::pc_of_tracee_state(tracee_state);
+
+    SavedPC = pc;
 
 #if defined(__x86_64__) || defined(__i386__)
-  //
-  // rewind before the breakpoint instruction (why is this x86-specific?)
-  //
-  pc -= 1; /* int3 */
+    //
+    // rewind before the breakpoint instruction (why is this x86-specific?)
+    //
+    SavedPC -= 1; /* int3 */
+    pc = SavedPC;
 #endif
 
-  const uintptr_t saved_pc = pc;
+    ptrapped = &trapmap.at(SavedPC);
+    assert(ptrapped);
 
-  trapped_t &trapped = trapmap.at(saved_pc);
+    trapped_t &trapped = *ptrapped;
 
-  {
-    const uintptr_t brk = _r_debug.brk;
-    if (unlikely(saved_pc == brk)) {
-      if (IsVerbose())
-        HumanOut() << llvm::formatv("*_r_debug.r_brk [{0}]\n",
-                                    description_of_program_counter(brk, true));
+#if defined(__mips64) || defined(__mips__)
+    if (IsVeryVerbose())
+      HumanOut() << llvm::formatv("trapped @ {0} <{1:x}>\n",
+                                  description_of_program_counter(SavedPC),
+                                  trapped.DelaySlotInsn);
+#endif
 
-      scan_rtld_link_map(child);
-    }
-  }
+    const uintptr_t NewPC = trapped.single_step_proc(tracee_state, trapped, child
+#if defined(__mips64) || defined(__mips__)
+                                                   , emulator->ExecutableRegionAddress
+#endif
+                                                     );
+
+#if !defined(__mips64) && !defined(__mips__)
+    pc = NewPC;
+#endif
+
+    NewPC;
+  });
+
+  assert(ptrapped);
+  trapped_t &trapped = *ptrapped;
 
   struct {
-    uintptr_t Addr = 0UL;
     bool isNew = false;
     binary_index_t BIdx = invalid_binary_index;
   } Target;
 
-  Target.Addr = emulator->single_step(child, saved_pc, trapped);
-  Target.BIdx = binary_at_program_counter(child, Target.Addr);
+  Target.BIdx = binary_at_program_counter(child, TargetAddr);
 
   assert(is_binary_index_valid(Target.BIdx));
 
   auto &TargetBinary = jv.Binaries.at(Target.BIdx);
   auto &TargetICFG = TargetBinary.Analysis.ICFG;
 
-  const auto BIdx     = trapped.BIdx;
-  const auto BBIdx    = trapped.BBIdx;
+  const binary_index_t BIdx       = trapped.BIdx;
+  const basic_block_index_t BBIdx = trapped.BBIdx;
+
   const auto TermType = static_cast<TERMINATOR>(trapped.TT);
   const auto TermAddr = trapped.TermAddr;
   const bool IsCall   = static_cast<bool>(trapped.IC);
@@ -1725,13 +1659,13 @@ void BootstrapTool::on_breakpoint(pid_t child) {
 
   try {
     if (TermType == TERMINATOR::RETURN) {
-      const uintptr_t AddrOfRet = saved_pc;
-      const uintptr_t RetAddr = Target.Addr;
+      const uintptr_t AddrOfRet = SavedPC;
+      const uintptr_t RetAddr = TargetAddr;
 
       on_return(child, BIdx, AddrOfRet, RetAddr);
     } else if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx = E->explore_function(
-          TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
+          TargetBinary, x.Bin.get(), va_of_pc(TargetAddr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
 
@@ -1750,7 +1684,7 @@ void BootstrapTool::on_breakpoint(pid_t child) {
         // non-local goto (aka "long jump")
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
-            TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
+            TargetBinary, x.Bin.get(), va_of_pc(TargetAddr, Target.BIdx));
 
         assert(is_basic_block_index_valid(BBIdx));
 
@@ -1772,11 +1706,11 @@ void BootstrapTool::on_breakpoint(pid_t child) {
             HasDynTarget /* IsDefinitelyTailCall(TargetICFG, bb) */ ||
             BIdx != Target.BIdx ||
             (OutDeg == 0 &&
-             exists_function_at_address(TargetBinary, va_of_pc(Target.Addr, Target.BIdx)));
+             exists_function_at_address(TargetBinary, va_of_pc(TargetAddr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx = E->explore_function(
-              TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
+              TargetBinary, x.Bin.get(), va_of_pc(TargetAddr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
 
@@ -1790,7 +1724,7 @@ void BootstrapTool::on_breakpoint(pid_t child) {
           trapped.DT = 1;
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
-              TargetBinary, x.Bin.get(), va_of_pc(Target.Addr, Target.BIdx));
+              TargetBinary, x.Bin.get(), va_of_pc(TargetAddr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, TargetICFG);
@@ -1820,8 +1754,8 @@ void BootstrapTool::on_breakpoint(pid_t child) {
     if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
       HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                   ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
-                                  description_of_program_counter(saved_pc),
-                                  description_of_program_counter(Target.Addr),
+                                  description_of_program_counter(SavedPC),
+                                  description_of_program_counter(TargetAddr),
                                   ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
@@ -1831,7 +1765,7 @@ void BootstrapTool::on_breakpoint(pid_t child) {
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         what, fs::path(TargetBinary.Name.c_str()).filename().string(),
-        va_of_pc(Target.Addr, Target.BIdx), Target.Addr,
+        va_of_pc(TargetAddr, Target.BIdx), TargetAddr,
         x.LoadAddr);
 
     if (IsVerbose())
@@ -1979,17 +1913,36 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     //
     // find a code cave that can hold 2*num_trampolines instructions
     //
-    emulator->ExecutableRegionAddress = pm.end - num_trampolines * (2 * sizeof(uint32_t));
+    emulator->ExecutableRegionAddress =
+        pm.end - num_trampolines * (2 * sizeof(ptrace::word));
 
     //
     // "initialize" code cave
     //
     for (unsigned i = 0; i < 32; ++i) {
-      uint32_t insn = encoding_of_jump_to_reg(reg_of_idx(i));
+      uint32_t insns[2] = {
+        encoding_of_jump_to_reg(reg_of_idx(i)),
+        0x00
+      };
 
-      ptrace::pokedata(
-          child, emulator->ExecutableRegionAddress + i * (2 * sizeof(uint32_t)),
-          insn);
+      const uintptr_t jumpr_insn_addr =
+          emulator->ExecutableRegionAddress + i * (2 * sizeof(ptrace::word));
+      const uintptr_t delay_slot_addr = jumpr_insn_addr + 4;
+
+      uintptr_t addr = emulator->ExecutableRegionAddress + i * (2 * sizeof(ptrace::word));
+      if (sizeof(ptrace::word) == 8) {
+        ptrace::word the_poke;
+        __builtin_memcpy_inline(&the_poke, &insns[0], sizeof(the_poke));
+        ptrace::pokedata(child, jumpr_insn_addr, the_poke);
+      } else {
+        ptrace::word the_poke1;
+        __builtin_memcpy_inline(&the_poke1, &insns[0], sizeof(the_poke1));
+        ptrace::pokedata(child, jumpr_insn_addr, the_poke1);
+
+        ptrace::word the_poke2;
+        __builtin_memcpy_inline(&the_poke2, &insns[1], sizeof(the_poke2));
+        ptrace::pokedata(child, delay_slot_addr, the_poke2);
+      }
     }
 
     if (IsVerbose())
@@ -2150,10 +2103,10 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
   std::vector<std::byte> rdbg_bytes;
 
   if (catch_exception([&] {
-        ptrace::memcpy(child,
-                       rdbg_bytes,
-                       rdbg_ptr,
-                       sizeof(rdbg));
+        ptrace::memcpy_from(child,
+                            rdbg_bytes,
+                            rdbg_ptr,
+                            sizeof(rdbg));
       }))
     return;
 
@@ -2189,7 +2142,10 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
     std::vector<std::byte> lm_bytes;
 
     if (catch_exception([&] {
-          ptrace::memcpy(child, lm_bytes, lmp, sizeof(lm));
+          ptrace::memcpy_from(child,
+                              lm_bytes,
+                              lmp,
+                              sizeof(lm));
         }))
       return;
 
@@ -2291,12 +2247,17 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
       llvm::StringRef SymName = *ExpectedSymName;
       if (SymName == "_r_debug" ||
           SymName == "_dl_debug_addr") {
-        const uintptr_t pc = pc_of_offset(Sym.st_value, BIdx);
+        const uintptr_t off = Sym.st_value;
+        const uintptr_t pc = pc_of_offset(off, BIdx);
 
         _r_debug.Found = true;
         _r_debug.ptr = (void *)pc;
 
-        HumanOut() << llvm::formatv("_r_debug @ {0}\n", taddr2str(pc));
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("_r_debug @ {0} <{1}+{2}>\n",
+                                      taddr2str(pc),
+                                      b.Name.c_str(),
+                                      taddr2str(off));
 
         WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
         rendezvous_with_dynamic_linker(child);
@@ -2325,10 +2286,10 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
 
     void *const rdbg_ptr = _r_debug.ptr;
     if (catch_exception([&] {
-          ptrace::memcpy(child,
-                         rdbg_bytes,
-                         rdbg_ptr,
-                         sizeof(rdbg));
+          ptrace::memcpy_from(child,
+                              rdbg_bytes,
+                              rdbg_ptr,
+                              sizeof(rdbg));
         }))
       return;
 
@@ -2556,7 +2517,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
       sv = get_vdso();
     } else {
       try {
-        ptrace::memcpy(child, buff_bytes, (const void *)pm.beg, pm.end - pm.beg);
+        ptrace::memcpy_from(child, buff_bytes, (const void *)pm.beg, pm.end - pm.beg);
       } catch (const std::exception &e) {
         if (IsVerbose())
           HumanOut() << llvm::formatv("failed to read {0} in tracee\n", nm);

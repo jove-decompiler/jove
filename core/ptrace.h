@@ -28,13 +28,17 @@ namespace ptrace {
 
 using word = unsigned long;
 
-inline unsigned long peekdata(pid_t, uintptr_t addr);
-inline void pokedata(pid_t, uintptr_t addr, unsigned long data);
+// copies as many bytes as it can, from the tracee. throws on failure.
+ssize_t memcpy_from(pid_t,
+                    std::vector<std::byte> &dst,
+                    const void *src,
+                    size_t N);
 
-// copies as many bytes as it can from the tracee, to src. throws on failure.
-ssize_t memcpy(pid_t, std::vector<std::byte> &dst,
-               const void *src,
-               const size_t N);
+// copies as many bytes as it can, to the tracee. throws on failure.
+ssize_t memcpy_to(pid_t,
+                  void *dst,
+                  const std::byte *src,
+                  size_t N);
 
 #if !defined(__x86_64__) && defined(__i386__)
 uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
@@ -50,23 +54,6 @@ using tracee_state_t =
     struct user_regs_struct
 #endif
     ;
-
-inline void get(pid_t, tracee_state_t &);
-inline void set(pid_t, const tracee_state_t &);
-
-struct scoped_tracee_state_t {
-  const pid_t child;
-  tracee_state_t &tracee_state;
-
-  scoped_tracee_state_t(pid_t child, tracee_state_t &tracee_state)
-      : child(child), tracee_state(tracee_state) {
-    get(child, tracee_state);
-  }
-  ~scoped_tracee_state_t() {
-    if (std::uncaught_exceptions() == 0)
-      set(child, tracee_state);
-  }
-};
 
 static constexpr auto &pc_of_tracee_state(tracee_state_t &tracee_state) {
   return tracee_state.
@@ -86,9 +73,12 @@ static constexpr auto &pc_of_tracee_state(tracee_state_t &tracee_state) {
       ;
 }
 
+struct tracer_exception {};
+
 std::string read_c_str(pid_t, uintptr_t addr);
 
-inline unsigned long peekdata(pid_t child, uintptr_t addr) {
+template <bool Throw = true>
+static inline unsigned long peekdata(pid_t child, uintptr_t addr) {
   unsigned long res;
 
   unsigned long _request = PTRACE_PEEKDATA;
@@ -97,25 +87,29 @@ inline unsigned long peekdata(pid_t child, uintptr_t addr) {
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
   long ret = _jove_sys_ptrace(_request, _pid, _addr, _data);
+  if constexpr (Throw) {
   if (unlikely(ret < 0))
-    throw std::system_error(-ret, std::generic_category(),
-                            __PRETTY_FUNCTION__ + taddr2str(addr));
+    throw tracer_exception();
+  }
 
   return res;
 }
 
-inline void pokedata(pid_t child, uintptr_t addr, unsigned long data) {
+template <bool Throw = true>
+static inline void pokedata(pid_t child, uintptr_t addr, unsigned long data) {
   unsigned long _request = PTRACE_POKEDATA;
   unsigned long _pid = child;
   unsigned long _addr = addr;
   unsigned long _data = data;
 
   long ret = _jove_sys_ptrace(_request, _pid, _addr, _data);
+  if constexpr (Throw) {
   if (unlikely(ret < 0))
-    throw std::system_error(-ret, std::generic_category(), __PRETTY_FUNCTION__);
+    throw tracer_exception();
+  }
 }
 
-inline void get(pid_t child, tracee_state_t &out) {
+static inline void get(pid_t child, tracee_state_t &out) {
 #if defined(__mips64) || defined(__mips__)
   unsigned long _request = PTRACE_GETREGS;
   unsigned long _pid = child;
@@ -133,10 +127,10 @@ inline void get(pid_t child, tracee_state_t &out) {
 
   long ret = _jove_sys_ptrace(_request, _pid, _addr, _data);
   if (unlikely(ret < 0))
-    throw std::system_error(-ret, std::generic_category(), __PRETTY_FUNCTION__);
+    throw tracer_exception();
 }
 
-inline void set(pid_t child, const tracee_state_t &in) {
+static inline void set(pid_t child, const tracee_state_t &in) {
 #if defined(__mips64) || defined(__mips__)
   unsigned long _request = PTRACE_SETREGS;
   unsigned long _pid = child;
@@ -154,8 +148,22 @@ inline void set(pid_t child, const tracee_state_t &in) {
 
   long ret = _jove_sys_ptrace(_request, _pid, _addr, _data);
   if (unlikely(ret < 0))
-    throw std::system_error(-ret, std::generic_category(), __PRETTY_FUNCTION__);
+    throw tracer_exception();
 }
+
+struct scoped_tracee_state_t {
+  const pid_t child;
+  tracee_state_t &tracee_state;
+
+  scoped_tracee_state_t(pid_t child, tracee_state_t &tracee_state)
+      : child(child), tracee_state(tracee_state) {
+    get(child, tracee_state);
+  }
+  ~scoped_tracee_state_t() {
+    if (std::uncaught_exceptions() == 0)
+      set(child, tracee_state);
+  }
+};
 
 }
 }

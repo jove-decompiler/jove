@@ -55,6 +55,20 @@ constexpr bool IsTargetLittleEndian =
 #error
 #endif
 
+#if defined(TARGET_X86_64)
+#define JOVE_LLVMINST_TARGET X86
+#elif defined(TARGET_I386)
+#define JOVE_LLVMINST_TARGET X86
+#elif defined(TARGET_AARCH64)
+#define JOVE_LLVMINST_TARGET AArch64
+#elif defined(TARGET_MIPS64)
+#define JOVE_LLVMINST_TARGET Mips
+#elif defined(TARGET_MIPS32)
+#define JOVE_LLVMINST_TARGET Mips
+#else
+#error
+#endif
+
 constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
   if (IsCOFF) {
     return
@@ -87,16 +101,17 @@ constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
   }
 }
 
-constexpr unsigned MaxInstLen =
 #if defined(TARGET_X86_64)
-                16
+#define THE_MAX_INST_LEN 16
 #elif defined(TARGET_I386)
-                16
+#define THE_MAX_INST_LEN 16
 #elif defined(TARGET_AARCH64)
-                4
+#define THE_MAX_INST_LEN 4
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-                4
+#define THE_MAX_INST_LEN 4
 #else
 #error
 #endif
                 ;
+
+constexpr unsigned MaxInstLen = THE_MAX_INST_LEN;
