@@ -1930,11 +1930,11 @@ void BootstrapTool::on_binary_loaded(pid_t child,
       const uintptr_t delay_slot_addr = jumpr_insn_addr + 4;
 
       uintptr_t addr = emulator->ExecutableRegionAddress + i * (2 * sizeof(ptrace::word));
-      if (sizeof(ptrace::word) == 8) {
+      if constexpr (sizeof(ptrace::word) == 8) {
         ptrace::word the_poke;
         __builtin_memcpy_inline(&the_poke, &insns[0], sizeof(the_poke));
         ptrace::pokedata(child, jumpr_insn_addr, the_poke);
-      } else {
+      } else if constexpr (sizeof(ptrace::word) == 4) {
         ptrace::word the_poke1;
         __builtin_memcpy_inline(&the_poke1, &insns[0], sizeof(the_poke1));
         ptrace::pokedata(child, jumpr_insn_addr, the_poke1);
@@ -1942,6 +1942,8 @@ void BootstrapTool::on_binary_loaded(pid_t child,
         ptrace::word the_poke2;
         __builtin_memcpy_inline(&the_poke2, &insns[1], sizeof(the_poke2));
         ptrace::pokedata(child, delay_slot_addr, the_poke2);
+      } else {
+        __compiletime_unreachable();
       }
     }
 
