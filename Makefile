@@ -455,18 +455,18 @@ $(BINDIR)/$(1)/softfpu-win.o: $(call softfpu_bitcode,$(1),linux)
 	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
-	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) --sys-code -n jove $(call linux_carbon_extract_params,$(1)) > $$@
+	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) --sys-code -n ____copyme_jove $(call linux_carbon_extract_params,$(1)) > $$@
 
 $(BINDIR)/$(1)/env.copy.h:
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n jove_env > $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n ____copyme_env > $$@
 
 $(BINDIR)/$(1)/qemu.tcg.copy.h:
 	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n --flatten jove_tcg >> $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n --flatten ____copyme_tcg >> $$@
 
 $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten ____copyme_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
