@@ -1,729 +1,1557 @@
-diff --git a/include/linux/entry-common.h b/include/linux/entry-common.h
-index 7177436f0f9e..88467e158c2e 100644
---- a/include/linux/entry-common.h
-+++ b/include/linux/entry-common.h
-@@ -152,41 +152,43 @@ void syscall_exit_work(struct pt_regs *regs, unsigned long work);
+diff --git a/lib/Makefile b/lib/Makefile
+index 1ab2c4be3b66..19a21fcce7a0 100644
+--- a/lib/Makefile
++++ b/lib/Makefile
+@@ -40,40 +40,41 @@ lib-y := ctype.o string.o vsprintf.o cmdline.o \
+ 	 is_single_threaded.o plist.o decompress.o kobject_uevent.o \
+ 	 earlycpio.o seq_buf.o siphash.o dec_and_lock.o \
+ 	 nmi_backtrace.o win_minmax.o memcat_p.o \
+ 	 buildid.o objpool.o iomem_copy.o sys_info.o
+ 
+ lib-$(CONFIG_UNION_FIND) += union_find.o
+ lib-$(CONFIG_PRINTK) += dump_stack.o
+ lib-$(CONFIG_SMP) += cpumask.o
+ lib-$(CONFIG_MIN_HEAP) += min_heap.o
+ 
+ lib-y	+= kobject.o klist.o
+ obj-y	+= lockref.o
+ 
+ obj-y += bcd.o sort.o parser.o debug_locks.o random32.o \
+ 	 bust_spinlocks.o kasprintf.o bitmap.o scatterlist.o \
+ 	 list_sort.o uuid.o iov_iter.o clz_ctz.o \
+ 	 bsearch.o find_bit.o llist.o lwq.o memweight.o kfifo.o \
+ 	 percpu-refcount.o rhashtable.o base64.o \
+ 	 once.o refcount.o rcuref.o usercopy.o errseq.o bucket_locks.o \
+ 	 generic-radix-tree.o bitmap-str.o
++obj-y += jove.o
+ obj-y += string_helpers.o
+ obj-y += hexdump.o
+ obj-$(CONFIG_TEST_HEXDUMP) += test_hexdump.o
+ obj-y += kstrtox.o
+ obj-$(CONFIG_FIND_BIT_BENCHMARK) += find_bit_benchmark.o
+ obj-$(CONFIG_FIND_BIT_BENCHMARK_RUST) += find_bit_benchmark_rust.o
+ obj-$(CONFIG_TEST_BPF) += test_bpf.o
+ test_dhry-objs := dhry_1.o dhry_2.o dhry_run.o
+ obj-$(CONFIG_TEST_DHRY) += test_dhry.o
+ obj-$(CONFIG_TEST_FIRMWARE) += test_firmware.o
+ obj-$(CONFIG_TEST_BITOPS) += test_bitops.o
+ CFLAGS_test_bitops.o += -Werror
+ obj-$(CONFIG_TEST_SYSCTL) += test_sysctl.o
+ obj-$(CONFIG_TEST_IDA) += test_ida.o
+ obj-$(CONFIG_TEST_UBSAN) += test_ubsan.o
+ CFLAGS_test_ubsan.o += $(call cc-disable-warning, unused-but-set-variable)
+ UBSAN_SANITIZE_test_ubsan.o := y
+ obj-$(CONFIG_TEST_KSTRTOX) += test-kstrtox.o
+ obj-$(CONFIG_TEST_MIN_HEAP) += test_min_heap.o
+ obj-$(CONFIG_TEST_LKM) += test_module.o
+diff --git a/lib/jove.c b/lib/jove.c
+new file mode 100644
+index 000000000000..d52cc54a6473
+--- /dev/null
++++ b/lib/jove.c
+@@ -0,0 +1,378 @@
++#include <linux/list.h>
++#include <linux/hashtable.h>
++#include <linux/string.h>
++
++struct our_hashtable_test_entry {
++	int key;
++	int data;
++	struct hlist_node node;
++	int visited;
++};
++
++#define KUNIT_EXPECT_FALSE(x, y) do { (void)(y); } while (false)
++#define KUNIT_EXPECT_TRUE(x, y) do { (void)(y); } while (false)
++#define KUNIT_EXPECT_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
++#define KUNIT_EXPECT_NE(x, y, z) do { (void)(y); (void)(z); } while (false)
++#define KUNIT_EXPECT_PTR_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
++
++struct our_list_test_struct {
++	int data;
++	struct list_head list;
++};
++
++struct our_hlist_test_struct {
++	int data;
++	struct hlist_node list;
++};
++
++static __used void ____copyme_jove(void **p)
++{
++	(void)&strlen;
++	(void)&strcpy;
++	(void)&strcmp;
++	(void)&strchr;
++	(void)&strcat;
++{
++	/* Test the different ways of initialising a hashtable. */
++	DEFINE_HASHTABLE(hash1, 2);
++	DECLARE_HASHTABLE(hash2, 3);
++
++	/* When using DECLARE_HASHTABLE, must use hash_init to
++	 * initialize the hashtable.
++	 */
++	hash_init(hash2);
++
++	KUNIT_EXPECT_TRUE(test, hash_empty(hash1));
++	KUNIT_EXPECT_TRUE(test, hash_empty(hash2));
++}
++{
++	struct our_hashtable_test_entry a;
++	DEFINE_HASHTABLE(hash, 1);
++
++	KUNIT_EXPECT_TRUE(test, hash_empty(hash));
++
++	a.key = 1;
++	a.data = 13;
++	hash_add(hash, &a.node, a.key);
++
++	/* Hashtable should no longer be empty. */
++	KUNIT_EXPECT_FALSE(test, hash_empty(hash));
++}
++{
++	struct our_hashtable_test_entry a, b;
++	DEFINE_HASHTABLE(hash, 4);
++
++	a.key = 1;
++	a.data = 13;
++	hash_add(hash, &a.node, a.key);
++	b.key = 1;
++	b.data = 2;
++	hash_add(hash, &b.node, b.key);
++
++	KUNIT_EXPECT_TRUE(test, hash_hashed(&a.node));
++	KUNIT_EXPECT_TRUE(test, hash_hashed(&b.node));
++}
++{
++	struct our_hashtable_test_entry a, b, *x;
++	DEFINE_HASHTABLE(hash, 6);
++
++	a.key = 1;
++	a.data = 13;
++	hash_add(hash, &a.node, a.key);
++	b.key = 2;
++	b.data = 10;
++	b.visited = 0;
++	hash_add(hash, &b.node, b.key);
++
++	hash_del(&b.node);
++	hash_for_each_possible(hash, x, node, b.key) {
++		x->visited++;
++		KUNIT_EXPECT_NE(test, x->key, b.key);
++	}
++
++	/* The deleted entry should not have been visited. */
++	KUNIT_EXPECT_EQ(test, b.visited, 0);
++
++	hash_del(&a.node);
++
++	/* The hashtable should be empty. */
++	KUNIT_EXPECT_TRUE(test, hash_empty(hash));
++}
++{
++	struct our_hashtable_test_entry entries[4];
++	struct our_hashtable_test_entry *x, *y;
++	struct hlist_node *tmp;
++	int buckets[2];
++	int bkt, i, j, count;
++	DEFINE_HASHTABLE(hash, 5);
++
++	/* Add three entries with key = 0 to the hashtable. */
++	for (i = 0; i < 3; i++) {
++		entries[i].key = 0;
++		entries[i].data = i;
++		entries[i].visited = 0;
++		hash_add(hash, &entries[i].node, entries[i].key);
++	}
++
++	/* Add an entry with key = 1. */
++	entries[3].key = 1;
++	entries[3].data = 3;
++	entries[3].visited = 0;
++	hash_add(hash, &entries[3].node, entries[3].key);
++
++	count = 0;
++	hash_for_each_possible_safe(hash, x, tmp, node, 0) {
++		x->visited += 1;
++		//KUNIT_ASSERT_GE_MSG(test, x->data, 0, "Unexpected data in hashtable.");
++		//KUNIT_ASSERT_LT_MSG(test, x->data, 4, "Unexpected data in hashtable.");
++		count++;
++
++		/* Delete entry during loop. */
++		hash_del(&x->node);
++	}
++
++	/* Should have visited each entry with key = 0 exactly once. */
++	for (j = 0; j < 3; j++)
++		KUNIT_EXPECT_EQ(test, entries[j].visited, 1);
++
++	/* Save the buckets for the different keys. */
++	hash_for_each(hash, bkt, y, node) {
++		//KUNIT_ASSERT_GE_MSG(test, y->key, 0, "Unexpected key in hashtable.");
++		//KUNIT_ASSERT_LE_MSG(test, y->key, 1, "Unexpected key in hashtable.");
++		buckets[y->key] = bkt;
++	}
++
++	/* If entry with key = 1 is in the same bucket as the entries with
++	 * key = 0, check it was visited. Otherwise ensure that only three
++	 * entries were visited.
++	 */
++	if (buckets[0] == buckets[1]) {
++		KUNIT_EXPECT_EQ(test, count, 4);
++		KUNIT_EXPECT_EQ(test, entries[3].visited, 1);
++	} else {
++		KUNIT_EXPECT_EQ(test, count, 3);
++		KUNIT_EXPECT_EQ(test, entries[3].visited, 0);
++	}
++}
++{
++	/* Test the different ways of initialising a list. */
++	struct list_head list1 = LIST_HEAD_INIT(list1);
++	struct list_head list2;
++	LIST_HEAD(list3);
++	struct list_head *list4;
++	struct list_head *list5;
++
++	INIT_LIST_HEAD(&list2);
++
++	list4 = NULL;
++	INIT_LIST_HEAD(list4);
++
++	list5 = NULL;
++        (void)list5;
++	INIT_LIST_HEAD(list5);
++
++	/* list_empty_careful() checks both next and prev. */
++	KUNIT_EXPECT_TRUE(test, list_empty_careful(&list1));
++	KUNIT_EXPECT_TRUE(test, list_empty_careful(&list2));
++	KUNIT_EXPECT_TRUE(test, list_empty_careful(&list3));
++	KUNIT_EXPECT_TRUE(test, list_empty_careful(list4));
++	KUNIT_EXPECT_TRUE(test, list_empty_careful(list5));
++
++	(void)(list4);
++	(void)(list5);
++}
++{
++	struct list_head a, b;
++	LIST_HEAD(list);
++
++	list_add(&a, &list);
++	list_add(&b, &list);
++
++	/* should be [list] -> b -> a */
++	KUNIT_EXPECT_PTR_EQ(test, list.next, &b);
++	KUNIT_EXPECT_PTR_EQ(test, b.prev, &list);
++	KUNIT_EXPECT_PTR_EQ(test, b.next, &a);
++}
++{
++	struct list_head a, b;
++	LIST_HEAD(list);
++
++	list_add_tail(&a, &list);
++	list_add_tail(&b, &list);
++
++	/* before: [list] -> a -> b */
++	list_del(&a);
++
++	/* now: [list] -> b */
++	KUNIT_EXPECT_PTR_EQ(test, list.next, &b);
++	KUNIT_EXPECT_PTR_EQ(test, b.prev, &list);
++}
++{
++	struct list_head a;
++	LIST_HEAD(list1);
++	LIST_HEAD(list2);
++
++	list_add_tail(&a, &list1);
++
++	KUNIT_EXPECT_FALSE(test, list_empty(&list1));
++	KUNIT_EXPECT_TRUE(test, list_empty(&list2));
++}
++{
++	struct our_list_test_struct test_struct;
++
++	KUNIT_EXPECT_PTR_EQ(test, &test_struct, list_entry(&(test_struct.list),
++				struct our_list_test_struct, list));
++}
++{
++	struct list_head entries[3], *cur, *n;
++	LIST_HEAD(list);
++	int i = 0;
++
++
++	list_add_tail(&entries[0], &list);
++	list_add_tail(&entries[1], &list);
++	list_add_tail(&entries[2], &list);
++
++	list_for_each_safe(cur, n, &list) {
++		KUNIT_EXPECT_PTR_EQ(test, cur, &entries[i]);
++		list_del(&entries[i]);
++		i++;
++	}
++
++	KUNIT_EXPECT_EQ(test, i, 3);
++	KUNIT_EXPECT_TRUE(test, list_empty(&list));
++}
++{
++	struct our_list_test_struct entries[5], *cur;
++	LIST_HEAD(list);
++	int i = 0;
++
++	for (i = 0; i < 5; ++i) {
++		entries[i].data = i;
++		list_add_tail(&entries[i].list, &list);
++	}
++
++	i = 0;
++
++	list_for_each_entry(cur, &list, list) {
++		KUNIT_EXPECT_EQ(test, cur->data, i);
++		i++;
++	}
++
++	KUNIT_EXPECT_EQ(test, i, 5);
++}
++{
++	/* Test the different ways of initialising a list. */
++	struct hlist_head list1 = HLIST_HEAD_INIT;
++	struct hlist_head list2;
++	HLIST_HEAD(list3);
++	struct hlist_head *list4;
++	struct hlist_head *list5;
++
++	INIT_HLIST_HEAD(&list2);
++
++	list4 = NULL;
++	INIT_HLIST_HEAD(list4);
++
++	list5 = NULL;
++	(void)list5;
++	INIT_HLIST_HEAD(list5);
++
++	KUNIT_EXPECT_TRUE(test, hlist_empty(&list1));
++	KUNIT_EXPECT_TRUE(test, hlist_empty(&list2));
++	KUNIT_EXPECT_TRUE(test, hlist_empty(&list3));
++	KUNIT_EXPECT_TRUE(test, hlist_empty(list4));
++	KUNIT_EXPECT_TRUE(test, hlist_empty(list5));
++
++	(void)(list4);
++	(void)(list5);
++}
++{
++	struct hlist_node a;
++	HLIST_HEAD(list);
++
++	INIT_HLIST_NODE(&a);
++
++	/* is unhashed by default */
++	KUNIT_EXPECT_TRUE(test, hlist_unhashed(&a));
++
++	hlist_add_head(&a, &list);
++
++	/* is hashed once added to list */
++	KUNIT_EXPECT_FALSE(test, hlist_unhashed(&a));
++
++	hlist_del_init(&a);
++
++	/* is again unhashed after del_init */
++	KUNIT_EXPECT_TRUE(test, hlist_unhashed(&a));
++}
++{
++	struct hlist_node a;
++	HLIST_HEAD(list);
++
++	INIT_HLIST_NODE(&a);
++
++	/* is unhashed by default */
++	KUNIT_EXPECT_TRUE(test, hlist_unhashed_lockless(&a));
++
++	hlist_add_head(&a, &list);
++
++	/* is hashed once added to list */
++	KUNIT_EXPECT_FALSE(test, hlist_unhashed_lockless(&a));
++
++	hlist_del_init(&a);
++
++	/* is again unhashed after del_init */
++	KUNIT_EXPECT_TRUE(test, hlist_unhashed_lockless(&a));
++}
++{
++	struct hlist_node a, b, c, d;
++	HLIST_HEAD(list);
++
++	hlist_add_head(&a, &list);
++	hlist_add_head(&b, &list);
++	hlist_add_before(&c, &a);
++	hlist_add_behind(&d, &a);
++
++	/* should be [list] -> b -> c -> a -> d */
++	KUNIT_EXPECT_PTR_EQ(test, list.first, &b);
++
++	KUNIT_EXPECT_PTR_EQ(test, c.pprev, &(b.next));
++	KUNIT_EXPECT_PTR_EQ(test, b.next, &c);
++
++	KUNIT_EXPECT_PTR_EQ(test, a.pprev, &(c.next));
++	KUNIT_EXPECT_PTR_EQ(test, c.next, &a);
++
++	KUNIT_EXPECT_PTR_EQ(test, d.pprev, &(a.next));
++	KUNIT_EXPECT_PTR_EQ(test, a.next, &d);
++}
++{
++	struct our_hlist_test_struct test_struct;
++
++	KUNIT_EXPECT_PTR_EQ(test, &test_struct,
++			    hlist_entry_safe(&(test_struct.list),
++				struct our_hlist_test_struct, list));
++
++	KUNIT_EXPECT_PTR_EQ(test, NULL,
++			    hlist_entry_safe((struct hlist_node *)NULL,
++				struct our_hlist_test_struct, list));
++}
++{
++	struct hlist_node entries[3], *cur, *n;
++	HLIST_HEAD(list);
++	int i = 0;
++
++	hlist_add_head(&entries[0], &list);
++	hlist_add_behind(&entries[1], &entries[0]);
++	hlist_add_behind(&entries[2], &entries[1]);
++
++	hlist_for_each_safe(cur, n, &list) {
++		KUNIT_EXPECT_PTR_EQ(test, cur, &entries[i]);
++		hlist_del(&entries[i]);
++		i++;
++	}
++
++	KUNIT_EXPECT_EQ(test, i, 3);
++	KUNIT_EXPECT_TRUE(test, hlist_empty(&list));
++}
++}
+diff --git a/scripts/Makefile.clang b/scripts/Makefile.clang
+index b67636b28c35..1dbea8f17576 100644
+--- a/scripts/Makefile.clang
++++ b/scripts/Makefile.clang
+@@ -21,22 +21,36 @@ ifeq ($(CLANG_TARGET_FLAGS),)
+ $(error add '--target=' option to scripts/Makefile.clang)
+ else
+ CLANG_FLAGS	+= --target=$(CLANG_TARGET_FLAGS)
+ endif
+ 
+ ifeq ($(LLVM_IAS),0)
+ CLANG_FLAGS	+= -fno-integrated-as
+ GCC_TOOLCHAIN_DIR := $(dir $(shell which $(CROSS_COMPILE)elfedit))
+ CLANG_FLAGS	+= --prefix=$(GCC_TOOLCHAIN_DIR)$(notdir $(CROSS_COMPILE))
+ else
+ CLANG_FLAGS	+= -fintegrated-as
+ endif
+ # By default, clang only warns when it encounters an unknown warning flag or
+ # certain optimization flags it knows it has not implemented.
+ # Make it behave more like gcc by erroring when these flags are encountered
+ # so they can be implemented or wrapped in cc-option.
+ CLANG_FLAGS	+= -Werror=unknown-warning-option
+ CLANG_FLAGS	+= -Werror=ignored-optimization-argument
+ CLANG_FLAGS	+= -Werror=option-ignored
+ CLANG_FLAGS	+= -Werror=unused-command-line-argument
++
++ifneq ($(JOVE_HELPERS),)
++
++CLANG_FLAGS += -Xclang -load \
++               -Xclang /usr/local/lib/libcarbon-collect-19.so \
++               -Xclang -add-plugin \
++               -Xclang carbon-collect \
++               -Xclang -plugin-arg-carbon-collect \
++               -Xclang $(abs_srctree) \
++               -Xclang -plugin-arg-carbon-collect \
++               -Xclang $(O)
++
++endif
++
+ KBUILD_CPPFLAGS	+= $(CLANG_FLAGS)
+ export CLANG_FLAGS
+diff --git a/tools/perf/Makefile.perf b/tools/perf/Makefile.perf
+index 47c906b807ef..7ed817403fc0 100644
+--- a/tools/perf/Makefile.perf
++++ b/tools/perf/Makefile.perf
+@@ -1161,40 +1161,41 @@ install-python_ext:
+ 
+ # 'make install-doc' should call 'make -C Documentation install'
+ $(INSTALL_DOC_TARGETS):
+ 	$(Q)$(MAKE) -C $(DOC_DIR) O=$(OUTPUT) $(@:-doc=) ASCIIDOC_EXTRA=$(ASCIIDOC_EXTRA) subdir=
+ 
+ ### Cleaning rules
+ 
+ python-clean:
+ 	$(python-clean)
+ 
+ SKEL_OUT := $(abspath $(OUTPUT)util/bpf_skel)
+ SKEL_TMP_OUT := $(abspath $(SKEL_OUT)/.tmp)
+ SKELETONS := $(SKEL_OUT)/bpf_prog_profiler.skel.h
+ SKELETONS += $(SKEL_OUT)/bperf_leader.skel.h $(SKEL_OUT)/bperf_follower.skel.h
+ SKELETONS += $(SKEL_OUT)/bperf_cgroup.skel.h $(SKEL_OUT)/func_latency.skel.h
+ SKELETONS += $(SKEL_OUT)/off_cpu.skel.h $(SKEL_OUT)/lock_contention.skel.h
+ SKELETONS += $(SKEL_OUT)/kwork_trace.skel.h $(SKEL_OUT)/sample_filter.skel.h
+ SKELETONS += $(SKEL_OUT)/kwork_top.skel.h $(SKEL_OUT)/syscall_summary.skel.h
+ SKELETONS += $(SKEL_OUT)/bench_uprobe.skel.h
+ SKELETONS += $(SKEL_OUT)/augmented_raw_syscalls.skel.h
++SKELETONS += $(SKEL_OUT)/jove_augmented_raw_syscalls.skel.h
+ 
+ $(SKEL_TMP_OUT) $(LIBAPI_OUTPUT) $(LIBBPF_OUTPUT) $(LIBPERF_OUTPUT) $(LIBSUBCMD_OUTPUT) $(LIBSYMBOL_OUTPUT):
+ 	$(Q)$(MKDIR) -p $@
+ 
+ ifeq ($(CONFIG_PERF_BPF_SKEL),y)
+ BPFTOOL := $(SKEL_TMP_OUT)/bootstrap/bpftool
+ # Get Clang's default includes on this system, as opposed to those seen by
+ # '--target=bpf'. This fixes "missing" files on some architectures/distros,
+ # such as asm/byteorder.h, asm/socket.h, asm/sockios.h, sys/cdefs.h etc.
+ #
+ # Use '-idirafter': Don't interfere with include mechanics except where the
+ # build would have failed anyways.
+ define get_sys_includes
+ $(shell $(1) $(2) -v -E - </dev/null 2>&1 \
+        | sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }') \
+ $(shell $(1) $(2) -dM -E - </dev/null | grep '__riscv_xlen ' | awk '{printf("-D__riscv_xlen=%d -D__BITS_PER_LONG=%d", $$3, $$3)}')
+ endef
+ 
+ ifneq ($(CROSS_COMPILE),)
+ CLANG_TARGET_ARCH = --target=$(notdir $(CROSS_COMPILE:%-=%))
+@@ -1239,40 +1240,44 @@ VMLINUX_BTF ?= $(firstword $(VMLINUX_BTF_PATHS))
+ ifeq ($(VMLINUX_H),)
+   ifeq ($(VMLINUX_BTF),)
+     $(error Missing bpftool input for generating vmlinux.h)
+   endif
+ endif
+ 
+ $(SKEL_OUT)/vmlinux.h: $(VMLINUX_BTF) $(BPFTOOL) $(VMLINUX_H)
+ ifeq ($(VMLINUX_H),)
+ 	$(QUIET_GEN)$(BPFTOOL) btf dump file $< format c > $@
+ else
+ 	$(Q)cp "$(VMLINUX_H)" $@
+ endif
+ 
+ $(SKEL_TMP_OUT)/%.bpf.o: $(OUTPUT)PERF-VERSION-FILE util/bpf_skel/perf_version.h | $(SKEL_TMP_OUT)
+ $(SKEL_TMP_OUT)/%.bpf.o: util/bpf_skel/%.bpf.c $(LIBBPF) $(SKEL_OUT)/vmlinux.h
+ 	$(QUIET_CLANG)$(CLANG) -g -O2 -fno-stack-protector --target=bpf \
+ 	  $(CLANG_OPTIONS) $(BPF_INCLUDE) $(TOOLS_UAPI_INCLUDE) \
+ 	  -include $(OUTPUT)PERF-VERSION-FILE -include util/bpf_skel/perf_version.h \
+ 	  -c $(filter util/bpf_skel/%.bpf.c,$^) -o $@
+ 
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: CLANG_OPTIONS += -std=gnu18
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: BPF_INCLUDE += -I$(srctree)/../boost/libs/preprocessor/include
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: BPF_INCLUDE += -I$(srctree)/../lib
++
+ $(SKEL_OUT)/%.skel.h: $(SKEL_TMP_OUT)/%.bpf.o | $(BPFTOOL)
+ 	$(QUIET_GENSKEL)$(BPFTOOL) gen skeleton $< > $@
+ 
+ bpf-skel: $(SKELETONS)
+ 
+ .PRECIOUS: $(SKEL_TMP_OUT)/%.bpf.o
+ 
+ else # CONFIG_PERF_BPF_SKEL
+ 
+ bpf-skel:
+ 
+ endif # CONFIG_PERF_BPF_SKEL
+ 
+ bpf-skel-clean:
+ 	$(call QUIET_CLEAN, bpf-skel) $(RM) -r $(SKEL_TMP_OUT) $(SKELETONS) $(SKEL_OUT)/vmlinux.h
+ 
+ clean:: $(LIBAPI)-clean $(LIBBPF)-clean $(LIBSUBCMD)-clean $(LIBSYMBOL)-clean $(LIBPERF)-clean \
+ 		arm64-sysreg-defs-clean fixdep-clean python-clean bpf-skel-clean \
+ 		tests-coresight-targets-clean
+ 	$(call QUIET_CLEAN, core-objs)  $(RM) $(LIBPERF_A) $(OUTPUT)perf-archive \
+diff --git a/tools/perf/builtin-record.c b/tools/perf/builtin-record.c
+index d76f01956e33..4cf682fb6446 100644
+--- a/tools/perf/builtin-record.c
++++ b/tools/perf/builtin-record.c
+@@ -1,30 +1,39 @@
+ // SPDX-License-Identifier: GPL-2.0
+ /*
+  * builtin-record.c
+  *
+  * Builtin record command: Record the profile of a workload
+  * (or a CPU, or a PID) into the perf.data output file - for
+  * later analysis via perf report.
   */
- static __always_inline void syscall_exit_to_user_mode_work(struct pt_regs *regs)
+ #include "builtin.h"
+ 
++#ifdef HAVE_LIBBPF_SUPPORT
++#include <bpf/bpf.h>
++#include <bpf/libbpf.h>
++#include <bpf/btf.h>
++#ifdef HAVE_BPF_SKEL
++#include "bpf_skel/jove_augmented_raw_syscalls.skel.h"
++#endif
++#endif
++
+ #include "util/build-id.h"
+ #include <subcmd/parse-options.h>
+ #include <internal/xyarray.h>
+ #include "util/parse-events.h"
+ #include "util/config.h"
+ 
+ #include "util/callchain.h"
+ #include "util/cgroup.h"
+ #include "util/header.h"
+ #include "util/event.h"
+ #include "util/evlist.h"
+ #include "util/evsel.h"
+ #include "util/debug.h"
+ #include "util/mmap.h"
+ #include "util/mutex.h"
+ #include "util/target.h"
+ #include "util/session.h"
+ #include "util/tool.h"
+ #include "util/stat.h"
+ #include "util/symbol.h"
+@@ -144,74 +153,90 @@ enum thread_spec {
+ 
+ static const char *thread_spec_tags[THREAD_SPEC__MAX] = {
+ 	"undefined", "cpu", "core", "package", "numa", "user"
+ };
+ 
+ struct pollfd_index_map {
+ 	int evlist_pollfd_index;
+ 	int thread_pollfd_index;
+ };
+ 
+ struct record {
+ 	struct perf_tool	tool;
+ 	struct record_opts	opts;
+ 	u64			bytes_written;
+ 	u64			thread_bytes_written;
+ 	struct perf_data	data;
+ 	struct auxtrace_record	*itr;
+ 	struct evlist	*evlist;
+ 	struct perf_session	*session;
+ 	struct evlist		*sb_evlist;
++	struct {
++		struct syscall  *table;
++		struct {
++			struct evsel *sys_enter,
++				*sys_exit,
++				*bpf_output;
++		}		events;
++	} syscalls;
++#ifdef HAVE_BPF_SKEL
++	struct jove_augmented_raw_syscalls_bpf *skel;
++#endif
++#ifdef HAVE_LIBBPF_SUPPORT
++	struct btf		*btf;
++#endif
+ 	pthread_t		thread_id;
+ 	int			realtime_prio;
+ 	bool			latency;
+ 	bool			switch_output_event_set;
+ 	bool			no_buildid;
+ 	bool			no_buildid_set;
+ 	bool			no_buildid_cache;
+ 	bool			no_buildid_cache_set;
+ 	bool			buildid_all;
+ 	bool			buildid_mmap;
+ 	bool			buildid_mmap_set;
+ 	bool			timestamp_filename;
+ 	bool			timestamp_boundary;
+ 	bool			off_cpu;
+ 	const char		*filter_action;
+ 	const char		*uid_str;
+ 	struct switch_output	switch_output;
+ 	unsigned long long	samples;
+ 	unsigned long		output_max_size;	/* = 0: unlimited */
+ 	struct perf_debuginfod	debuginfod;
+ 	int			nr_threads;
+ 	struct thread_mask	*thread_masks;
+ 	struct record_thread	*thread_data;
+ 	struct pollfd_index_map	*index_map;
+ 	size_t			index_map_sz;
+ 	size_t			index_map_cnt;
+ };
+ 
+ static volatile int done;
+ 
+ static volatile int auxtrace_record__snapshot_started;
+ static DEFINE_TRIGGER(auxtrace_snapshot_trigger);
+ static DEFINE_TRIGGER(switch_output_trigger);
+ 
++static bool jove_syscalls;
++
+ static const char *affinity_tags[PERF_AFFINITY_MAX] = {
+ 	"SYS", "NODE", "CPU"
+ };
+ 
+ static int build_id__process_mmap(const struct perf_tool *tool, union perf_event *event,
+ 				  struct perf_sample *sample, struct machine *machine);
+ static int build_id__process_mmap2(const struct perf_tool *tool, union perf_event *event,
+ 				   struct perf_sample *sample, struct machine *machine);
+ static int process_timestamp_boundary(const struct perf_tool *tool,
+ 				      union perf_event *event,
+ 				      struct perf_sample *sample,
+ 				      struct machine *machine);
+ 
+ #ifndef HAVE_GETTID
+ static inline pid_t gettid(void)
  {
- 	unsigned long work = READ_ONCE(current_thread_info()->syscall_work);
- 	unsigned long nr = syscall_get_nr(current, regs);
+ 	return (pid_t)syscall(__NR_gettid);
+ }
+ #endif
  
- 	CT_WARN_ON(ct_state() != CT_STATE_KERNEL);
+@@ -2480,70 +2505,103 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
  
- 	if (IS_ENABLED(CONFIG_PROVE_LOCKING)) {
- 		if (WARN(irqs_disabled(), "syscall %lu left IRQs disabled", nr))
- 			local_irq_enable();
+ 	if (rec->opts.kcore &&
+ 	    !record__kcore_readable(&session->machines.host)) {
+ 		pr_err("ERROR: kcore is not readable.\n");
+ 		return -1;
  	}
  
- 	rseq_syscall(regs);
+ 	if (record__init_clock(rec))
+ 		return -1;
+ 
+ 	record__init_features(rec);
+ 
+ 	if (forks) {
+ 		err = evlist__prepare_workload(rec->evlist, &opts->target, argv, data->is_pipe,
+ 					       workload_exec_failed_signal);
+ 		if (err < 0) {
+ 			pr_err("Couldn't run the workload!\n");
+ 			status = err;
+ 			goto out_delete_session;
+ 		}
++
++		if (jove_syscalls)
++		{
++			struct stat st;
++			if (stat("/proc/self/ns/pid", &st) < 0) {
++				int err = errno;
++				fprintf(stderr, "stat(/proc/self/ns/pid) failed: %s\n", strerror(err));
++			}
++
++			rec->skel->bss->dev = st.st_dev;
++			rec->skel->bss->ino = st.st_ino;
++
++		//rec->skel->bss->the_pid = rec->evlist->workload.pid;
++		bool value = true;
++		err = bpf_map_update_elem(bpf_map__fd(rec->skel->maps.pids_unfiltered),
++                                          &rec->evlist->workload.pid, &value, BPF_ANY);
++		}
+ 	}
  
  	/*
- 	 * Do one-time syscall specific work. If these work items are
- 	 * enabled, we want to run them exactly once per syscall exit with
- 	 * interrupts enabled.
+ 	 * If we have just single event and are sending data
+ 	 * through pipe, we need to force the ids allocation,
+ 	 * because we synthesize event name through the pipe
+ 	 * and need the id for that.
  	 */
-+#if 0
- 	if (unlikely(work & SYSCALL_WORK_EXIT))
+ 	if (data->is_pipe && rec->evlist->core.nr_entries == 1)
+ 		rec->opts.sample_id = true;
+ 
+ 	if (rec->timestamp_filename && perf_data__is_pipe(data)) {
+ 		rec->timestamp_filename = false;
+ 		pr_warning("WARNING: --timestamp-filename option is not available in pipe mode.\n");
+ 	}
+ 
+ 	/*
+ 	 * Use global stat_config that is zero meaning aggr_mode is AGGR_NONE
+ 	 * and hybrid_merge is false.
+ 	 */
+ 	evlist__uniquify_evsel_names(rec->evlist, &stat_config);
+ 
+ 	evlist__config(rec->evlist, opts, &callchain_param);
+ 
+ 	/* Debug message used by test scripts */
+ 	pr_debug3("perf record opening and mmapping events\n");
+ 	if (record__open(rec) != 0) {
+ 		err = -1;
+ 		goto out_free_threads;
+ 	}
++
++#ifdef HAVE_BPF_SKEL
++	if (rec->syscalls.events.bpf_output) {
++		struct perf_cpu cpu;
++		int i;
++		perf_cpu_map__for_each_cpu(cpu, i, rec->syscalls.events.bpf_output->core.cpus) {
++                  fprintf(stderr, "rec->syscalls.events.bpf_output->core.fd=%d\n", *((const int *)xyarray__entry(rec->syscalls.events.bpf_output->core.fd,
++					       cpu.cpu, 0)));
++			bpf_map__update_elem(rec->skel->maps.__jove_augmented_syscalls__,
++				&cpu.cpu, sizeof(int),
++				xyarray__entry(rec->syscalls.events.bpf_output->core.fd,
++					       cpu.cpu, 0),
++				sizeof(__u32), BPF_ANY);
++		}
++	}
 +#endif
- 		syscall_exit_work(regs, work);
- 	local_irq_disable_exit_to_user();
- 	exit_to_user_mode_prepare(regs);
- }
+ 	/* Debug message used by test scripts */
+ 	pr_debug3("perf record done opening and mmapping events\n");
+ 	env->comp_mmap_len = session->evlist->core.mmap_len;
  
- /**
-  * syscall_exit_to_user_mode - Handle work before returning to user mode
-  * @regs:	Pointer to currents pt_regs
-  *
-  * Invoked with interrupts enabled and fully valid regs. Returns with all
-  * work handled, interrupts disabled such that the caller can immediately
-  * switch to user mode. Called from architecture specific syscall and ret
-  * from fork code.
-  *
-  * The call order is:
-  *  1) One-time syscall exit work:
-  *	- rseq syscall exit
-  *      - audit
-  *	- syscall tracing
-  *	- ptrace (single stepping)
-diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
-index 233de8677382..937f32a08ab8 100644
---- a/include/uapi/linux/bpf.h
-+++ b/include/uapi/linux/bpf.h
-@@ -5833,40 +5833,66 @@ union bpf_attr {
-  *
-  *		An optional *flags* (**BPF_LOCAL_STORAGE_GET_F_CREATE**) can be
-  *		used such that a new bpf_local_storage will be
-  *		created if one does not exist.  *value* can be used
-  *		together with **BPF_LOCAL_STORAGE_GET_F_CREATE** to specify
-  *		the initial value of a bpf_local_storage.  If *value* is
-  *		**NULL**, the new bpf_local_storage will be zero initialized.
-  *	Return
-  *		A bpf_local_storage pointer is returned on success.
-  *
-  *		**NULL** if not found or there was an error in adding
-  *		a new bpf_local_storage.
-  *
-  * long bpf_cgrp_storage_delete(struct bpf_map *map, struct cgroup *cgroup)
-  *	Description
-  *		Delete a bpf_local_storage from a *cgroup*.
-  *	Return
-  *		0 on success.
-  *
-  *		**-ENOENT** if the bpf_local_storage cannot be found.
-+ *
-+ * int bpf_get_fd_path(char *path, u32 size, int fd)
-+ *	Description
-+ *		Get **file** atrribute from the current task by *fd*, then call
-+ *		**d_path** to get it's absolute path and copy it as string into
-+ *		*path* of *size*. Notice the **path** don't support unmountable
-+ *		pseudo filesystems as they don't have path (eg: SOCKFS, PIPEFS).
-+ *		The *size* must be strictly positive. On success, the helper
-+ *		makes sure that the *path* is NUL-terminated, and the buffer
-+ *		could be:
-+ *		- a regular full path (include mountable fs eg: /proc, /sys)
-+ *		- a regular full path with " (deleted)" is appended.
-+ *		On failure, it is filled with zeroes.
-+ *	Return
-+ *		On success, returns the length of the copied string INCLUDING
-+ *		the trailing '\0'.
-+ *
-+ *		On failure, the returned value is one of the following:
-+ *
-+ *		**-EPERM** if no permission to get the path (eg: in irq ctx).
-+ *
-+ *		**-EBADF** if *fd* is invalid.
-+ *
-+ *		**-EINVAL** if *fd* corresponds to a unmountable pseudo fs
-+ *
-+ *		**-ENAMETOOLONG** if full path is longer than *size*
-  */
- #define ___BPF_FUNC_MAPPER(FN, ctx...)			\
- 	FN(unspec, 0, ##ctx)				\
- 	FN(map_lookup_elem, 1, ##ctx)			\
- 	FN(map_update_elem, 2, ##ctx)			\
- 	FN(map_delete_elem, 3, ##ctx)			\
- 	FN(probe_read, 4, ##ctx)			\
- 	FN(ktime_get_ns, 5, ##ctx)			\
- 	FN(trace_printk, 6, ##ctx)			\
- 	FN(get_prandom_u32, 7, ##ctx)			\
- 	FN(get_smp_processor_id, 8, ##ctx)		\
- 	FN(skb_store_bytes, 9, ##ctx)			\
- 	FN(l3_csum_replace, 10, ##ctx)			\
- 	FN(l4_csum_replace, 11, ##ctx)			\
- 	FN(tail_call, 12, ##ctx)			\
- 	FN(clone_redirect, 13, ##ctx)			\
- 	FN(get_current_pid_tgid, 14, ##ctx)		\
- 	FN(get_current_uid_gid, 15, ##ctx)		\
- 	FN(get_current_comm, 16, ##ctx)			\
- 	FN(get_cgroup_classid, 17, ##ctx)		\
-@@ -6047,40 +6073,41 @@ union bpf_attr {
- 	FN(skb_set_tstamp, 192, ##ctx)			\
- 	FN(ima_file_hash, 193, ##ctx)			\
- 	FN(kptr_xchg, 194, ##ctx)			\
- 	FN(map_lookup_percpu_elem, 195, ##ctx)		\
- 	FN(skc_to_mptcp_sock, 196, ##ctx)		\
- 	FN(dynptr_from_mem, 197, ##ctx)			\
- 	FN(ringbuf_reserve_dynptr, 198, ##ctx)		\
- 	FN(ringbuf_submit_dynptr, 199, ##ctx)		\
- 	FN(ringbuf_discard_dynptr, 200, ##ctx)		\
- 	FN(dynptr_read, 201, ##ctx)			\
- 	FN(dynptr_write, 202, ##ctx)			\
- 	FN(dynptr_data, 203, ##ctx)			\
- 	FN(tcp_raw_gen_syncookie_ipv4, 204, ##ctx)	\
- 	FN(tcp_raw_gen_syncookie_ipv6, 205, ##ctx)	\
- 	FN(tcp_raw_check_syncookie_ipv4, 206, ##ctx)	\
- 	FN(tcp_raw_check_syncookie_ipv6, 207, ##ctx)	\
- 	FN(ktime_get_tai_ns, 208, ##ctx)		\
- 	FN(user_ringbuf_drain, 209, ##ctx)		\
- 	FN(cgrp_storage_get, 210, ##ctx)		\
- 	FN(cgrp_storage_delete, 211, ##ctx)		\
-+	FN(get_fd_path, 212, ##ctx)      \
- 	/* This helper list is effectively frozen. If you are trying to	\
- 	 * add a new helper, you should add a kfunc instead which has	\
- 	 * less stability guarantees. See Documentation/bpf/kfuncs.rst	\
- 	 */
- 
- /* backwards-compatibility macros for users of __BPF_FUNC_MAPPER that don't
-  * know or care about integer value that is now passed as second argument
-  */
- #define __BPF_FUNC_MAPPER_APPLY(name, value, FN) FN(name),
- #define __BPF_FUNC_MAPPER(FN) ___BPF_FUNC_MAPPER(__BPF_FUNC_MAPPER_APPLY, FN)
- 
- /* integer value in 'imm' field of BPF_CALL instruction selects which helper
-  * function eBPF program intends to call
-  */
- #define __BPF_ENUM_FN(x, y) BPF_FUNC_ ## x = y,
- enum bpf_func_id {
- 	___BPF_FUNC_MAPPER(__BPF_ENUM_FN)
- 	__BPF_FUNC_MAX_ID,
- };
- #undef __BPF_ENUM_FN
-diff --git a/kernel/entry/syscall-common.c b/kernel/entry/syscall-common.c
-index 66e6ba7fa80c..182854cd3e8b 100644
---- a/kernel/entry/syscall-common.c
-+++ b/kernel/entry/syscall-common.c
-@@ -86,27 +86,29 @@ static inline bool report_single_step(unsigned long work)
- 
- void syscall_exit_work(struct pt_regs *regs, unsigned long work)
- {
- 	bool step;
- 
- 	/*
- 	 * If the syscall was rolled back due to syscall user dispatching,
- 	 * then the tracers below are not invoked for the same reason as
- 	 * the entry side was not invoked in syscall_trace_enter(): The ABI
- 	 * of these syscalls is unknown.
- 	 */
- 	if (work & SYSCALL_WORK_SYSCALL_USER_DISPATCH) {
- 		if (unlikely(current->syscall_dispatch.on_dispatch)) {
- 			current->syscall_dispatch.on_dispatch = false;
- 			return;
+ 	if (rec->opts.kcore) {
+ 		err = record__kcore_copy(&session->machines.host, data);
+ 		if (err) {
+ 			pr_err("ERROR: Failed to copy kcore\n");
+ 			goto out_free_threads;
  		}
  	}
  
- 	audit_syscall_exit(regs);
- 
-+#if 0
- 	if (work & SYSCALL_WORK_SYSCALL_TRACEPOINT)
-+#endif
- 		trace_sys_exit(regs, syscall_get_return_value(current, regs));
- 
- 	step = report_single_step(work);
- 	if (step || work & SYSCALL_WORK_SYSCALL_TRACE)
- 		ptrace_report_syscall_exit(regs, step);
- }
-diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
-index 3ae52978cae6..4f023a70b9ce 100644
---- a/kernel/trace/bpf_trace.c
-+++ b/kernel/trace/bpf_trace.c
-@@ -1406,40 +1406,104 @@ BTF_ID_FLAGS(func, bpf_lookup_system_key, KF_ACQUIRE | KF_RET_NULL)
- BTF_ID_FLAGS(func, bpf_key_put, KF_RELEASE)
- #ifdef CONFIG_SYSTEM_DATA_VERIFICATION
- BTF_ID_FLAGS(func, bpf_verify_pkcs7_signature, KF_SLEEPABLE)
- #endif
- BTF_KFUNCS_END(key_sig_kfunc_set)
- 
- static const struct btf_kfunc_id_set bpf_key_sig_kfunc_set = {
- 	.owner = THIS_MODULE,
- 	.set = &key_sig_kfunc_set,
+ 	/*
+ 	 * Normally perf_session__new would do this, but it doesn't have the
+ 	 * evlist.
+ 	 */
+ 	if (rec->tool.ordered_events && !evlist__sample_id_all(rec->evlist)) {
+ 		pr_warning("WARNING: No sample_id_all support, falling back to unordered processing\n");
+ 		rec->tool.ordered_events = false;
+ 	}
+@@ -3631,40 +3689,42 @@ static struct option __record_options[] = {
+ 		     "Listen on ctl-fd descriptor for command to control measurement ('enable': enable events, 'disable': disable events,\n"
+ 		     "\t\t\t  'snapshot': AUX area tracing snapshot).\n"
+ 		     "\t\t\t  Optionally send control command completion ('ack\\n') to ack-fd descriptor.\n"
+ 		     "\t\t\t  Alternatively, ctl-fifo / ack-fifo will be opened and used as ctl-fd / ack-fd.",
+ 		      parse_control_option),
+ 	OPT_CALLBACK(0, "synth", &record.opts, "no|all|task|mmap|cgroup",
+ 		     "Fine-tune event synthesis: default=all", parse_record_synth_option),
+ 	OPT_STRING_OPTARG_SET(0, "debuginfod", &record.debuginfod.urls,
+ 			  &record.debuginfod.set, "debuginfod urls",
+ 			  "Enable debuginfod data retrieval from DEBUGINFOD_URLS or specified urls",
+ 			  "system"),
+ 	OPT_CALLBACK_OPTARG(0, "threads", &record.opts, NULL, "spec",
+ 			    "write collected trace data into several data files using parallel threads",
+ 			    record__parse_threads),
+ 	OPT_BOOLEAN(0, "off-cpu", &record.off_cpu, "Enable off-cpu analysis"),
+ 	OPT_STRING(0, "setup-filter", &record.filter_action, "pin|unpin",
+ 		   "BPF filter action"),
+ 	OPT_CALLBACK(0, "off-cpu-thresh", &record.opts, "ms",
+ 		     "Dump off-cpu samples if off-cpu time exceeds this threshold (in milliseconds). (Default: 500ms)",
+ 		     record__parse_off_cpu_thresh),
++	OPT_BOOLEAN(0, "jove_syscalls", &jove_syscalls,
++		    "Augmented raw syscalls (jove)"),
+ 	OPT_END()
  };
  
- static int __init bpf_key_sig_kfuncs_init(void)
+ struct option *record_options = __record_options;
+ 
+ static int record__mmap_cpu_mask_init(struct mmap_cpu_mask *mask, struct perf_cpu_map *cpus)
  {
- 	return register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING,
- 					 &bpf_key_sig_kfunc_set);
- }
+ 	struct perf_cpu cpu;
+ 	int idx;
  
- late_initcall(bpf_key_sig_kfuncs_init);
- #endif /* CONFIG_KEYS */
+ 	if (cpu_map__is_dummy(cpus))
+ 		return 0;
  
-+BPF_CALL_3(bpf_get_fd_path, char *, dst, u32, size, int, fd)
-+{
-+	int ret = -EBADF;
-+	struct file *f;
-+	char *p;
-+
-+	/* Ensure we're in user context which is safe for the helper to
-+	 * run. This helper has no business in a kthread.
-+	 */
-+	if (unlikely(in_interrupt() ||
-+		     current->flags & (PF_KTHREAD | PF_EXITING))) {
-+		ret = -EPERM;
-+		goto error;
-+	}
-+
-+	/* Use fget_raw instead of fget to support O_PATH, and it doesn't
-+	 * have any sleepable code, so it's ok to be here.
-+	 */
-+	f = fget_raw(fd);
-+	if (!f)
-+		goto error;
-+
-+	/* For unmountable pseudo filesystem, it seems to have no meaning
-+	 * to get their fake paths as they don't have path, and to be no
-+	 * way to validate this function pointer can be always safe to call
-+	 * in the current context.
-+	 */
-+	if (f->f_path.dentry->d_op && f->f_path.dentry->d_op->d_dname) {
-+		ret = -EINVAL;
-+		fput(f);
-+		goto error;
-+	}
-+
-+	/* After filter unmountable pseudo filesytem, d_path won't call
-+	 * dentry->d_op->d_name(), the normally path doesn't have any
-+	 * sleepable code, and despite it uses the current macro to get
-+	 * fs_struct (current->fs), we've already ensured we're in user
-+	 * context, so it's ok to be here.
-+	 */
-+	p = d_path(&f->f_path, dst, size);
-+	if (IS_ERR(p)) {
-+		ret = PTR_ERR(p);
-+		fput(f);
-+		goto error;
-+	}
-+
-+	ret = strlen(p) + 1;
-+	memmove(dst, p, ret);
-+	fput(f);
-+	return ret;
-+
-+error:
-+	memset(dst, 0, size);
-+	return ret;
-+}
-+
-+static const struct bpf_func_proto bpf_get_fd_path_proto = {
-+	.func       = bpf_get_fd_path,
-+	.ret_type   = RET_INTEGER,
-+	.arg1_type  = ARG_PTR_TO_UNINIT_MEM,
-+	.arg2_type  = ARG_CONST_SIZE,
-+	.arg3_type  = ARG_ANYTHING,
-+};
-+
- static const struct bpf_func_proto *
- bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
- {
- 	const struct bpf_func_proto *func_proto;
+ 	perf_cpu_map__for_each_cpu_skip_any(cpu, idx, cpus) {
+ 		/* Return ENODEV is input cpu is greater than max cpu */
+ 		if ((unsigned long)cpu.cpu > mask->nbits)
+ 			return -ENODEV;
+ 		__set_bit(cpu.cpu, mask->bits);
+ 	}
  
- 	switch (func_id) {
- 	case BPF_FUNC_get_smp_processor_id:
- 		return &bpf_get_smp_processor_id_proto;
- #ifdef CONFIG_ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
- 	case BPF_FUNC_probe_read:
- 		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
- 		       NULL : &bpf_probe_read_compat_proto;
- 	case BPF_FUNC_probe_read_str:
- 		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
- 		       NULL : &bpf_probe_read_compat_str_proto;
- #endif
- 	case BPF_FUNC_get_func_ip:
- 		return &bpf_get_func_ip_proto_tracing;
+@@ -4037,40 +4097,52 @@ static int record__init_thread_masks(struct record *rec)
+ 		break;
+ 	case THREAD_SPEC__CORE:
+ 		ret = record__init_thread_core_masks(rec, cpus);
+ 		break;
+ 	case THREAD_SPEC__PACKAGE:
+ 		ret = record__init_thread_package_masks(rec, cpus);
+ 		break;
+ 	case THREAD_SPEC__NUMA:
+ 		ret = record__init_thread_numa_masks(rec, cpus);
+ 		break;
+ 	case THREAD_SPEC__USER:
+ 		ret = record__init_thread_user_masks(rec, cpus);
+ 		break;
  	default:
  		break;
-@@ -1604,40 +1668,42 @@ static const struct bpf_func_proto bpf_get_stack_proto_tp = {
- 	.gpl_only	= true,
- 	.ret_type	= RET_INTEGER,
- 	.arg1_type	= ARG_PTR_TO_CTX,
- 	.arg2_type	= ARG_PTR_TO_UNINIT_MEM,
- 	.arg3_type	= ARG_CONST_SIZE_OR_ZERO,
- 	.arg4_type	= ARG_ANYTHING,
- };
- 
- static const struct bpf_func_proto *
- tp_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
- {
- 	switch (func_id) {
- 	case BPF_FUNC_perf_event_output:
- 		return &bpf_perf_event_output_proto_tp;
- 	case BPF_FUNC_get_stackid:
- 		return &bpf_get_stackid_proto_tp;
- 	case BPF_FUNC_get_stack:
- 		return &bpf_get_stack_proto_tp;
- 	case BPF_FUNC_get_attach_cookie:
- 		return &bpf_get_attach_cookie_proto_trace;
-+	case BPF_FUNC_get_fd_path:
-+		return &bpf_get_fd_path_proto;
- 	default:
- 		return bpf_tracing_func_proto(func_id, prog);
  	}
+ 
+ 	return ret;
  }
  
- static bool tp_prog_is_valid_access(int off, int size, enum bpf_access_type type,
- 				    const struct bpf_prog *prog,
- 				    struct bpf_insn_access_aux *info)
++#ifdef HAVE_BPF_SKEL
++static int bpf__setup_bpf_output(struct evlist *evlist)
++{
++	int err = parse_event(evlist, "bpf-output/no-inherit=1,name=__jove_augmented_syscalls__/");
++
++	if (err)
++		pr_debug("ERROR: failed to create the \"__augmented_syscalls__\" bpf-output event\n");
++
++	return err;
++}
++#endif
++
+ int cmd_record(int argc, const char **argv)
  {
- 	if (off < sizeof(void *) || off >= PERF_MAX_TRACE_SIZE)
- 		return false;
- 	if (type != BPF_READ)
- 		return false;
- 	if (off % size != 0)
- 		return false;
+ 	int err;
+ 	struct record *rec = &record;
+ 	char errbuf[BUFSIZ];
  
- 	BUILD_BUG_ON(PERF_MAX_TRACE_SIZE % sizeof(__u64));
- 	return true;
- }
+ 	setlocale(LC_ALL, "");
  
-@@ -1843,40 +1909,42 @@ static const struct bpf_func_proto bpf_get_stack_proto_raw_tp = {
- 	.gpl_only	= true,
- 	.ret_type	= RET_INTEGER,
- 	.arg1_type	= ARG_PTR_TO_CTX,
- 	.arg2_type	= ARG_PTR_TO_MEM | MEM_RDONLY,
- 	.arg3_type	= ARG_CONST_SIZE_OR_ZERO,
- 	.arg4_type	= ARG_ANYTHING,
- };
+ #ifndef HAVE_BPF_SKEL
+ # define set_nobuild(s, l, m, c) set_option_nobuild(record_options, s, l, m, c)
+ 	set_nobuild('\0', "off-cpu", "no BUILD_BPF_SKEL=1", true);
+ # undef set_nobuild
+ #endif
  
- static const struct bpf_func_proto *
- raw_tp_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
- {
- 	switch (func_id) {
- 	case BPF_FUNC_perf_event_output:
- 		return &bpf_perf_event_output_proto_raw_tp;
- 	case BPF_FUNC_get_stackid:
- 		return &bpf_get_stackid_proto_raw_tp;
- 	case BPF_FUNC_get_stack:
- 		return &bpf_get_stack_proto_raw_tp;
- 	case BPF_FUNC_get_attach_cookie:
- 		return &bpf_get_attach_cookie_proto_tracing;
-+	case BPF_FUNC_get_fd_path:
-+		return &bpf_get_fd_path_proto;
- 	default:
- 		return bpf_tracing_func_proto(func_id, prog);
+ 	/* Disable eager loading of kernel symbols that adds overhead to perf record. */
+ 	symbol_conf.lazy_load_kernel_maps = true;
+ 	rec->opts.affinity = PERF_AFFINITY_SYS;
+ 
+ 	rec->evlist = evlist__new();
+ 	if (rec->evlist == NULL)
+@@ -4100,40 +4172,73 @@ int cmd_record(int argc, const char **argv)
+ 			"cgroup monitoring only available in system-wide mode");
+ 
  	}
- }
  
- const struct bpf_func_proto *
- tracing_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
- {
- 	const struct bpf_func_proto *fn;
+ 	if (record.latency) {
+ 		/*
+ 		 * There is no fundamental reason why latency profiling
+ 		 * can't work for system-wide mode, but exact semantics
+ 		 * and details are to be defined.
+ 		 * See the following thread for details:
+ 		 * https://lore.kernel.org/all/Z4XDJyvjiie3howF@google.com/
+ 		 */
+ 		if (record.opts.target.system_wide) {
+ 			pr_err("Failed: latency profiling is not supported with system-wide collection.\n");
+ 			err = -EINVAL;
+ 			goto out_opts;
+ 		}
+ 		record.opts.record_switch_events = true;
+ 	}
  
- 	switch (func_id) {
- #ifdef CONFIG_NET
- 	case BPF_FUNC_skb_output:
- 		return &bpf_skb_output_proto;
- 	case BPF_FUNC_xdp_output:
- 		return &bpf_xdp_output_proto;
- 	case BPF_FUNC_skc_to_tcp6_sock:
- 		return &bpf_skc_to_tcp6_sock_proto;
- 	case BPF_FUNC_skc_to_tcp_sock:
- 		return &bpf_skc_to_tcp_sock_proto;
-diff --git a/tools/include/uapi/linux/bpf.h b/tools/include/uapi/linux/bpf.h
-index 233de8677382..161038712793 100644
---- a/tools/include/uapi/linux/bpf.h
-+++ b/tools/include/uapi/linux/bpf.h
-@@ -5833,40 +5833,66 @@ union bpf_attr {
-  *
-  *		An optional *flags* (**BPF_LOCAL_STORAGE_GET_F_CREATE**) can be
-  *		used such that a new bpf_local_storage will be
-  *		created if one does not exist.  *value* can be used
-  *		together with **BPF_LOCAL_STORAGE_GET_F_CREATE** to specify
-  *		the initial value of a bpf_local_storage.  If *value* is
-  *		**NULL**, the new bpf_local_storage will be zero initialized.
-  *	Return
-  *		A bpf_local_storage pointer is returned on success.
-  *
-  *		**NULL** if not found or there was an error in adding
-  *		a new bpf_local_storage.
-  *
-  * long bpf_cgrp_storage_delete(struct bpf_map *map, struct cgroup *cgroup)
-  *	Description
-  *		Delete a bpf_local_storage from a *cgroup*.
-  *	Return
-  *		0 on success.
-  *
-  *		**-ENOENT** if the bpf_local_storage cannot be found.
-+ *
-+ * int bpf_get_fd_path(char *path, u32 size, int fd)
-+ *	Description
-+ *		Get **file** atrribute from the current task by *fd*, then call
-+ *		**d_path** to get it's absolute path and copy it as string into
-+ *		*path* of *size*. Notice the **path** don't support unmountable
-+ *		pseudo filesystems as they don't have path (eg: SOCKFS, PIPEFS).
-+ *		The *size* must be strictly positive. On success, the helper
-+ *		makes sure that the *path* is NUL-terminated, and the buffer
-+ *		could be:
-+ *		- a regular full path (include mountable fs eg: /proc, /sys)
-+ *		- a regular full path with " (deleted)" is appended.
-+ *		On failure, it is filled with zeroes.
-+ *	Return
-+ *		On success, returns the length of the copied string INCLUDING
-+ *		the trailing '\0'.
-+ *
-+ *		On failure, the returned value is one of the following:
-+ *
-+ *		**-EPERM** if no permission to get the path (eg: in irq ctx).
-+ *
-+ *		**-EBADF** if *fd* is invalid.
-+ *
-+ *		**-EINVAL** if *fd* corresponds to a unmountable pseudo fs
-+ *
-+ *		**-ENAMETOOLONG** if full path is longer than *size*
-  */
- #define ___BPF_FUNC_MAPPER(FN, ctx...)			\
- 	FN(unspec, 0, ##ctx)				\
- 	FN(map_lookup_elem, 1, ##ctx)			\
- 	FN(map_update_elem, 2, ##ctx)			\
- 	FN(map_delete_elem, 3, ##ctx)			\
- 	FN(probe_read, 4, ##ctx)			\
- 	FN(ktime_get_ns, 5, ##ctx)			\
- 	FN(trace_printk, 6, ##ctx)			\
- 	FN(get_prandom_u32, 7, ##ctx)			\
- 	FN(get_smp_processor_id, 8, ##ctx)		\
- 	FN(skb_store_bytes, 9, ##ctx)			\
- 	FN(l3_csum_replace, 10, ##ctx)			\
- 	FN(l4_csum_replace, 11, ##ctx)			\
- 	FN(tail_call, 12, ##ctx)			\
- 	FN(clone_redirect, 13, ##ctx)			\
- 	FN(get_current_pid_tgid, 14, ##ctx)		\
- 	FN(get_current_uid_gid, 15, ##ctx)		\
- 	FN(get_current_comm, 16, ##ctx)			\
- 	FN(get_cgroup_classid, 17, ##ctx)		\
-@@ -6047,40 +6073,41 @@ union bpf_attr {
- 	FN(skb_set_tstamp, 192, ##ctx)			\
- 	FN(ima_file_hash, 193, ##ctx)			\
- 	FN(kptr_xchg, 194, ##ctx)			\
- 	FN(map_lookup_percpu_elem, 195, ##ctx)		\
- 	FN(skc_to_mptcp_sock, 196, ##ctx)		\
- 	FN(dynptr_from_mem, 197, ##ctx)			\
- 	FN(ringbuf_reserve_dynptr, 198, ##ctx)		\
- 	FN(ringbuf_submit_dynptr, 199, ##ctx)		\
- 	FN(ringbuf_discard_dynptr, 200, ##ctx)		\
- 	FN(dynptr_read, 201, ##ctx)			\
- 	FN(dynptr_write, 202, ##ctx)			\
- 	FN(dynptr_data, 203, ##ctx)			\
- 	FN(tcp_raw_gen_syncookie_ipv4, 204, ##ctx)	\
- 	FN(tcp_raw_gen_syncookie_ipv6, 205, ##ctx)	\
- 	FN(tcp_raw_check_syncookie_ipv4, 206, ##ctx)	\
- 	FN(tcp_raw_check_syncookie_ipv6, 207, ##ctx)	\
- 	FN(ktime_get_tai_ns, 208, ##ctx)		\
- 	FN(user_ringbuf_drain, 209, ##ctx)		\
- 	FN(cgrp_storage_get, 210, ##ctx)		\
- 	FN(cgrp_storage_delete, 211, ##ctx)		\
-+	FN(get_fd_path, 212, ##ctx)        \
- 	/* This helper list is effectively frozen. If you are trying to	\
- 	 * add a new helper, you should add a kfunc instead which has	\
- 	 * less stability guarantees. See Documentation/bpf/kfuncs.rst	\
- 	 */
- 
- /* backwards-compatibility macros for users of __BPF_FUNC_MAPPER that don't
-  * know or care about integer value that is now passed as second argument
-  */
- #define __BPF_FUNC_MAPPER_APPLY(name, value, FN) FN(name),
- #define __BPF_FUNC_MAPPER(FN) ___BPF_FUNC_MAPPER(__BPF_FUNC_MAPPER_APPLY, FN)
- 
- /* integer value in 'imm' field of BPF_CALL instruction selects which helper
-  * function eBPF program intends to call
-  */
- #define __BPF_ENUM_FN(x, y) BPF_FUNC_ ## x = y,
- enum bpf_func_id {
- 	___BPF_FUNC_MAPPER(__BPF_ENUM_FN)
- 	__BPF_FUNC_MAX_ID,
- };
- #undef __BPF_ENUM_FN
-diff --git a/tools/testing/selftests/bpf/prog_tests/get_fd_path.c b/tools/testing/selftests/bpf/prog_tests/get_fd_path.c
-new file mode 100644
-index 000000000000..2846f0a4e84b
---- /dev/null
-+++ b/tools/testing/selftests/bpf/prog_tests/get_fd_path.c
-@@ -0,0 +1,171 @@
-+// SPDX-License-Identifier: GPL-2.0
-+#define _GNU_SOURCE
-+#include <test_progs.h>
-+#include <sys/stat.h>
-+#include <linux/sched.h>
-+#include <sys/syscall.h>
++#ifdef HAVE_BPF_SKEL
++	if (!jove_syscalls)
++		goto skip_augmentation;
 +
-+#define MAX_PATH_LEN		128
-+#define MAX_FDS			7
-+#define MAX_EVENT_NUM		16
++	record.skel = jove_augmented_raw_syscalls_bpf__open();
++	if (!record.skel) {
++		pr_err("Failed to open augmented syscalls BPF skeleton");
++			err = -EINVAL;
++			goto out_opts;
++	} else {
++		err = jove_augmented_raw_syscalls_bpf__load(record.skel);
 +
-+static struct fd_path_test_data {
-+	pid_t pid;
-+	__u32 cnt;
-+	__u32 fds[MAX_EVENT_NUM];
-+	char paths[MAX_EVENT_NUM][MAX_PATH_LEN];
-+} src, dst;
++		if (err < 0) {
++			libbpf_strerror(err, errbuf, sizeof(errbuf));
++			pr_debug("Failed to load jove augmented syscalls BPF skeleton: %s\n", errbuf);
++			err = -EINVAL;
++			goto out_opts;
++		} else {
++			jove_augmented_raw_syscalls_bpf__attach(record.skel);
 +
-+static int set_pathname(int fd)
-+{
-+	char buf[MAX_PATH_LEN];
-+
-+	snprintf(buf, MAX_PATH_LEN, "/proc/%d/fd/%d", src.pid, fd);
-+	src.fds[src.cnt] = fd;
-+	return readlink(buf, src.paths[src.cnt++], MAX_PATH_LEN);
-+}
-+
-+static int trigger_fstat_events(pid_t pid)
-+{
-+	int pipefd[2] = { -1, -1 };
-+	int sockfd = -1, procfd = -1, devfd = -1;
-+	int localfd = -1, indicatorfd = -1;
-+	struct stat fileStat;
-+	int ret = -1;
-+
-+	/* unmountable pseudo-filesystems */
-+	if (CHECK_FAIL(pipe(pipefd) < 0))
-+		return ret;
-+	/* unmountable pseudo-filesystems */
-+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-+	if (CHECK_FAIL(sockfd < 0))
-+		goto out_close;
-+	/* mountable pseudo-filesystems */
-+	procfd = open("/proc/self/comm", O_RDONLY);
-+	if (CHECK_FAIL(procfd < 0))
-+		goto out_close;
-+	devfd = open("/dev/urandom", O_RDONLY);
-+	if (CHECK_FAIL(devfd < 0))
-+		goto out_close;
-+	localfd = open("/tmp/fd2path_loadgen.txt", O_CREAT | O_RDONLY);
-+	if (CHECK_FAIL(localfd < 0))
-+		goto out_close;
-+	/* bpf_get_fd_path will return path with (deleted) */
-+	remove("/tmp/fd2path_loadgen.txt");
-+	indicatorfd = open("/tmp/", O_PATH);
-+	if (CHECK_FAIL(indicatorfd < 0))
-+		goto out_close;
-+
-+	src.pid = pid;
-+
-+	ret = set_pathname(pipefd[0]);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+	ret = set_pathname(pipefd[1]);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+	ret = set_pathname(sockfd);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+	ret = set_pathname(procfd);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+	ret = set_pathname(devfd);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+	ret = set_pathname(localfd);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+	ret = set_pathname(indicatorfd);
-+	if (CHECK_FAIL(ret < 0))
-+		goto out_close;
-+
-+	fstat(pipefd[0], &fileStat);
-+	fstat(pipefd[1], &fileStat);
-+	fstat(sockfd, &fileStat);
-+	fstat(procfd, &fileStat);
-+	fstat(devfd, &fileStat);
-+	fstat(localfd, &fileStat);
-+	fstat(indicatorfd, &fileStat);
-+
-+out_close:
-+	close(indicatorfd);
-+	close(localfd);
-+	close(devfd);
-+	close(procfd);
-+	close(sockfd);
-+	close(pipefd[1]);
-+	close(pipefd[0]);
-+
-+	return ret;
-+}
-+
-+void test_get_fd_path(void)
-+{
-+	const char *prog_name = "tracepoint/syscalls/sys_enter_newfstat";
-+	const char *obj_file = "test_get_fd_path.o";
-+	int err, results_map_fd, duration = 0;
-+	struct bpf_program *tp_prog = NULL;
-+	struct bpf_link *tp_link = NULL;
-+	struct bpf_object *obj = NULL;
-+	const int zero = 0;
-+
-+	obj = bpf_object__open_file(obj_file, NULL);
-+	if (CHECK(IS_ERR(obj), "obj_open_file", "err %ld\n", PTR_ERR(obj)))
-+		return;
-+
-+	tp_prog = bpf_object__find_program_by_title(obj, prog_name);
-+	if (CHECK(!tp_prog, "find_tp",
-+		  "prog '%s' not found\n", prog_name))
-+		goto cleanup;
-+
-+	err = bpf_object__load(obj);
-+	if (CHECK(err, "obj_load", "err %d\n", err))
-+		goto cleanup;
-+
-+	results_map_fd = bpf_find_map(__func__, obj, "test_get.bss");
-+	if (CHECK(results_map_fd < 0, "find_bss_map",
-+		  "err %d\n", results_map_fd))
-+		goto cleanup;
-+
-+	tp_link = bpf_program__attach_tracepoint(tp_prog, "syscalls",
-+						 "sys_enter_newfstat");
-+	if (CHECK(IS_ERR(tp_link), "attach_tp",
-+		  "err %ld\n", PTR_ERR(tp_link))) {
-+		tp_link = NULL;
-+		goto cleanup;
++			err = bpf__setup_bpf_output(record.evlist);
++			if (err) {
++				libbpf_strerror(err, errbuf, sizeof(errbuf));
++				pr_err("ERROR: Setup BPF output event failed: %s\n", errbuf);
++				goto out_opts;
++			}
++			record.syscalls.events.bpf_output = evlist__last(record.evlist);
++			assert(evsel__name_is(record.syscalls.events.bpf_output, "__jove_augmented_syscalls__"));
++		}
 +	}
++skip_augmentation:
++#endif
 +
-+	dst.pid = getpid();
-+	err = bpf_map_update_elem(results_map_fd, &zero, &dst, 0);
-+	if (CHECK(err, "update_elem",
-+		  "failed to set pid filter: %d\n", err))
-+		goto cleanup;
+ 	if (!rec->buildid_mmap) {
+ 		pr_debug("Disabling build id in synthesized mmap2 events.\n");
+ 		symbol_conf.no_buildid_mmap2 = true;
+ 	} else if (rec->buildid_mmap_set) {
+ 		/*
+ 		 * Explicitly passing --buildid-mmap disables buildid processing
+ 		 * and cache generation.
+ 		 */
+ 		rec->no_buildid = true;
+ 	}
+ 	if (rec->buildid_mmap && !perf_can_record_build_id()) {
+ 		pr_warning("Missing support for build id in kernel mmap events.\n"
+ 			   "Disable this warning with --no-buildid-mmap\n");
+ 		rec->buildid_mmap = false;
+ 	}
+ 	if (rec->buildid_mmap) {
+ 		/* Enable perf_event_attr::build_id bit. */
+ 		rec->opts.build_id = true;
+ 	}
+ 
+@@ -4337,40 +4442,43 @@ int cmd_record(int argc, const char **argv)
+ 
+ 	if (rec->off_cpu) {
+ 		err = record__config_off_cpu(rec);
+ 		if (err) {
+ 			pr_err("record__config_off_cpu failed, error %d\n", err);
+ 			goto out;
+ 		}
+ 	}
+ 
+ 	if (record_opts__config(&rec->opts)) {
+ 		err = -EINVAL;
+ 		goto out;
+ 	}
+ 
+ 	err = record__config_tracking_events(rec);
+ 	if (err) {
+ 		pr_err("record__config_tracking_events failed, error %d\n", err);
+ 		goto out;
+ 	}
+ 
++	if (jove_syscalls)
++		rec->opts.target.system_wide = true;
 +
-+	err = trigger_fstat_events(dst.pid);
-+	if (CHECK_FAIL(err < 0))
-+		goto cleanup;
-+
-+	err = bpf_map_lookup_elem(results_map_fd, &zero, &dst);
-+	if (CHECK(err, "get_results",
-+		  "failed to get results: %d\n", err))
-+		goto cleanup;
-+
-+	for (int i = 0; i < MAX_FDS; i++) {
-+		if (i < 3)
-+			CHECK((dst.paths[i][0] != 0), "get_fd_path",
-+			      "failed to filter fs [%d]: %u(%s) vs %u(%s)\n",
-+			      i, src.fds[i], src.paths[i], dst.fds[i],
-+			      dst.paths[i]);
-+		else
-+			CHECK(strncmp(src.paths[i], dst.paths[i], MAX_PATH_LEN),
-+			      "get_fd_path",
-+			      "failed to get path[%d]: %u(%s) vs %u(%s)\n",
-+			      i, src.fds[i], src.paths[i], dst.fds[i],
-+			      dst.paths[i]);
-+	}
-+
-+cleanup:
-+	bpf_link__destroy(tp_link);
-+	bpf_object__close(obj);
-+}
-diff --git a/tools/testing/selftests/bpf/progs/test_get_fd_path.c b/tools/testing/selftests/bpf/progs/test_get_fd_path.c
+ 	err = record__init_thread_masks(rec);
+ 	if (err) {
+ 		pr_err("Failed to initialize parallel data streaming masks\n");
+ 		goto out;
+ 	}
+ 
+ 	if (rec->opts.nr_cblocks > nr_cblocks_max)
+ 		rec->opts.nr_cblocks = nr_cblocks_max;
+ 	pr_debug("nr_cblocks: %d\n", rec->opts.nr_cblocks);
+ 
+ 	pr_debug("affinity: %s\n", affinity_tags[rec->opts.affinity]);
+ 	pr_debug("mmap flush: %d\n", rec->opts.mmap_flush);
+ 
+ 	if (rec->opts.comp_level > comp_level_max)
+ 		rec->opts.comp_level = comp_level_max;
+ 	pr_debug("comp level: %d\n", rec->opts.comp_level);
+ 
+ 	err = __cmd_record(&record, argc, argv);
+ out:
+ 	record__free_thread_masks(rec, rec->nr_threads);
+diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..8bb58f87755e
+index 000000000000..afe7814c2558
 --- /dev/null
-+++ b/tools/testing/selftests/bpf/progs/test_get_fd_path.c
-@@ -0,0 +1,43 @@
-+// SPDX-License-Identifier: GPL-2.0
++++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
+@@ -0,0 +1,536 @@
++#include "vmlinux.h"
++#include <linux/limits.h>
++#include <bpf/bpf_helpers.h>
++#include <bpf/bpf_tracing.h>
++#include <boost/preprocessor/cat.hpp>
++#include <boost/preprocessor/repetition/repeat.hpp>
++typedef u8 uint8_t;
++typedef signed char int8_t;
++typedef u32 uint32_t;
++typedef s32 int32_t;
++typedef u64 uint64_t;
++typedef s64 int64_t;
++#include "augmented_raw_syscalls.h"
 +
-+#include <linux/bpf.h>
-+#include <linux/ptrace.h>
-+#include <string.h>
-+#include <unistd.h>
-+#include "bpf_helpers.h"
-+#include "bpf_tracing.h"
++#if defined(IFDEBUG) || defined(NOP)
++#error
++#endif
 +
-+#define MAX_PATH_LEN		128
-+#define MAX_EVENT_NUM		16
++#define NDEBUG
 +
-+static struct fd_path_test_data {
-+	pid_t pid;
-+	__u32 cnt;
-+	__u32 fds[MAX_EVENT_NUM];
-+	char paths[MAX_EVENT_NUM][MAX_PATH_LEN];
-+} data;
++#ifdef NDEBUG
++#define IFDEBUG 0
++#else
++#define IFDEBUG 1
++#endif
++#define NOP() do {} while (false)
 +
-+struct sys_enter_newfstat_args {
-+	unsigned long long pad1;
-+	unsigned long long pad2;
-+	unsigned long fd;
++#define VERY_UNIQUE_BASE 0xfffffffULL
++#define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
++
++#define ___SYSCALL(nr, nm) \
++  static const unsigned nr64_##nm = nr;\
++  static const char *const nr64_##nm##_nm = #nm;
++
++#include <arch/x86_64/syscalls.inc.h>
++static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
++static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
++static const unsigned nr64_old_mmap = VERY_UNIQUE_NUM();
++
++#define ___SYSCALL(nr, nm) static const unsigned nr32_##nm = nr;\
++  static const char *const nr32_##nm##_nm = #nm;
++#include <arch/i386/syscalls.inc.h>
++static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
++
++#ifndef TS_COMPAT
++#define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
++#endif
++
++#define MAX_ARG_COUNT 10
++#define MAX_ENV_COUNT 60
++
++#define MAX_BPF_PRINK_LEN 128
++
++static bool bpf_in_ia32_syscall(void) {
++  u32 status;
++  bpf_probe_read_kernel(&status, sizeof(status),
++                        (void *)bpf_get_current_task() +
++                            2 * sizeof(long unsigned int));
++
++  return !!(status & TS_COMPAT);
++}
++
++struct syscall_enter_args {
++  unsigned long long common_tp_fields;
++  long syscall_nr;
++  unsigned long args[6];
 +};
 +
-+SEC("tracepoint/syscalls/sys_enter_newfstat")
-+int bpf_prog(struct sys_enter_newfstat_args *args)
++struct syscall_exit_args {
++  unsigned long long common_tp_fields;
++  long syscall_nr;
++  long ret;
++};
++
++union augmented_syscall_payload_u {
++  struct augmented_syscall_payload32 _32;
++  struct augmented_syscall_payload64 _64;
++};
++
++struct augmented_syscalls_tmp {
++  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
++  __type(key, int);
++  __type(value, union augmented_syscall_payload_u);
++  __uint(max_entries, 1);
++} augmented_syscalls_tmp SEC(".maps");
++
++struct __jove_augmented_syscalls__ {
++  __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
++  __type(key, int);
++  __type(value, int);
++} __jove_augmented_syscalls__ SEC(".maps");
++
++struct pids_filtered {
++  __uint(type, BPF_MAP_TYPE_HASH);
++  __type(key, pid_t);
++  __type(value, bool);
++  __uint(max_entries, 64);
++} pids_unfiltered SEC(".maps");
++
++unsigned dev = 0;
++unsigned ino = 0;
++
++static pid_t our_pid(void) {
++  struct bpf_pidns_info nsdata;
++
++  if (bpf_get_ns_current_pid_tgid(dev, ino, &nsdata, sizeof(nsdata)))
++    return ~0u;
++
++  return nsdata.tgid;
++}
++
++static bool check_pid(pid_t pid) {
++  return bpf_map_lookup_elem(&pids_unfiltered, &pid) != NULL;
++}
++
++static union augmented_syscall_payload_u *augmented_syscall_payload(void) {
++  int key = 0;
++  union augmented_syscall_payload_u *res =
++	  bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++
++  if (res == NULL)
++    bpf_printk("augmented_syscall_payload failed!!!\n");
++
++  return res;
++}
++
++#define DO_READ_STRING(str_arg, what_done)                                     \
++  do {                                                                         \
++    void *const c_str = (void *)str_arg;                                       \
++    if (c_str) {                                                               \
++      long path_len = bpf_probe_read_user_str(                                 \
++          &payload->str[pos & HALFMAXMASK], HALFMAXLEN, c_str);                \
++      if (path_len >= 1) {                                                     \
++        pos += path_len;                                                       \
++      } else {                                                                 \
++        payload->str[pos & HALFMAXMASK] = '\0'; /* error */                    \
++        ++pos;                                                                 \
++      }                                                                        \
++      if (pos >= HALFMAXLEN)                                                   \
++        goto what_done##_done; /* overflow */                                  \
++    } else {                                                                   \
++      goto what_done##_done;                                                   \
++    }                                                                          \
++  } while (false);
++
++#define CLEAR_STUFF(count)                       \
++  do {                                           \
++    BOOST_PP_REPEAT(count, DO_CLEAR_STUFF, void) \
++  } while (false)
++
++#define DO_CLEAR_STUFF(n, i, data) the_stuff[i] = 0;
++
++#define READ_STUFF(count, what) \
++  do {                          \
++    CLEAR_STUFF(count);         \
++    DO_READ_STUFF(what);        \
++  } while (false)
++
++#define DO_READ_STUFF(what)                                                    \
++  do {                                                                         \
++    if (bpf_probe_read_user(the_stuff, sizeof(the_stuff), (void *)what) < 0)   \
++      return 0;                                                                \
++  } while (false)
++
++#define READ_ARGV_STUFF() READ_STUFF(MAX_ARG_COUNT, argv)
++#define READ_ENVP_STUFF() READ_STUFF(MAX_ENV_COUNT, envp)
++
++#define DO_READ_ARG(n, i, data) DO_READ_STRING(the_stuff[i], args)
++#define DO_READ_ENV(n, i, data) DO_READ_STRING(the_stuff[i], envs)
++
++#define READ_ARGV() BOOST_PP_REPEAT(MAX_ARG_COUNT, DO_READ_ARG, void)
++#define READ_ENVP() BOOST_PP_REPEAT(MAX_ENV_COUNT, DO_READ_ENV, void)
++
++#define ON_ENTER_EXEC(bits)                                                    \
++  static int on_enter_exec##bits(                                              \
++      struct augmented_syscall_payload##bits *payload, u##bits pathname,       \
++      u##bits argv, u##bits envp) {                                            \
++    volatile /* !!! */ unsigned pos = 0;                                       \
++    DO_READ_STRING(pathname, path);                                            \
++  path_done:                                                                   \
++    if (argv) {                                                                \
++      u##bits the_stuff[MAX_ARG_COUNT];                                        \
++      READ_ARGV_STUFF();                                                       \
++      READ_ARGV();                                                             \
++    }                                                                          \
++  args_done:                                                                   \
++    payload->str[pos & HALFMAXMASK] = '\0';                                    \
++    ++pos;                                                                     \
++    if (envp) {                                                                \
++      u##bits the_stuff[MAX_ENV_COUNT];                                        \
++      READ_ENVP_STUFF();                                                       \
++      READ_ENVP();                                                             \
++    }                                                                          \
++  envs_done:                                                                   \
++    payload->hdr.str_len = pos;                                                \
++                                                                               \
++    return 0;                                                                  \
++  }
++
++ON_ENTER_EXEC(32)
++ON_ENTER_EXEC(64)
++
++#define ON_SYS_ENTER_EXECVE(bits)                                              \
++  static int on_sys_enter_execve##bits(                                        \
++      struct augmented_syscall_payload##bits *payload,                         \
++      struct syscall_enter_args *args) {                                       \
++    return on_enter_exec##bits(payload, args->args[0], args->args[1],          \
++                               args->args[2]);                                 \
++  }
++
++ON_SYS_ENTER_EXECVE(32)
++ON_SYS_ENTER_EXECVE(64)
++
++#define ON_SYS_ENTER_EXECVEAT(bits)                                            \
++  static int on_sys_enter_execveat##bits(                                      \
++      struct augmented_syscall_payload##bits *payload,                         \
++      struct syscall_enter_args *args) {                                       \
++    return on_enter_exec##bits(payload, args->args[1], args->args[2],          \
++                               args->args[3]);                                 \
++  }
++
++ON_SYS_ENTER_EXECVEAT(32)
++ON_SYS_ENTER_EXECVEAT(64)
++
++#define SET_MAGIC0() NOP()
++#define SET_MAGIC1()                      \
++  do {                                    \
++    if (MAGIC_LEN == 4) {                 \
++      payload->hdr.magic1[0] = 'J';       \
++      payload->hdr.magic1[1] = 'O';       \
++      payload->hdr.magic1[2] = 'V';       \
++      payload->hdr.magic1[3] = 'E';       \
++                                          \
++      payload->hdr.magic2[0] = 'E';       \
++      payload->hdr.magic2[1] = 'V';       \
++      payload->hdr.magic2[2] = 'O';       \
++      payload->hdr.magic2[3] = 'J';       \
++    }                                     \
++  } while (false)
++
++SEC("tp/raw_syscalls/sys_enter")
++int sys_enter(void *ctx)
 +{
-+	pid_t pid = bpf_get_current_pid_tgid() >> 32;
++  struct syscall_enter_args args;
 +
-+	if (pid != data.pid)
-+		return 0;
-+	if (data.cnt >= MAX_EVENT_NUM)
-+		return 0;
++#if 0
++  if (!check_pid())
++    return 0;
++#endif
 +
-+	data.fds[data.cnt] = args->fd;
-+	bpf_get_fd_path(data.paths[data.cnt], MAX_PATH_LEN, args->fd);
-+	data.cnt++;
++  //bpf_printk("sys_enter: %u\n", (unsigned)our_pid());
 +
-+	return 0;
++  union augmented_syscall_payload_u *payload_u = augmented_syscall_payload();
++  if (payload_u == NULL)
++    return 0;
++
++  if (bpf_probe_read_kernel(&args, sizeof(args), ctx) != 0)
++    return 0;
++
++  const bool is32 = bpf_in_ia32_syscall();
++  const long nr = args.syscall_nr;
++
++#define ON_SYS_ENTER(bits)                                                     \
++  do {                                                                         \
++    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
++                                                                               \
++    BOOST_PP_CAT(SET_MAGIC,IFDEBUG)();                                         \
++                                                                               \
++    payload->str[0] = '\0';                                                    \
++    payload->hdr.str_len = 0;                                                  \
++    payload->hdr.was32 = is32;                                                 \
++    payload->hdr.syscall_nr = nr;                                              \
++    payload->hdr.ret = -1;                                                     \
++                                                                               \
++    switch (nr) {                                                              \
++    case nr##bits##_execve:                                                    \
++    case nr##bits##_execveat:                                                  \
++       /* this is the only place where we report a syscall enter. */           \
++       payload->hdr.ret = 1;                                                   \
++       bpf_perf_event_output(ctx, &__jove_augmented_syscalls__,                \
++                             BPF_F_CURRENT_CPU, &payload->hdr,                 \
++                             sizeof(payload->hdr));                            \
++      /* fallthrough */                                                        \
++    case nr##bits##_old_mmap:                                                  \
++    case nr##bits##_mmap:                                                      \
++    case nr##bits##_mmap_pgoff:                                                \
++    case nr##bits##_close:                                                     \
++    case nr##bits##_munmap:                                                    \
++    case nr##bits##_read:                                                      \
++    case nr##bits##_pread64:                                                   \
++    case nr##bits##_open:                                                      \
++    case nr##bits##_openat:                                                    \
++      break;                                                                   \
++    default:                                                                   \
++      return 0;                                                                \
++    }                                                                          \
++                                                                               \
++    payload->hdr.args[0] = args.args[0];                                       \
++    payload->hdr.args[1] = args.args[1];                                       \
++    payload->hdr.args[2] = args.args[2];                                       \
++    payload->hdr.args[3] = args.args[3];                                       \
++    payload->hdr.args[4] = args.args[4];                                       \
++    payload->hdr.args[5] = args.args[5];                                       \
++                                                                               \
++    /* on a successful exec, all the memory containing the args and envs */    \
++    /* will have been destroyed, so we have to do this here. */                \
++    /* FIXME this may fail if the strings aren't readily available */          \
++    switch (nr) {                                                              \
++    case nr##bits##_execve:                                                    \
++      on_sys_enter_execve##bits(payload, &args);                               \
++      break;                                                                   \
++    case nr##bits##_execveat:                                                  \
++      on_sys_enter_execveat##bits(payload, &args);                             \
++      break;                                                                   \
++    }                                                                          \
++  } while (false)
++
++  if (is32)
++    ON_SYS_ENTER(32);
++  else
++    ON_SYS_ENTER(64);
++
++#undef ON_SYS_ENTER
++
++  return 0;
++}
++
++SEC("tp/raw_syscalls/sys_exit")
++int sys_exit(void *ctx)
++{
++  struct syscall_exit_args args;
++
++  pid_t ourpid = our_pid();
++  if (!check_pid(ourpid))
++    return 0;
++
++  union augmented_syscall_payload_u *payload_u = augmented_syscall_payload();
++  if (payload_u == NULL)
++    return 0;
++
++  if (bpf_probe_read_kernel(&args, sizeof(args), ctx) != 0)
++    return 0;
++
++  const bool was32 = !!(((const uint8_t *)payload_u)[MAGIC_LEN] & 1u);
++  const bool is32 = bpf_in_ia32_syscall();
++  const bool diff32 = is32 != was32;
++  const unsigned nr = args.syscall_nr;
++
++#define CASE(bits, nm)                                         \
++  case BOOST_PP_CAT(BOOST_PP_CAT(BOOST_PP_CAT(nr,bits),_),nm): \
++    if (!sysnm){sysnm=#nm;}                                    \
++    BOOST_PP_CAT(BOOST_PP_CAT(label_for_,nm),__COUNTER__)
++
++#define ON_SYS_EXIT(bits)                                                      \
++  do {                                                                         \
++    const uint##bits##_t uret = args.ret;                                      \
++    const int##bits##_t ret = (int##bits##_t)uret;                             \
++                                                                               \
++    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
++                                                                               \
++    const long wasnr = payload->hdr.syscall_nr;                                \
++    __attribute__((maybe_unused)) const char *sysnm = NULL;\
++                                                                               \
++    bool uhoh = diff32;                                                        \
++                                                                               \
++    switch (wasnr) {                                                           \
++    CASE(bits,clone):                                                          \
++    CASE(bits,clone3):                                                         \
++    CASE(bits,fork): {                                                         \
++      if (ret <= 0)                                                            \
++        return 0;                                                              \
++                                                                               \
++      /* XXX is this racy? */                                                  \
++      pid_t key = ret;                                                         \
++      bool value = true;                                                       \
++      bpf_map_update_elem(&pids_unfiltered, &key, &value, BPF_ANY);            \
++      return 0;                                                                \
++    }                                                                          \
++    CASE(bits,execve):                                                         \
++    CASE(bits,execveat):                                                       \
++      /* execve(2) never returns zero (in userspace), but the fact is that   */\
++      /* the kernel-mode syscall function *will* return zero on success. if  */\
++      /* the right conditions are met, we will see such a tracepoint event.  */\
++                                                                               \
++      /* NOTE: we need to report failed exec's */                              \
++                                                                               \
++      if (diff32) {                                                            \
++        if (bits == 32) {                                                      \
++          uhoh = !((wasnr == nr32_execve && nr == nr64_execve) ||              \
++                   (wasnr == nr32_execveat && nr == nr64_execveat));           \
++        } else {                                                               \
++          uhoh = !((wasnr == nr64_execve && nr == nr32_execve) ||              \
++                   (wasnr == nr64_execveat && nr == nr32_execveat));           \
++        }                                                                      \
++      }                                                                        \
++      break;                                                                   \
++                                                                               \
++    CASE(bits,mmap):                                                           \
++    CASE(bits,mmap_pgoff): {                                                   \
++      if (uret >= (uint##bits##_t)-4095)                                       \
++        return 0; /* failed */                                                 \
++      long rdret = bpf_get_fd_path(payload->str, MAXLEN, payload->hdr.args[4]);    \
++      if (rdret >= 1) {\
++        payload->hdr.str_len = rdret;\
++      } \
++      break;                                                                   \
++    }                                                                          \
++    CASE(bits,old_mmap):                                                       \
++      if (uret >= (uint##bits##_t)-4095)                                       \
++        return 0; /* failed */                                                 \
++      break;                                                                   \
++    CASE(bits,close):                                                          \
++    CASE(bits,munmap):                                                         \
++      if (ret != 0)                                                            \
++        return 0;                                                              \
++      break;                                                                   \
++                                                                               \
++    CASE(bits,read):                                                           \
++    CASE(bits,pread64):                                                        \
++      if (ret <= 0) \
++        return 0; \
++      break;                                                                   \
++                                                                               \
++    CASE(bits,open): {                                                         \
++      if (ret < 0)                                                             \
++        return 0;                                                              \
++      long rdret = bpf_probe_read_user_str(payload->str, MAXLEN, (void *)payload->hdr.args[0]);    \
++      if (rdret >= 1) {\
++        payload->hdr.str_len = rdret;\
++      } else {\
++        return 0;\
++      }\
++      break;                                                                   \
++    }                                                                          \
++    CASE(bits,openat): {                                                       \
++      if (ret < 0)                                                             \
++        return 0;                                                              \
++      long rdret = bpf_probe_read_user_str(payload->str, MAXLEN, (void *)payload->hdr.args[1]);    \
++      if (rdret >= 1) {\
++        payload->hdr.str_len = rdret;\
++      } else {\
++        return 0;\
++      }\
++      break;                                                                   \
++    }\
++    default:                                                                   \
++      return 0;                                                                \
++    }                                                                          \
++                                                                               \
++    payload->hdr.ret = ret;                                                    \
++    payload->hdr.is32 = is32;                                                  \
++                                                                               \
++    BOOST_PP_CAT(PRINT_PAYLOAD,IFDEBUG)();                                     \
++    OUTPUT_PAYLOAD(bits);                                                      \
++                                                                               \
++    payload->hdr.syscall_nr = ~0u;                                             \
++  } while (false)
++
++#define FMT_STR1 "%s on %ld (%ld) \"%s\" <%u>\n"
++#define FMT_ARGS1 sysnm, nr, wasnr, payload->str,  ourpid
++
++#define FMT_STR2 "%s on %ld (%ld) <%u>\n"
++#define FMT_ARGS2 sysnm, nr, wasnr, ourpid
++
++#define DO_PRINT_PAYLOAD(msg) do {                                             \
++    if (payload->hdr.str_len > 0)                                              \
++      bpf_printk(msg " " FMT_STR1, FMT_ARGS1);                                 \
++    else                                                                       \
++      bpf_printk(msg " " FMT_STR2, FMT_ARGS2);                                 \
++  } while(false)
++
++#define PRINT_PAYLOAD0() NOP()
++#define PRINT_PAYLOAD1()                                                       \
++  do {                                                                         \
++    char sav;                                                                  \
++    const bool has_str = payload->hdr.str_len > 0;                             \
++    if (has_str) {                                                             \
++      sav = payload->str[MAX_BPF_PRINK_LEN];                                   \
++      payload->str[MAX_BPF_PRINK_LEN] = '\0';                                  \
++    }                                                                          \
++    if (uhoh) {                                                                \
++      if (is32)                                                                \
++        DO_PRINT_PAYLOAD("uhhh oh! [32]");                                     \
++      else                                                                     \
++        DO_PRINT_PAYLOAD("uhhh oh! [64]");                                     \
++    } else {                                                                   \
++      if (is32) {                                                              \
++        if (diff32)                                                            \
++          DO_PRINT_PAYLOAD("[64 -> 32]");                                      \
++        else                                                                   \
++          DO_PRINT_PAYLOAD("[32]");                                            \
++      } else {                                                                 \
++        if (diff32)                                                            \
++          DO_PRINT_PAYLOAD("[32 -> 64]");                                      \
++        else                                                                   \
++          DO_PRINT_PAYLOAD("[64]");                                            \
++      }                                                                        \
++    }                                                                          \
++    if (has_str) {                                                             \
++      payload->str[MAX_BPF_PRINK_LEN] = sav;                                   \
++    }                                                                          \
++  } while (false)
++
++#define OUTPUT_PAYLOAD(bits)                                                   \
++  do {                                                                         \
++    unsigned the_payload_size =                                                \
++        sizeof(struct augmented_syscall_payload##bits##_header) +              \
++        payload->hdr.str_len;                                                  \
++                                                                               \
++    long err;                                                                  \
++    if ((err = bpf_perf_event_output(                                          \
++             ctx, &__jove_augmented_syscalls__, BPF_F_CURRENT_CPU, payload,    \
++             the_payload_size & TWOTIMESMAXMASK)) < 0) {                       \
++/*    bpf_printk("bpf_perf_event_output() failed! %ld", err);                */\
++    } else {                                                                   \
++/*    bpf_printk("bpf_perf_event_output() suceeded! (wrote %u)",             */\
++/*               the_payload_size);                                          */\
++    }                                                                          \
++                                                                               \
++    payload->hdr.ret = -1;                                                     \
++    payload->hdr.str_len = 0;                                                  \
++  } while (false)
++
++  if (was32)
++    ON_SYS_EXIT(32);
++  else
++    ON_SYS_EXIT(64);
++
++#undef ON_SYS_EXIT
++#undef FMT_ARGS
++#undef FMT_STR
++
++  return 0;
 +}
 +
 +char _license[] SEC("license") = "GPL";
