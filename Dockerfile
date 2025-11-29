@@ -134,6 +134,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libxml2-dev \
                       libz3-dev \
                       libzstd-dev \
+                      libssl-dev \
                       lld-16 \
                       lld-19 \
                       llvm-16 \
