@@ -2379,7 +2379,7 @@ void BootstrapTool::on_return(pid_t child,
     //
     // what came before?
     //
-    uintptr_t before_pc = pc - 1 - IsMIPSTarget * 4;
+    uintptr_t before_pc = pc - 1 - IsMIPSTarget*4;
 
     binary_index_t Before_BIdx;
     basic_block_index_t Before_BBIdx;
