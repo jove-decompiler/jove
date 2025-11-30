@@ -194,28 +194,19 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   idx * (2 * sizeof(ptrace::word));
       uintptr_t delay_slot_addr = jumpr_insn_addr + 4;
 
-      uint32_t insns[2] = {
-        encoding_of_jump_to_reg(reg_of_idx(idx)),
-        trapped.DelaySlotInsn
-      };
-
-      static_assert(sizeof(ptrace::word) == 8 ||
-                    sizeof(ptrace::word) == 4);
-
       if (sizeof(ptrace::word) == 8) {
+        uint32_t insns[2] = {encoding_of_jump_to_reg(reg_of_idx(idx)),
+                             trapped.DelaySlotInsn};
+
+        static_assert(sizeof(insns) == 8);
+
         ptrace::word the_poke;
         __builtin_memcpy_inline(&the_poke, &insns[0], sizeof(the_poke));
         ptrace::pokedata(child, jumpr_insn_addr, the_poke);
+      } else if constexpr (sizeof(ptrace::word) == 4) {
+        ptrace::pokedata(child, delay_slot_addr, trapped.DelaySlotInsn);
       } else {
-#if 0
-        ptrace::word the_poke1;
-        __builtin_memcpy_inline(&the_poke1, &insns[0], sizeof(the_poke1));
-        ptrace::pokedata(child, jumpr_insn_addr, the_poke1);
-#endif /* unnecessary */
-
-        ptrace::word the_poke2;
-        __builtin_memcpy_inline(&the_poke2, &insns[1], sizeof(the_poke2));
-        ptrace::pokedata(child, delay_slot_addr, the_poke2);
+        __compiletime_unreachable();
       }
 
       return jumpr_insn_addr;
