@@ -15,7 +15,11 @@ namespace jove {
 
 struct trapped_t;
 
-typedef uintptr_t (*single_step_proc_t)(ptrace::tracee_state_t &, trapped_t &, pid_t
+typedef uintptr_t
+#if !defined(__x86_64__) && defined(__i386__)
+  __attribute__((regparm(3)))
+#endif
+  (*single_step_proc_t)(ptrace::tracee_state_t &, trapped_t &, pid_t
 #if defined(__mips64) || defined(__mips__)
                                       , uintptr_t
 #endif

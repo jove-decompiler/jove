@@ -13,6 +13,9 @@
 
 template <unsigned Opcode, JOVE_SINGLESTEP_PARAMS_DECL>
 __attribute__((flatten))
+#if !defined(__x86_64__) && defined(__i386__)
+__attribute__((regparm(3)))
+#endif
 static uintptr_t BOOST_PP_CAT(BOOST_PP_CAT(single_step_,JOVE_SINGLESTEP_OPCODE),_proc)(
     ptrace::tracee_state_t &tracee_state, trapped_t &trapped, pid_t child
 #if defined(__mips64) || defined(__mips__)
