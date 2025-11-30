@@ -775,7 +775,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
   siginfo_t si;
   long sig = 0;
 
-  bool FirstTime = true;
   {
     for (;;) {
       if (likely(!(child < 0))) {
