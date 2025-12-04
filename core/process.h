@@ -239,7 +239,8 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
           WaitForProcessToExit(pid); /* child will promptly exit. */
         });
 
-        throw std::runtime_error("execve() failed: " + std::string(strerror(err)));
+        throw std::runtime_error("execve of \"" + exe_path +
+                                 "\" failed: " + std::string(strerror(err)));
       }
     }
 
