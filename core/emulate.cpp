@@ -88,7 +88,7 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
                      B::ref Bin) {
   auto &b = emu.jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
-  auto &bbprop = ICFG[ICFG.template vertex<false>(BBIdx)];
+  auto &bbprop = ICFG[ICFG.template vertex(BBIdx)];
   const bool isCall = IsTerminatorCall(bbprop.Term.Type);
 
   this->BBIdx = BBIdx;
