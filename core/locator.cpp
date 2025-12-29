@@ -287,6 +287,11 @@ std::string locator_t::wine_preloader(bool Is32) {
                     "-preloader.static");
 }
 
+std::string locator_t::wine_server(bool Is32) {
+  return must_exist(wine_path() / ("build" + std::string(Is32 ? "" : "64")) /
+                    "server" / "wineserver");
+}
+
 std::string locator_t::mingw_addr2line(bool Is32) {
   if (Is32) {
     return must_exist("/usr/bin/i686-w64-mingw32-addr2line");

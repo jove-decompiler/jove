@@ -52,6 +52,7 @@ struct locator_t {
   static std::string wine(bool Is32);
   std::string wine_dll(bool Is32, const std::string &name);
   static std::string wine_preloader(bool Is32);
+  std::string wine_server(bool Is32);
 
   std::string mingw_addr2line(bool Is32); /* for COFF w/ DWARF */
 
