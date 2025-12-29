@@ -208,11 +208,251 @@ index e84a47f58a4..06501a502a3 100644
      if (!(__wine_dbg_get_channel_flags( channel ) & (1 << cls))) return -1;
  
      /* only print header if we are at the beginning of the line */
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index ecbcd439ee7..b61cb5e5d78 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -287,41 +287,51 @@ static char *build_relative_path( const char *base, const char *from, const char
+         while (*from);
+         break;
+     }
+ 
+     ret = malloc( strlen(base) + 3 * dotdots + strlen(start) + 2 );
+     strcpy( ret, base );
+     while (dotdots--) strcat( ret, "/.." );
+ 
+     if (!start[0]) return ret;
+     strcat( ret, "/" );
+     strcat( ret, start );
+     return ret;
+ }
+ 
+ /* build a path to a binary and exec it */
+ static int build_path_and_exec( pid_t *pid, const char *dir, const char *name, char **argv )
+ {
+     int ret;
+ 
+     argv[0] = build_path( dir, name );
++#if 1
+     ret = posix_spawn( pid, argv[0], NULL, NULL, argv, environ );
++#else
++    pid_t child = fork();
++    if (!child)
++      execve(argv[0], argv, environ);
++    else
++      *pid = child;
++    ret = 0;
++#endif
++
+     free( argv[0] );
+     return ret;
+ }
+ 
+ 
+ static const char *get_so_dir( WORD machine )
+ {
+     switch (machine)
+     {
+     case IMAGE_FILE_MACHINE_I386:  return "/i386-unix";
+     case IMAGE_FILE_MACHINE_AMD64: return "/x86_64-unix";
+     case IMAGE_FILE_MACHINE_ARMNT: return "/arm-unix";
+     case IMAGE_FILE_MACHINE_ARM64: return "/aarch64-unix";
+     default: return "";
+     }
+ }
+ 
+ static const char *get_pe_dir( WORD machine )
+ {
+     switch(machine)
+@@ -578,43 +588,44 @@ static int exec_wineserver( pid_t *pid, char **argv )
+ /***********************************************************************
+  *           start_server
+  *
+  * Start a new wine server.
+  */
+ void start_server( BOOL debug )
+ {
+     static BOOL started;  /* we only try once */
+     char *argv[3];
+     static char debug_flag[] = "-d";
+ 
+     if (!started)
+     {
+         int status;
+         pid_t pid;
+ 
+         argv[1] = debug ? debug_flag : NULL;
+         argv[2] = NULL;
+         if (exec_wineserver( &pid, argv )) fatal_error( "could not exec wineserver\n" );
+         waitpid( pid, &status, 0 );
++
+         status = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+         if (status == 2) return;  /* server lock held by someone else, will retry later */
+-        if (status) exit(status);  /* server failed */
++        //if (status) exit(status);  /* server failed */
+         started = TRUE;
+     }
+ }
+ 
+ 
+ /***********************************************************************
+  *           KeAddSystemServiceTable
+  */
+ BOOLEAN KeAddSystemServiceTable( ULONG_PTR *funcs, ULONG_PTR *counters, ULONG limit,
+                                  BYTE *arguments, ULONG index )
+ {
+     if (index >= ARRAY_SIZE(KeServiceDescriptorTable)) return FALSE;
+     KeServiceDescriptorTable[index].ServiceTable  = funcs;
+     KeServiceDescriptorTable[index].CounterTable  = counters;
+     KeServiceDescriptorTable[index].ServiceLimit  = limit;
+     KeServiceDescriptorTable[index].ArgumentTable = arguments;
+     return TRUE;
+ }
+ 
+ 
+@@ -2164,42 +2175,44 @@ static void reexec_loader( int argc, char *argv[], char *extra_arg )
+ {
+     static char noexec[] = "WINELOADERNOEXEC=1";
+     WORD machine = current_machine;
+     char **new_argv;
+ 
+     /* have to exec if we have a preloader, or an argument, or if we are the initial wrapper */
+     if (!pre_exec() && !extra_arg && dlsym( RTLD_DEFAULT, "wine_main_preload_info" )) return;
+ 
+     if (extra_arg)
+     {
+         new_argv = malloc( (argc + 3) * sizeof(*argv) );
+         memcpy( new_argv + 3, argv + 1, argc * sizeof(*argv) );
+         new_argv[2] = extra_arg;
+     }
+     else
+     {
+         new_argv = malloc( (argc + 2) * sizeof(*argv) );
+         memcpy( new_argv + 2, argv + 1, argc * sizeof(*argv) );
+     }
+ 
++#if 0 /* FIXME???? */
+     /* default to 32-bit loader to support 32-bit prefixes */
+     if (machine == IMAGE_FILE_MACHINE_AMD64) machine = IMAGE_FILE_MACHINE_I386;
++#endif
+ 
+     putenv( noexec );
+     loader_exec( new_argv, machine );
+     fatal_error( "could not exec the wine loader\n" );
+ }
+ 
+ /***********************************************************************
+  *           check_command_line
+  *
+  * Check if command line is one that needs to be handled specially.
+  */
+ static void check_command_line( int argc, char *argv[] )
+ {
+     char *basename;
+     static const char usage[] =
+         "Usage: wine PROGRAM [ARGUMENTS...]   Run the specified program\n"
+         "       wine --help                   Display this help and exit\n"
+         "       wine --version                Output version information and exit";
+ 
+     if ((basename = strrchr( argv[0], '/' ))) basename++;
+diff --git a/dlls/ntdll/unix/server.c b/dlls/ntdll/unix/server.c
+index a6e07215479..46830d2430b 100644
+--- a/dlls/ntdll/unix/server.c
++++ b/dlls/ntdll/unix/server.c
+@@ -1580,43 +1580,45 @@ size_t server_init_process(void)
+     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
+ 
+     /* receive the first thread request fd on the main socket */
+     ntdll_get_thread_data()->request_fd = receive_fd( &version );
+ 
+ #ifdef SO_PASSCRED
+     /* now that we hopefully received the server_pid, disable SO_PASSCRED */
+     {
+         int enable = 0;
+         setsockopt( fd_socket, SOL_SOCKET, SO_PASSCRED, &enable, sizeof(enable) );
+     }
+ #endif
+ 
+     if (version != SERVER_PROTOCOL_VERSION)
+         server_protocol_error( "version mismatch %d/%d.\n"
+                                "Your %s binary was not upgraded correctly,\n"
+                                "or you have an older one somewhere in your PATH.\n"
+                                "Or maybe the wrong wineserver is still running?\n",
+                                version, SERVER_PROTOCOL_VERSION,
+                                (version > SERVER_PROTOCOL_VERSION) ? "wine" : "wineserver" );
++#if 0
+ #if defined(__linux__) && defined(HAVE_PRCTL)
+     /* work around Ubuntu's ptrace breakage */
+     if (server_pid != -1) prctl( 0x59616d61 /* PR_SET_PTRACER */, server_pid );
++#endif
+ #endif
+ 
+     /* ignore SIGPIPE so that we get an EPIPE error instead  */
+     sig_act.sa_handler = SIG_IGN;
+     sig_act.sa_flags   = 0;
+     sigemptyset( &sig_act.sa_mask );
+     sigaction( SIGPIPE, &sig_act, NULL );
+ 
+     reply_pipe = init_thread_pipe();
+ 
+     SERVER_START_REQ( init_first_thread )
+     {
+         req->unix_pid    = getpid();
+         req->unix_tid    = get_unix_tid();
+         req->reply_fd    = reply_pipe;
+         req->wait_fd     = ntdll_get_thread_data()->wait_fd[1];
+         req->debug_level = (TRACE_ON(server) != 0);
+         wine_server_set_reply( req, supported_machines, sizeof(supported_machines) );
+         ret = wine_server_call( req );
+         pid               = reply->pid;
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
-index ca5d50b0fe6..46866679278 100644
+index ca5d50b0fe6..28723e32fe9 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
-@@ -66,40 +66,42 @@
+@@ -19,40 +19,42 @@
+  */
+ 
+ #if 0
+ #pragma makedep unix
+ #endif
+ 
+ #include "config.h"
+ 
+ #include <assert.h>
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <stdlib.h>
+ #include <signal.h>
+ #include <sys/types.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
+ #include <sys/mman.h>
++#include <sys/prctl.h>
++#include <linux/prctl.h>
+ #ifdef HAVE_SYS_SYSINFO_H
+ # include <sys/sysinfo.h>
+ #endif
+ #ifdef HAVE_SYS_SYSCALL_H
+ # include <sys/syscall.h>
+ #endif
+ #ifdef HAVE_SYS_SYSCTL_H
+ # include <sys/sysctl.h>
+ #endif
+ #ifdef HAVE_SYS_PARAM_H
+ # include <sys/param.h>
+ #endif
+ #ifdef HAVE_SYS_QUEUE_H
+ # include <sys/queue.h>
+ #endif
+ #ifdef HAVE_SYS_USER_H
+ # include <sys/user.h>
+ #endif
+ #ifdef HAVE_LIBPROCSTAT_H
+ # include <libprocstat.h>
+@@ -66,40 +68,42 @@
  #define host_page_size mac_host_page_size
  # include <mach/mach_init.h>
  # include <mach/mach_vm.h>
@@ -255,7 +495,7 @@ index ca5d50b0fe6..46866679278 100644
  static struct list reserved_areas = LIST_INIT(reserved_areas);
  
  struct builtin_module
-@@ -207,41 +209,41 @@ static struct list teb_list = LIST_INIT( teb_list );
+@@ -207,41 +211,41 @@ static struct list teb_list = LIST_INIT( teb_list );
  #define VIRTUAL_DEBUG_DUMP_VIEW(view) do { if (TRACE_ON(virtual)) dump_view(view); } while (0)
  #define VIRTUAL_DEBUG_DUMP_RANGES() do { if (TRACE_ON(virtual_ranges)) dump_free_ranges(); } while (0)
  
@@ -298,7 +538,56 @@ index ca5d50b0fe6..46866679278 100644
  static inline BOOL is_vprot_exec_write( BYTE vprot )
  {
      return (vprot & VPROT_EXEC) && (vprot & (VPROT_WRITE | VPROT_WRITECOPY));
-@@ -2826,61 +2828,77 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
+@@ -2222,40 +2226,48 @@ static NTSTATUS map_file_into_view( struct file_view *view, int fd, size_t start
+                 if (prot & PROT_EXEC) ERR( "failed to set PROT_EXEC on file map, noexec filesystem?\n" );
+                 return STATUS_ACCESS_DENIED;
+             }
+             if (prot & PROT_EXEC) WARN( "failed to set PROT_EXEC on file map, noexec filesystem?\n" );
+             break;
+         default:
+             ERR( "mmap error %s, range %p-%p, unix_prot %#x\n",
+                  strerror(errno), map_addr, map_addr + map_size, prot );
+             return STATUS_NO_MEMORY;
+         }
+     }
+ 
+     if (vprot & VPROT_WRITE)
+     {
+         ERR( "unaligned shared mapping %p-%p not supported\n", map_addr, map_addr + map_size );
+         return STATUS_INVALID_PARAMETER;
+     }
+ 
+     mprotect( map_addr, map_size, PROT_READ | PROT_WRITE );
+     pread( fd, map_addr, size, offset );
++
++    {
++      char buff[65];
++      snprintf(buff, sizeof(buff), "%d:%u", dup(fd), (unsigned)offset);
++
++      prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, (unsigned long)map_addr, (unsigned long)map_size, buff);
++    }
++
+     return STATUS_SUCCESS;
+ }
+ 
+ 
+ /***********************************************************************
+  *           get_committed_size
+  *
+  * Get the size of the committed range with equal masked vprot bytes starting at base.
+  * Also return the protections for the first page.
+  */
+ static SIZE_T get_committed_size( struct file_view *view, void *base, size_t max_size, BYTE *vprot, BYTE vprot_mask )
+ {
+     SIZE_T offset, size;
+ 
+     base = ROUND_ADDR( base, page_mask );
+     offset = (char *)base - (char *)view->base;
+ 
+     if (view->protect & SEC_RESERVE)
+     {
+         size = 0;
+@@ -2826,61 +2838,77 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
              WORD hi = ((inst[1] << 1) & 0x0800) + ((inst[1] << 12) & 0xf000) +
                        ((inst[1] >> 20) & 0x0700) + ((inst[1] >> 16) & 0x00ff);
              DWORD imm = MAKELONG( lo, hi ) + delta;
@@ -376,7 +665,7 @@ index ca5d50b0fe6..46866679278 100644
      header_end = ptr + ROUND_SIZE( 0, header_size, align_mask );
      memset( ptr + header_size, 0, header_end - (ptr + header_size) );
      if ((char *)(nt + 1) > header_end) return status;
-@@ -2964,41 +2982,41 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
+@@ -2964,41 +2992,41 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
                  goto done;
              }
  
