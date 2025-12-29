@@ -373,8 +373,9 @@ endif()
 
 set(qemu_build_dir_name "${JOVE_QEMU_BUILD_DIR_NAME}")
 
-# FIXME (hack)
-if(LLVM_USE_SANITIZER)
+if(LLVM_USE_SANITIZER STREQUAL "Thread")
+  string(APPEND qemu_build_dir_name "_tsan")
+elseif(LLVM_USE_SANITIZER STREQUAL "Address;Undefined")
   string(APPEND qemu_build_dir_name "_asan")
 endif()
 
