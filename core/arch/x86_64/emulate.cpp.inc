@@ -71,8 +71,12 @@ single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t &trapped, l
 
 #include "load_single_step.cpp.inc"
       assert(Inst.getOperand(1).getImm() != 0);
-      trapped.Scale = __builtin_ctz(Inst.getOperand(1).getImm());
-      trapped.Disp  = Inst.getOperand(3).getImm();
+      {
+        uint64_t Scale = Inst.getOperand(1).getImm();
+        aassert(Scale == 1 || Scale == 2 || Scale == 4 || Scale == 8);
+        trapped.Scale = Scale;
+      }
+      trapped.Disp = Inst.getOperand(3).getImm();
       return JOVE_SINGLESTEP_MAP.at(JOVE_SINGLESTEP_MAP_KEY_TYPE(
                                     Inst.getOperand(0).getReg(),
                                     Inst.getOperand(2).getReg()
@@ -91,7 +95,11 @@ single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t &trapped, l
 
 #include "load_single_step.cpp.inc"
       assert(Inst.getOperand(1).getImm() != 0);
-      trapped.Scale = __builtin_ctz(Inst.getOperand(1).getImm());
+      {
+        uint64_t Scale = Inst.getOperand(1).getImm();
+        aassert(Scale == 1 || Scale == 2 || Scale == 4 || Scale == 8);
+        trapped.Scale = Scale;
+      }
       trapped.Disp = Inst.getOperand(3).getImm();
       return JOVE_SINGLESTEP_MAP.at(JOVE_SINGLESTEP_MAP_KEY_TYPE(
                                     Inst.getOperand(0).getReg(),

@@ -137,7 +137,11 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
     memcpy(&InstBytes[0], Ptr, N);
   }
 
+#ifdef NDEBUG
   llvm::MCInst Inst;
+#else
+  llvm::MCInst &Inst = this->Inst;
+#endif
   uint64_t InstLen;
   aassert(emu.disas.DisAsm->getInstruction(Inst, InstLen, InstBytes, TermAddr,
                                            llvm::nulls()));
@@ -145,6 +149,10 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
   aassert(InstLen <= 0xf);
 
   this->IL = InstLen;
+
+#if 0
+  llvm::errs() << StringOfMCInst(emu.disas, Inst) << '\n';
+#endif
 
 #if defined(__mips64) || defined(__mips__)
   aassert(InstBytes.size() >= 8);

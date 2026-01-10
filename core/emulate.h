@@ -7,9 +7,13 @@
 
 #include <boost/unordered/unordered_flat_map.hpp>
 
+#if 0
+#include <llvm/MC/MCInst.h>
+#else
 namespace llvm {
 class MCInst;
 }
+#endif
 
 namespace jove {
 
@@ -19,11 +23,7 @@ typedef uintptr_t
 #if !defined(__x86_64__) && defined(__i386__)
   __attribute__((regparm(3)))
 #endif
-  (*single_step_proc_t)(ptrace::tracee_state_t &, trapped_t &, pid_t
-#if defined(__mips64) || defined(__mips__)
-                                      , uintptr_t
-#endif
-);
+  (*single_step_proc_t)(ptrace::tracee_state_t &, trapped_t &, pid_t, uintptr_t);
 
 struct unsupported_opcode_exception {};
 
@@ -42,9 +42,7 @@ struct ptrace_emulator_t : public VerboseThing {
   jv_base_t<MT, MinSize> &jv;
   disas_t &disas;
 
-#if defined(__mips64) || defined(__mips__)
   uintptr_t ExecutableRegionAddress = 0;
-#endif
 
   ptrace_emulator_t(jv_base_t<MT, MinSize> &jv, disas_t &disas)
       : jv(jv), disas(disas) {}
@@ -64,17 +62,17 @@ struct __attribute__((packed)) trapped_t {
   unsigned LJ   : 1; /* longjmp? */
   unsigned OD   : 1; /* (nonzero) out degree? */
   unsigned DT   : 1; /* (has) dynamic target? */
-  unsigned IL   : 4; /* instruction length */
-#if defined(__x86_64__) || defined(__i386__)
-  unsigned Scale : 2;
-#else
-  unsigned Unused : 2;
-#endif
+  unsigned IL   : 6; /* instruction length */
 
 #if defined(__x86_64__) || defined(__i386__)
-  int32_t Disp;
+  int64_t Disp;
+  int64_t Scale;
 #elif defined(__mips64) || defined(__mips__)
   uint32_t DelaySlotInsn;
+#endif
+
+#ifndef NDEBUG
+  llvm::MCInst Inst;
 #endif
 
   template <bool MT, bool MinSize>

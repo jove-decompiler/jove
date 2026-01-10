@@ -18,14 +18,12 @@ __attribute__((regparm(3)))
 #endif
 static uintptr_t BOOST_PP_CAT(BOOST_PP_CAT(single_step_,JOVE_SINGLESTEP_OPCODE),_proc)(
     ptrace::tracee_state_t &tracee_state, trapped_t &trapped, pid_t child
-#if defined(__mips64) || defined(__mips__)
   , uintptr_t ExecutableRegionAddress
-#endif
 ) noexcept {
   auto &gpr = tracee_state;
 
   const uintptr_t savedpc = ptrace::pc_of_tracee_state(tracee_state);
-  RegValue_t nextpc = savedpc + trapped.IL;
+  RegValue_t nextpc = static_cast<RegValue_t>(savedpc + static_cast<uintptr_t>(trapped.IL));
 #if defined(__mips64) || defined(__mips__)
   RegValue_t nextnextpc = nextpc + 4;
 #endif
@@ -230,7 +228,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       unsigned y_r = Reg2;
 
       long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-      long A = 1 << trapped.Scale;
+      long A = trapped.Scale;
       long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
       long B = trapped.Disp;
 
@@ -244,7 +242,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
 
 #elif defined(__i386__)
-
     if constexpr (Opcode == llvm::X86::JMP32r ||
                   Opcode == llvm::X86::CALL32r) {
       return RegValue(Reg0);
@@ -252,32 +249,36 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     if constexpr (Opcode == llvm::X86::JMP32m ||
                   Opcode == llvm::X86::CALL32m) {
-      long B = trapped.Disp;
-
-      if (Reg4 == llvm::X86::NoRegister) {
-        unsigned x_r = Reg0;
-        unsigned y_r = Reg2;
-
-        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
-        long A = 1 << trapped.Scale;
-        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
-
-        return LoadAddr(x + A * y + B);
-      } else {
-        /* e.g. call dword ptr gs:[16] */
-        return LoadAddr(RegValue(Reg4) + B);
+      if (Reg0 == llvm::X86::NoRegister &&
+          Reg2 == llvm::X86::NoRegister &&
+          Reg4 == llvm::X86::NoRegister) {
+        return LoadAddr(*reinterpret_cast<uint32_t *>(&trapped.Disp));
       }
+
+      int32_t disp   = trapped.Disp;
+      uint32_t base  = Reg0 == llvm::X86::NoRegister ? UINT32_C(0) : static_cast<uint32_t>(RegValue(Reg0));
+      uint32_t index = Reg2 == llvm::X86::NoRegister ? UINT32_C(0) : static_cast<uint32_t>(RegValue(Reg2));
+      uint32_t scale = static_cast<uint32_t>(static_cast<int32_t>(trapped.Scale));
+      uint32_t seg = Reg4 == llvm::X86::NoRegister ? UINT32_C(0) : static_cast<uint32_t>(RegValue(Reg4));
+
+      uint32_t ea = static_cast<uint32_t>(base + scale * index + disp);
+
+      return LoadAddr(ea + seg);
     }
 
     if constexpr (Opcode == llvm::X86::RET32) {
-      uintptr_t res = LoadAddr(RegValue(RetReg0));
-      gpr.esp += 4;
+      const uint32_t sp = gpr.esp;
+
+      uint32_t res = LoadAddr(sp);
+      *reinterpret_cast<uint32_t *>(&gpr.esp) = sp + 4u;
       return res;
     }
 
     if constexpr (Opcode == llvm::X86::RETI32) {
-      uintptr_t res = LoadAddr(RegValue(RetReg0));
-      gpr.esp += (4 + trapped.Disp);
+      const uint32_t sp = gpr.esp;
+
+      uint32_t res = LoadAddr(sp);
+      *reinterpret_cast<uint32_t *>(&gpr.esp) = sp + 4u + static_cast<uint32_t>(static_cast<int32_t>(trapped.Disp));
       return res;
     }
 
@@ -304,11 +305,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 //  assert(static_cast<TERMINATOR>(trapped.TT) == TERMINATOR::INDIRECT_CALL);
 
 #if defined(__x86_64__)
-    gpr.rsp -= 8;
-    ptrace::pokedata<false>(child, gpr.rsp, nextpc);
+    const uintptr_t newsp = static_cast<uint64_t>(gpr.rsp) - 8u;
+    ptrace::pokedata<false>(child, newsp, nextpc);
+    gpr.rsp = newsp;
 #elif defined(__i386__)
-    gpr.esp -= 4;
-    ptrace::pokedata<false>(child, gpr.esp, nextpc);
+    const uintptr_t newsp = static_cast<uint32_t>(gpr.esp) - 4u;
+    ptrace::pokedata<false>(child, newsp, nextpc);
+    gpr.esp = newsp;
 #elif defined(__aarch64__)
     gpr.regs[30 /* lr */] = nextpc;
 #elif defined(__mips64) || defined(__mips__)

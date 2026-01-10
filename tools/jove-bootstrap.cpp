@@ -53,6 +53,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 
+#include <bit>
 #include <array>
 #include <cinttypes>
 #include <mutex>
@@ -408,7 +409,7 @@ public:
 
   void place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
-  void on_breakpoint(pid_t);
+  void on_breakpoint(pid_t, ptrace::tracee_state_t &);
   void on_return(pid_t child,
                  binary_index_t RetBIdx,
                  uintptr_t AddrOfRet,
@@ -1439,8 +1440,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
               break;
             }
           } else {
+            ptrace::tracee_state_t tracee_state;
+            ptrace::scoped_tracee_state_t scoped_tracee_state(child,
+                                                              tracee_state);
             try {
-              on_breakpoint(child);
+              on_breakpoint(child, tracee_state);
             } catch (const notrap_exception &) {
               if (::ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
                 HumanOut() << "getsiginfo failed!\n";
@@ -1458,68 +1462,44 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 //
                 ;
               } else if (si.si_code == 128) {
+#if 1
                 ScanAddressSpace(child);
-
-                ptrace::tracee_state_t tracee_state;
-                ptrace::scoped_tracee_state_t scoped_tracee_state(child,
-                                                                  tracee_state);
-
+#endif
                 auto &pc = ptrace::pc_of_tracee_state(tracee_state);
 
-                unsigned long word = ptrace::peekdata(child, pc - 1);
+                uintptr_t SavedPC = pc;
 
-                auto it = intvl_map_find(AddressSpace, pc);
-                if (it == AddressSpace.end()) {
+#if defined(__x86_64__) || defined(__i386__)
+                //
+                // rewind before the breakpoint instruction (why is this x86-specific?)
+                //
+                SavedPC -= 1; /* int3 */
+#endif
+
+                binary_index_t BIdx;
+                basic_block_index_t BBIdx;
+                std::tie(BIdx, BBIdx) =
+                    existing_block_at_program_counter(child, SavedPC);
+
+                if (unlikely(!is_basic_block_index_valid(BBIdx))) {
                   HumanOut() << llvm::formatv(
-                      "REALLY weird @ {0} {1:x}\n",
-                      description_of_program_counter(
-                          ptrace::pc_of_tracee_state(tracee_state), true), word);
-                  exit(1);
-                } else {
-                  binary_index_t BIdx = (*it).second;
-
-                  auto &x = state.for_binary(jv.Binaries.at(BIdx));
-                  uint64_t off = pc - (x.LoadAddr - x.LoadOffset);
-
-                  const void *Ptr = B::toMappedAddr(x.Bin.get(), off - 1);
-
-                  llvm::MCInst Inst;
-                  uint64_t InstLen;
-                  aassert(disas->DisAsm->getInstruction(
-                      Inst, InstLen,
-                      llvm::ArrayRef<uint8_t>(
-                          reinterpret_cast<const uint8_t *>(Ptr), MaxInstLen),
-                      B::va_of_offset(x.Bin.get(), off), llvm::nulls()));
-
-                  aassert(InstLen <= 0xf);
-
-                  //HumanOut() << StringOfMCInst(Inst) << '\n';
-
-                  std::vector<uint8_t> bytes(sizeof(trapped_t), 0u);
-
-                  if (1 /* IsVeryVerbose() */)
-                    HumanOut() << llvm::formatv(
-                        "emulating trap on demand: {0:x} {1} {2}\n", pc,
-                        description_of_program_counter(pc, true, false),
-                        StringOfMCInst(Inst));
-
-                  trapped_t &fake_trapped = *reinterpret_cast<trapped_t *>(bytes.data());
-
-                  single_step_proc_t proc =
-                  ptrace_emulation::load_single_step_proc(fake_trapped, Inst
-#if defined(__mips64) || defined(__mips__)
-                                                          , /* FIXME */Inst
-#endif
-                  );
-
-                  proc(tracee_state, fake_trapped, child
-#if defined(__mips64) || defined(__mips__)
-                       , emulator->ExecutableRegionAddress
-#endif
-                  );
+                      "wtf @ {0}\n",
+                      description_of_program_counter(SavedPC, true));
                 }
-              } else {
-                die("unknown trap! " + std::to_string(si.si_code));
+
+                binary_t &b = jv.Binaries.at(BIdx);
+                auto &ICFG = b.Analysis.ICFG;
+                fallthru<void>(jv, BIdx, BBIdx,
+                               [&](bbprop_t &bbprop, basic_block_index_t) {
+                                 place_breakpoints_in_block(
+                                     b, ICFG[ICFG.vertex<false>(BBIdx)], BBIdx);
+                               });
+
+                try {
+                  on_breakpoint(child, tracee_state);
+                } catch (const notrap_exception &) {
+                  die("wtf");
+                }
               }
             }
           }
@@ -1567,8 +1547,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
               on_return(child, invalid_binary_index, 0 /* XXX */, RetAddr);
             }
 #else
-            if (IsVerbose()) {
-              WithColor::error() << llvm::formatv(
+            if (IsVeryVerbose()) {
+              HumanOut() << llvm::formatv(
                   "sigsegv @ {0}\n",
                   description_of_program_counter(
                       ptrace::pc_of_tracee_state(tracee_state), true));
@@ -1745,14 +1725,11 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
   ptrace::pokedata(child, Addr, word);
 }
 
-void BootstrapTool::on_breakpoint(pid_t child) {
+void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_state) {
   uintptr_t SavedPC = ~0UL;
   trapped_t *ptrapped  = nullptr;
 
   const uintptr_t TargetAddr = ({
-    ptrace::tracee_state_t tracee_state;
-    ptrace::scoped_tracee_state_t scoped_tracee_state(child, tracee_state);
-
     auto &pc = ptrace::pc_of_tracee_state(tracee_state);
 
     SavedPC = pc;
@@ -1762,7 +1739,6 @@ void BootstrapTool::on_breakpoint(pid_t child) {
     // rewind before the breakpoint instruction (why is this x86-specific?)
     //
     SavedPC -= 1; /* int3 */
-    pc = SavedPC;
 #endif
 
     {
@@ -1783,10 +1759,9 @@ void BootstrapTool::on_breakpoint(pid_t child) {
                                   trapped.DelaySlotInsn);
 #endif
 
+    pc = SavedPC;
     const uintptr_t NewPC = trapped.single_step_proc(tracee_state, trapped, child
-#if defined(__mips64) || defined(__mips__)
                                                    , emulator->ExecutableRegionAddress
-#endif
                                                      );
 
 #if !defined(__mips64) && !defined(__mips__)
@@ -1798,6 +1773,13 @@ void BootstrapTool::on_breakpoint(pid_t child) {
 
   assert(ptrapped);
   trapped_t &trapped = *ptrapped;
+
+#if 0
+#ifndef NDEBUG
+  if (IsVerbose())
+    HumanOut() << StringOfMCInst(trapped.Inst) << '\n';
+#endif
+#endif
 
   const binary_index_t BIdx       = trapped.BIdx;
   const basic_block_index_t BBIdx = trapped.BBIdx;
@@ -2124,18 +2106,25 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   if (binary.IsDynamicLinker)
     on_dynamic_linker_loaded(child, BIdx, pm);
 
-#if defined(__mips64) || defined(__mips__)
   if (binary.IsVDSO) {
-    WARN_ON(emulator->ExecutableRegionAddress);
+    aassert(!emulator->ExecutableRegionAddress);
 
-    constexpr unsigned num_trampolines = 32;
+    constexpr unsigned N =
+#if defined(__x86_64__) || defined(__i386__)
+        128
+#elif defined(__aarch64__)
+        128
+#elif defined(__mips64) || defined(__mips__)
+        32 * 2 * sizeof(ptrace::word)
+#else
+#error
+#endif
+        ;
 
-    //
-    // find a code cave that can hold 2*num_trampolines instructions
-    //
-    emulator->ExecutableRegionAddress =
-        pm.end - num_trampolines * (2 * sizeof(ptrace::word));
+    aassert(pm.end - pm.beg >= N);
+    emulator->ExecutableRegionAddress = pm.end - N;
 
+#if defined(__mips64) || defined(__mips__)
     //
     // "initialize" code cave
     //
@@ -2166,12 +2155,12 @@ void BootstrapTool::on_binary_loaded(pid_t child,
         __compiletime_unreachable();
       }
     }
+#endif
 
     if (IsVerbose())
-      HumanOut() << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
+      HumanOut() << llvm::formatv("ExecutableRegionAddress = {0:x}\n",
                                   emulator->ExecutableRegionAddress);
   }
-#endif
 
   for_each_basic_block_in_binary_if(
       binary,
@@ -2659,9 +2648,7 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
 
     disas->IP->printInst(&Inst, 0x0 /* XXX */, "", *disas->STI, ss);
 
-#if 0
-    ss << '\n';
-    ss << "[opcode: " << Inst.getOpcode() << ']';
+    ss << " <" << Inst.getOpcode() << '>';
     for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
       const llvm::MCOperand &opnd = Inst.getOperand(i);
 
@@ -2670,8 +2657,10 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
         snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
       else if (opnd.isImm())
         snprintf(buff, sizeof(buff), "<imm %" PRId64 ">", opnd.getImm());
+#if 0
       else if (opnd.isFPImm())
         snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
+#endif
       else if (opnd.isExpr())
         snprintf(buff, sizeof(buff), "<expr>");
       else if (opnd.isInst())
@@ -2681,9 +2670,6 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
 
       ss << (fmt(" %u:%s") % i % buff).str();
     }
-
-    ss << '\n';
-#endif
   }
 
   return res;
@@ -2811,9 +2797,12 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   {
     auto it = intvl_map_find(AddressSpace, pc);
     if (it == AddressSpace.end()) {
-      const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+      if (IsVeryVerbose()) {
+        const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+        die("added " + pm.nm + " but AddressSpace unchanged");
+      }
 
-      die("added " + pm.nm + " but AddressSpace unchanged");
+      return invalid_binary_index;
     }
 
     return (*it).second;
