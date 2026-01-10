@@ -7,7 +7,7 @@
 
 #include <boost/unordered/unordered_flat_map.hpp>
 
-#if 0
+#if 1
 #include <llvm/MC/MCInst.h>
 #else
 namespace llvm {
