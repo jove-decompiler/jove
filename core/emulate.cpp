@@ -166,7 +166,7 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
   uint64_t DelaySlotInstLen;
   aassert(emu.disas.DisAsm->getInstruction(
       DelaySlotInst, DelaySlotInstLen,
-      llvm::ArrayRef<uint8_t>(&InstBytes[4], 4), TermAddr + 4, llvm::nulls()));
+      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(&InstBytes[4]), 4), TermAddr + 4, llvm::nulls()));
   __builtin_memcpy_inline(&this->DelaySlotInsn, &InstBytes[4], sizeof(this->DelaySlotInsn));
 #endif
 
