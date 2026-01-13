@@ -1,3 +1,50 @@
+diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
+index 522ce0a2142..83d09035396 100644
+--- a/dlls/ntdll/sync.c
++++ b/dlls/ntdll/sync.c
+@@ -281,41 +281,41 @@ NTSTATUS WINAPI RtlDeleteCriticalSection( RTL_CRITICAL_SECTION *crit )
+         /* only free the ones we made in here */
+         if (!crit->DebugInfo->Spare[0])
+         {
+             RtlFreeHeap( GetProcessHeap(), 0, crit->DebugInfo );
+             crit->DebugInfo = NULL;
+         }
+     }
+     else crit->DebugInfo = NULL;
+ 
+     if ((sem = get_semaphore( crit ))) NtClose( sem );
+     crit->LockSemaphore = 0;
+     return STATUS_SUCCESS;
+ }
+ 
+ 
+ /******************************************************************************
+  *      RtlpWaitForCriticalSection   (NTDLL.@)
+  */
+ NTSTATUS WINAPI RtlpWaitForCriticalSection( RTL_CRITICAL_SECTION *crit )
+ {
+-    unsigned int timeout = 5;
++    unsigned int timeout = 30;
+ 
+     /* Don't allow blocking on a critical section during process termination */
+     if (RtlDllShutdownInProgress())
+     {
+         WARN( "process %s is shutting down, returning STATUS_SUCCESS\n",
+               debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer) );
+         return STATUS_SUCCESS;
+     }
+ 
+     for (;;)
+     {
+         NTSTATUS status = wait_semaphore( crit, timeout );
+ 
+         if (status == STATUS_WAIT_0) break;
+         if (status != WAIT_TIMEOUT) return status;
+ 
+         timeout = (TRACE_ON(relay) ? 300 : 60);
+ 
+         ERR( "section %p %s wait timed out in thread %04lx, blocked by %04lx, retrying (%u sec)\n",
+              crit, debugstr_a(crit_section_get_name(crit)), GetCurrentThreadId(), HandleToULong(crit->OwningThread), timeout );
 diff --git a/dlls/ntdll/unix/debug.c b/dlls/ntdll/unix/debug.c
 index e84a47f58a4..06501a502a3 100644
 --- a/dlls/ntdll/unix/debug.c
@@ -405,8 +452,54 @@ index a6e07215479..46830d2430b 100644
          wine_server_set_reply( req, supported_machines, sizeof(supported_machines) );
          ret = wine_server_call( req );
          pid               = reply->pid;
+diff --git a/dlls/ntdll/unix/signal_i386.c b/dlls/ntdll/unix/signal_i386.c
+index bdcb6bfed09..56ec841e978 100644
+--- a/dlls/ntdll/unix/signal_i386.c
++++ b/dlls/ntdll/unix/signal_i386.c
+@@ -1452,40 +1452,41 @@ static void setup_raise_exception( ucontext_t *sigcontext, void *stack_ptr,
+                                    EXCEPTION_RECORD *rec, struct xcontext *xcontext )
+ {
+     CONTEXT *context = &xcontext->c;
+     XSAVE_AREA_HEADER *src_xs;
+     struct exc_stack_layout *stack;
+     size_t stack_size;
+     unsigned int xstate_size;
+     NTSTATUS status = send_debug_event( rec, context, TRUE, TRUE );
+ 
+     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
+     {
+         restore_context( xcontext, sigcontext );
+         return;
+     }
+ 
+     /* fix up instruction pointer in context for EXCEPTION_BREAKPOINT */
+     if (rec->ExceptionCode == EXCEPTION_BREAKPOINT) context->Eip--;
+ 
+     xstate_size = sizeof(XSAVE_AREA_HEADER) + xstate_features_size;
+     stack_size = (ULONG_PTR)stack_ptr - (((ULONG_PTR)stack_ptr - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63);
++
+     stack = virtual_setup_exception( stack_ptr, stack_size, rec );
+     stack->rec_ptr      = &stack->rec;
+     stack->context_ptr  = &stack->context;
+     stack->rec          = *rec;
+     stack->context      = *context;
+ 
+     if ((src_xs = xstate_from_context( context )))
+     {
+         XSAVE_AREA_HEADER *dst_xs = (XSAVE_AREA_HEADER *)(stack + 1);
+ 
+         assert( !((ULONG_PTR)dst_xs & 63) );
+         context_init_xstate( &stack->context, dst_xs );
+         memset( dst_xs, 0, sizeof(*dst_xs) );
+         dst_xs->CompactionMask = xstate_compaction_enabled ? 0x8000000000000000 | xstate_extended_features() : 0;
+         copy_xstate( dst_xs, src_xs, src_xs->Mask );
+     }
+     else
+     {
+         context_init_xstate( &stack->context, NULL );
+     }
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
-index ca5d50b0fe6..28723e32fe9 100644
+index ca5d50b0fe6..34f0bdbb9e9 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
 @@ -19,40 +19,42 @@
@@ -708,3 +801,45 @@ index ca5d50b0fe6..28723e32fe9 100644
                            debugstr_w(filename), sec[i].Name );
              goto done;
          }
+@@ -4242,40 +4270,41 @@ void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *r
+     {
+         if (is_inside_signal_stack( stack ))
+         {
+             ERR( "nested exception on signal stack addr %p stack %p\n", rec->ExceptionAddress, stack );
+             abort_thread(1);
+         }
+         WARN( "exception outside of stack limits addr %p stack %p (%p-%p-%p)\n",
+               rec->ExceptionAddress, stack, NtCurrentTeb()->DeallocationStack,
+               NtCurrentTeb()->Tib.StackLimit, NtCurrentTeb()->Tib.StackBase );
+         return stack - size;
+     }
+ 
+     stack -= size;
+ 
+     if (stack < stack_info.start + host_page_size)
+     {
+         /* stack overflow on last page, unrecoverable */
+         UINT diff = stack_info.start + host_page_size - stack;
+         ERR( "stack overflow %u bytes addr %p stack %p (%p-%p-%p)\n",
+              diff, rec->ExceptionAddress, stack, stack_info.start, stack_info.limit, stack_info.end );
++
+         abort_thread(1);
+     }
+     else if (stack < stack_info.limit)
+     {
+         char *page = ROUND_ADDR( stack, host_page_mask );
+         mutex_lock( &virtual_mutex );  /* no need for signal masking inside signal handler */
+         if ((get_host_page_vprot( page ) & VPROT_GUARD) && grow_thread_stack( page, &stack_info ))
+         {
+             rec->ExceptionCode = STATUS_STACK_OVERFLOW;
+             rec->NumberParameters = 0;
+         }
+         mutex_unlock( &virtual_mutex );
+     }
+ #if defined(VALGRIND_MAKE_MEM_UNDEFINED)
+     VALGRIND_MAKE_MEM_UNDEFINED( stack, size );
+ #elif defined(VALGRIND_MAKE_WRITABLE)
+     VALGRIND_MAKE_WRITABLE( stack, size );
+ #endif
+     return stack;
+ }
