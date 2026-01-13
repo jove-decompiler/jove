@@ -1675,13 +1675,16 @@ void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   //state.update();
 }
 
-trapped_t & BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
-                                               basic_block_index_t BBIdx) {
+trapped_t &
+BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
+                                          basic_block_index_t BBIdx) {
   auto &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
 
+#if 0
   if (x.Skip)
     return;
+#endif
 
   const binary_index_t BIdx = index_of_binary(b, jv);
 
