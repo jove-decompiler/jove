@@ -20,6 +20,7 @@ ssize_t memcpy_from(pid_t child,
   dst.reserve(N);
   dst.clear();
 
+  try {
   uintptr_t Addr = reinterpret_cast<uintptr_t>(src);
 
   size_t done = 0;
@@ -33,9 +34,9 @@ ssize_t memcpy_from(pid_t child,
     dst.resize(dst.size() + sizeof(chunk));
     __builtin_memcpy_inline(&dst[M], &chunk, sizeof(chunk));
   }
+  } catch (const tracer_exception &) {}
 
-  dst.resize(N);
-  return N;
+  return dst.size();
 }
 
 ssize_t memcpy_to(pid_t child,
