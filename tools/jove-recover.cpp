@@ -134,7 +134,7 @@ int RecoverTool::Run(void) {
   IgnoreCtrlC();
 
   tiny_code_generator_t tcg;
-  symbolizer_t symbolizer;
+  symbolizer_t symbolizer(locator());
 
   explorer_t Explorer(jv_file, jv, disas, tcg, GetVerbosityLevel());
   CodeRecovery Recovery(jv_file, jv, Explorer, symbolizer);

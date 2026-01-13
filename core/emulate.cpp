@@ -85,6 +85,8 @@ template <bool MT, bool MinSize>
 trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
                      basic_block_index_t BBIdx,
                      binary_index_t BIdx,
+                     pid_t child,
+                     void *const ptr,
                      B::ref Bin) {
   auto &b = emu.jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
@@ -128,13 +130,16 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
 
 #undef THE_N
 
-  std::vector<uint8_t> InstBytes;
-  InstBytes.resize(N);
+  std::vector<std::byte> InstBytes;
+  ptrace::memcpy_from(child, InstBytes, ptr, 2*N);
 
+  //llvm::errs() << InstBytes.size() << '\n';
+
+  aassert(!InstBytes.empty());
   {
     const void *Ptr = B::toMappedAddr(Bin, bbprop.Term.Addr);
     aassert(Ptr);
-    memcpy(&InstBytes[0], Ptr, N);
+    __builtin_memcpy_inline(&InstBytes[0], Ptr, IsX86Target ? 1 : 4);
   }
 
 #ifdef NDEBUG
@@ -143,7 +148,7 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
   llvm::MCInst &Inst = this->Inst;
 #endif
   uint64_t InstLen;
-  aassert(emu.disas.DisAsm->getInstruction(Inst, InstLen, InstBytes, TermAddr,
+  aassert(emu.disas.DisAsm->getInstruction(Inst, InstLen, llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(InstBytes.data()), N), TermAddr,
                                            llvm::nulls()));
 
   aassert(InstLen <= 0xf);
@@ -213,7 +218,7 @@ __attribute__((unused)) static const unsigned DelaySlotOpcode = 0;
   template trapped_t::trapped_t(                                     \
       ptrace_emulator_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),    \
                         GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &, \
-      basic_block_index_t, binary_index_t, B::ref);
+      basic_block_index_t, binary_index_t, pid_t child, void *const ptr, B::ref);
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 #if defined(__mips64) || defined(__mips__)

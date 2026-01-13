@@ -42,6 +42,21 @@ struct ptrace_emulator_t : public VerboseThing {
   jv_base_t<MT, MinSize> &jv;
   disas_t &disas;
 
+  //
+  // code cave size
+  //
+  static constexpr unsigned N =
+#if defined(__x86_64__) || defined(__i386__)
+      16
+#elif defined(__aarch64__)
+      4
+#elif defined(__mips64) || defined(__mips__)
+      32 * 2 * sizeof(ptrace::word)
+#else
+#error
+#endif
+      ;
+
   uintptr_t ExecutableRegionAddress = 0;
 
   ptrace_emulator_t(jv_base_t<MT, MinSize> &jv, disas_t &disas)
@@ -79,6 +94,8 @@ struct __attribute__((packed)) trapped_t {
   explicit trapped_t(ptrace_emulator_t<MT, MinSize> &,
                      basic_block_index_t,
                      binary_index_t,
+                     pid_t child,
+                     void *const ptr,
                      B::ref);
 };
 

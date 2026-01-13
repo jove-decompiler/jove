@@ -36,6 +36,7 @@
 #include <boost/lockfree/queue.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/anonymous_shared_memory.hpp>
+#include <boost/range/adaptor/reversed.hpp>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -75,6 +76,11 @@
 
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
+
+static const char *syscall_names[] = {
+#define ___SYSCALL(nr, nm) [nr] = #nm,
+#include "syscalls.inc.h"
+};
 
 //#define JOVE_HAVE_MEMFD
 
@@ -193,6 +199,7 @@ struct BootstrapTool
     cl::opt<bool> Longjmps;
     cl::opt<std::string> ShowMe;
     cl::opt<bool> Symbolize;
+    cl::opt<bool> Addr2Line;
     cl::opt<std::string> Group;
     cl::alias GroupAlias;
     cl::opt<std::string> User;
@@ -230,6 +237,9 @@ struct BootstrapTool
           PrintPtraceEventsAlias("e", cl::desc("Alias for -events."),
                                  cl::aliasopt(PrintPtraceEvents),
                                  cl::cat(JoveCategory)),
+
+          Addr2Line("addr2line", cl::desc("Run addr2line to symbolize"),
+                   cl::cat(JoveCategory)),
 
           Syscalls("syscalls", cl::desc("Always trace system calls"),
                    cl::cat(JoveCategory)),
@@ -331,6 +341,8 @@ struct BootstrapTool
 
   pid_t _child = 0; /* XXX */
 
+  std::set<pid_t> children;
+
   unordered_map<uintptr_t, trapped_t> trapmap;
 
   struct {
@@ -376,6 +388,7 @@ struct BootstrapTool
 
     _r_debug.Reset();
 
+    emulator->ExecutableRegionAddress = 0x0;
     TurboToggle = 0;
   }
 
@@ -407,7 +420,7 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
-  void place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
+  trapped_t &place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t, ptrace::tracee_state_t &);
   void on_return(pid_t child,
@@ -571,7 +584,7 @@ int BootstrapTool::Run(void) {
   //
   // mode 2: create new process
   //
-  const pid_t child = ({
+  const pid_t child = saved_child = ({
     std::string path_to_exe;
     try {
       path_to_exe = fs::canonical(opts.Prog).string();
@@ -645,6 +658,17 @@ int BootstrapTool::Run(void) {
 
           if (fs::exists("/firmadyne/libnvram.so"))
             Env("LD_PRELOAD=/firmadyne/libnvram.so");
+
+#if 0
+          std::string wine_stderr_path = temporary_dir() + "/wine.stderr";
+          if (IsVerbose())
+            WithColor::note()
+                << llvm::formatv("WINEDEBUGLOG={0}\n", wine_stderr_path);
+
+          // FIXME look for preexisting WINEDEBUG?
+          Env("WINEDEBUG=+module,+loaddll,+err,+process,+seh");
+          Env("WINEDEBUGLOG=" + wine_stderr_path);
+#endif
         },
         "", "",
         [&](const char **argv, const char **envp) {
@@ -690,8 +714,9 @@ int BootstrapTool::Run(void) {
   //
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
-  if (opts.Symbolize)
-  symbolizer = std::make_unique<symbolizer_t>();
+  if (opts.Symbolize) {
+  symbolizer = std::make_unique<symbolizer_t>(locator(), opts.Addr2Line);
+  }
   E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
       jv_file, jv, *disas, *tcg, GetVerbosityLevel());
   emulator =
@@ -798,7 +823,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
   {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(::ptrace(opts.Syscalls ? PTRACE_SYSCALL : PTRACE_CONT,
+        if (unlikely(::ptrace((RightArch && opts.Syscalls) ? PTRACE_SYSCALL : PTRACE_CONT,
                               child, nullptr,
                               reinterpret_cast<void *>(sig)) < 0))
           HumanOut() << llvm::formatv("failed to resume tracee {0}: {1}\n",
@@ -814,7 +839,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
       // wait for a child process to stop or terminate
       //
       int status;
-      child = _jove_sys_wait4(-1, &status, __WALL, NULL);
+      child = saved_child = _jove_sys_wait4(-1, &status, __WALL, NULL);
       if (unlikely(child < 0)) {
         const int err = -child;
         assert(err != EINTR);
@@ -825,6 +850,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         break;
       }
 
+      children.insert(child);
       _child = child; /* XXX */
 
       if (likely(WIFSTOPPED(status))) {
@@ -1149,6 +1175,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
             auto on_syscall_exit = [&](void) -> void {
               if (unlikely(ret < 0 && ret > -4096))
                 return; /* system call probably failed */
+
+              HumanOut() << syscall_names[no] << '\n';
 
               switch (no) {
 #ifdef __NR_rt_sigaction
@@ -1489,11 +1517,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
                 binary_t &b = jv.Binaries.at(BIdx);
                 auto &ICFG = b.Analysis.ICFG;
-                fallthru<void>(jv, BIdx, BBIdx,
-                               [&](bbprop_t &bbprop, basic_block_index_t) {
-                                 place_breakpoints_in_block(
-                                     b, ICFG[ICFG.vertex<false>(BBIdx)], BBIdx);
-                               });
+                fallthru<void>(
+                    jv, BIdx, BBIdx,
+                    [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
+                      if (IsTerminatorIndirect(bbprop.Term.Type))
+                        place_breakpoints_in_block(
+                            b, ICFG[ICFG.vertex<false>(BBIdx_)], BBIdx_);
+                    });
 
                 try {
                   on_breakpoint(child, tracee_state);
@@ -1547,7 +1577,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               on_return(child, invalid_binary_index, 0 /* XXX */, RetAddr);
             }
 #else
-            if (IsVeryVerbose()) {
+            if (IsVerbose()) {
               HumanOut() << llvm::formatv(
                   "sigsegv @ {0}\n",
                   description_of_program_counter(
@@ -1635,6 +1665,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
 void BootstrapTool::on_new_basic_block(binary_t &b,
                                        bbprop_t &bbprop,
                                        basic_block_index_t BBIdx) {
+  if (!IsTerminatorIndirect(bbprop.Term.Type))
+    return;
+
   place_breakpoints_in_block(b, bbprop, BBIdx);
 }
 
@@ -1642,7 +1675,7 @@ void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   //state.update();
 }
 
-void BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
+trapped_t & BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
                                                basic_block_index_t BBIdx) {
   auto &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
@@ -1655,9 +1688,7 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
   assert(x.Loaded());
 
   const auto TermType = bbprop.Term.Type;
-
-  if (!IsTerminatorIndirect(TermType))
-    return;
+  aassert(IsTerminatorIndirect(TermType));
 
   const uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
 #if 0
@@ -1669,7 +1700,7 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
   assert(disas);
 
   auto trapmap_pair =
-      trapmap.emplace(termpc, trapped_t(*emulator, BBIdx, BIdx, x.Bin.get()));
+      trapmap.emplace(termpc, trapped_t(*emulator, BBIdx, BIdx, saved_child, reinterpret_cast<void *>(termpc), x.Bin.get()));
   aassert(trapmap_pair.second);
   trapped_t &trapped = (*trapmap_pair.first).second;
 
@@ -1677,6 +1708,8 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
     place_breakpoint_at_return(_child, termpc, trapped);
   else
     place_breakpoint_at_indirect_branch(_child, termpc, trapped);
+
+  return trapped;
 }
 
 static void arch_put_breakpoint(void *code);
@@ -1742,11 +1775,39 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
 #endif
 
     {
+      binary_index_t       BIdx;
+      basic_block_index_t BBIdx;
+
       auto it = trapmap.find(SavedPC);
       if (unlikely(it == trapmap.end()))
         throw notrap_exception(SavedPC);
 
+      {
+        trapped_t &trapped = (*it).second;
+
+        BIdx = trapped.BIdx;
+        BBIdx = trapped.BBIdx;
+      }
+
+      binary_t &b = jv.Binaries.at(BIdx);
+      auto &ICFG = b.Analysis.ICFG;
+      auto &x = state.for_binary(b);
+
+#if 0
+      if (B::is_coff(x.Bin.get())) {
+      trapmap.erase(SavedPC);
+
+      fallthru<void>(jv, BIdx, BBIdx,
+                     [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
+        ptrapped = &place_breakpoints_in_block(b, bbprop, BBIdx_);
+      });
+      } else {
+#endif
       ptrapped = &(*it).second;
+#if 0
+      }
+#endif
+
       assert(ptrapped);
     }
 
@@ -1759,12 +1820,20 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
                                   trapped.DelaySlotInsn);
 #endif
 
+
+    const uintptr_t ExecutableRegionAddress = emulator->ExecutableRegionAddress;
     pc = SavedPC;
     const uintptr_t NewPC = trapped.single_step_proc(tracee_state, trapped, child
-                                                   , emulator->ExecutableRegionAddress
+                                                   , ExecutableRegionAddress
                                                      );
 
 #if !defined(__mips64) && !defined(__mips__)
+
+#if 0
+#if defined(__i386__)
+    if (!(pc >= ExecutableRegionAddress && pc < ExecutableRegionAddress + emulator->N))
+#endif
+#endif
     pc = NewPC;
 #endif
 
@@ -1798,8 +1867,24 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
 
   Target.BIdx = binary_at_program_counter(child, TargetAddr);
 
-  if (unlikely(!is_binary_index_valid(Target.BIdx)))
+  struct {
+    bool IsGoto = false;
+  } ControlFlow;
+
+  auto print_thing = [&](void) -> void {
+    if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
+      HumanOut() << llvm::formatv("{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+                                  ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
+                                  description_of_program_counter(SavedPC),
+                                  description_of_program_counter(TargetAddr),
+                                  ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
+                                  child).str();
+  };
+
+  if (unlikely(!is_binary_index_valid(Target.BIdx))) {
+    print_thing();
     return;
+  }
 
   assert(is_binary_index_valid(Target.BIdx));
 
@@ -1808,10 +1893,6 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
 
   auto &x = state.for_binary(TargetBinary);
   assert(x.Loaded()); /* XXX this is important */
-
-  struct {
-    bool IsGoto = false;
-  } ControlFlow;
 
   binary_t &binary = jv.Binaries.at(BIdx);
 
@@ -1911,13 +1992,7 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
       }
     }
 
-    if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
-      HumanOut() << llvm::formatv("{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
-                                  ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
-                                  description_of_program_counter(SavedPC),
-                                  description_of_program_counter(TargetAddr),
-                                  ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
-                                  child).str();
+    print_thing();
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
                              taddr2str(invalid_cf.pc, false) + " in \"" +
@@ -2109,22 +2184,21 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   if (binary.IsVDSO) {
     aassert(!emulator->ExecutableRegionAddress);
 
-    constexpr unsigned N =
+    aassert(pm.end - pm.beg >= emulator->N);
+    const uintptr_t ExecutableRegionAddress = pm.end - emulator->N;
+    emulator->ExecutableRegionAddress = ExecutableRegionAddress;
+
 #if defined(__x86_64__) || defined(__i386__)
-        128
-#elif defined(__aarch64__)
-        128
+    const std::byte ret_insns[] = {
+      static_cast<std::byte>(0xc3),
+      static_cast<std::byte>(0xc2), static_cast<std::byte>(0x00), static_cast<std::byte>(0x00),
+      static_cast<std::byte>(0xc2), static_cast<std::byte>(0x04), static_cast<std::byte>(0x00),
+      static_cast<std::byte>(0xc2), static_cast<std::byte>(0x08), static_cast<std::byte>(0x00)
+    };
+
+    ptrace::memcpy_to(child, reinterpret_cast<void *>(ExecutableRegionAddress),
+                      &ret_insns[0], sizeof(ret_insns));
 #elif defined(__mips64) || defined(__mips__)
-        32 * 2 * sizeof(ptrace::word)
-#else
-#error
-#endif
-        ;
-
-    aassert(pm.end - pm.beg >= N);
-    emulator->ExecutableRegionAddress = pm.end - N;
-
-#if defined(__mips64) || defined(__mips__)
     //
     // "initialize" code cave
     //
@@ -2169,16 +2243,10 @@ void BootstrapTool::on_binary_loaded(pid_t child,
         return IsTerminatorIndirect(TermType);
       },
       [&](bb_t bb) {
-        bbprop_t &bbprop = ICFG[bb];
-
-        if constexpr (IsToolMT) {
-          if (!bbprop.pub.is.test(boost::memory_order_acquire))
-            bbprop.pub.template shared_access<IsToolMT>();
-        }
-
-        auto s_lck = bbprop.shared_access<IsToolMT>();
-        place_breakpoints_in_block(binary, bbprop,
-                                   index_of_basic_block(ICFG, bb));
+        fallthru<void>(jv, BIdx, index_of_basic_block(ICFG, bb),
+                       [&](bbprop_t &bbprop, basic_block_index_t BBIdx) {
+          place_breakpoints_in_block(binary, bbprop, BBIdx);
+        });
       });
 }
 
@@ -2887,6 +2955,10 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
 
   const std::string simple_desc = (fmt("%#lx") % pc).str();
 
+#if 0
+  return simple_desc;
+#endif
+
   auto pm_it = intvl_map_find(pmm, pc);
   if (pm_it == pmm.end() && _child) {
     UpdateVM(_child);
@@ -3007,23 +3079,31 @@ void SignalHandler(int no) {
     //
     // detach from tracee
     //
-    if (::ptrace(PTRACE_DETACH, tool.saved_child, 0UL, 0UL) < 0) {
-      int err = errno;
-      tool.HumanOut() << llvm::formatv(
-          "failed to detach from tracee [{0}]: {1}\n",
-          tool.saved_child,
-          strerror(err));
-      exit(1);
+    for (pid_t child : boost::adaptors::reverse(tool.children)) {
+//    for (unsigned i = 0; i < 10; ++i)
+        if (::tgkill(child, child, SIGSTOP) < 0)
+          continue;
+
+      tool.HumanOut() << llvm::formatv("waiting on {0}...\n", child);
+
+      int status;
+      do
+        ::waitpid(-1, &status, __WALL);
+      while (!WIFSTOPPED(status));
+
+      tool.HumanOut() << llvm::formatv("waited on {0}.\n", child);
+
+      if (::ptrace(PTRACE_DETACH, child, 0UL, reinterpret_cast<void *>(SIGSTOP)) < 0) {
+        int err = errno;
+        tool.HumanOut() << llvm::formatv(
+            "failed to detach from tracee [{0}]: {1}\n", child,
+            strerror(err));
+      } else {
+        tool.HumanOut() << "PTRACE_DETACH succeeded\n";
+      }
     }
 
-    tool.HumanOut() << llvm::formatv(
-        "***JOVE*** bootstrap crashed! attach a debugger [{0}]...", getpid());
-
-    for (;;) {
-      sleep(1);
-
-      tool.HumanOut() << ".";
-    }
+    for (;;) sleep(1);
 
     __builtin_unreachable();
   }

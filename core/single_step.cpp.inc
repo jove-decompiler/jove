@@ -255,7 +255,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         return LoadAddr(*reinterpret_cast<uint32_t *>(&trapped.Disp));
       }
 
-      int32_t disp   = trapped.Disp;
+      uint32_t disp   = static_cast<uint32_t>(static_cast<uint64_t>(trapped.Disp));
       uint32_t base  = Reg0 == llvm::X86::NoRegister ? UINT32_C(0) : static_cast<uint32_t>(RegValue(Reg0));
       uint32_t index = Reg2 == llvm::X86::NoRegister ? UINT32_C(0) : static_cast<uint32_t>(RegValue(Reg2));
       uint32_t scale = static_cast<uint32_t>(static_cast<int32_t>(trapped.Scale));

@@ -133,7 +133,7 @@ int IDATool::Run(void) {
   disas_t dis;
   explorer_t E(jv_file, jv, dis, tcg);
 
-  symbolizer_t symbolizer;
+  symbolizer_t symbolizer(locator());
 
   auto process_binary = [&](binary_t &binary) -> void {
     B::unique_ptr Bin;

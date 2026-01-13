@@ -185,8 +185,10 @@ int main(int argc, char **argv) {
         jove::smartterm = tool->is_smart_terminal();
 
         rc = tool->Run();
-      }, msg))
+      }, msg)) {
+    llvm::errs() << msg << '\n';
     return rc;
+  }
 
   //
   // if we get here, an exception occurred. something *might* be in an undefined

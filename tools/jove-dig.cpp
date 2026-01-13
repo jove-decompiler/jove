@@ -87,6 +87,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
 public:
   CodeDigger()
       : opts(JoveCategory),
+        symbolizer(locator()),
         Explorer(jv_file, jv, disas, tcg),
         Recovery(jv_file, jv, Explorer, symbolizer) {}
 

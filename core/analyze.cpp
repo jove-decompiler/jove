@@ -471,9 +471,11 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   //
   // make sure basic blocks have been analyzed
   //
+#if 0
   for (bb_t bb : bbvec)
     AnalyzeBasicBlock(TCG, helpers, *Module, state.for_binary(b).Bin.get(),
                       ICFG[bb], options);
+#endif
 
   if (!IsLeafFunction(f, b, bbvec, exit_bbvec)) {
     //

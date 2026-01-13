@@ -1,5 +1,6 @@
 #pragma once
 #include "jove/jove.h"
+#include "locator.h"
 #include <memory>
 
 namespace llvm {
@@ -14,8 +15,11 @@ class symbolizer_t {
   std::mutex mtx; // LLVMSymbolizer is *not* thread-safe.
   std::unique_ptr<llvm::symbolize::LLVMSymbolizer> Symbolizer;
 
+  locator_t &locator;
+  bool Addr2Line = false;
+
 public:
-  symbolizer_t();
+  symbolizer_t(locator_t &locator, bool Addr2Line = false);
   ~symbolizer_t();
 
   template <bool MT, bool MinSize>

@@ -112,8 +112,8 @@ int AnalyzeTool::Run(void) {
   analyzer_opts.Conservative = opts.Conservative;
 
   analyzer.examine_blocks();
-  oneapi::tbb::parallel_invoke([&](void) -> void { analyzer.examine_callers(); },
-                               [&](void) -> void { analyzer.identify_ABIs(); });
+  analyzer.examine_callers();
+  analyzer.identify_ABIs();
   analyzer.identify_Sjs();
 
   return AnalyzeBlocks()

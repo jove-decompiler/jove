@@ -3,6 +3,7 @@
 #include "eintr.h"
 #include "pidfd.h"
 #include "robust.h"
+#include "util.h"
 
 #include <cerrno>
 #include <cstdint>

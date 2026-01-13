@@ -1,4 +1,6 @@
 #include "symbolizer.h"
+#include "process.h"
+
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -9,7 +11,8 @@ namespace jove {
 
 typedef boost::format fmt;
 
-symbolizer_t::symbolizer_t() {
+symbolizer_t::symbolizer_t(locator_t &locator, bool Addr2Line)
+  : locator(locator), Addr2Line(Addr2Line) {
   llvm::symbolize::LLVMSymbolizer::Options Opts;
   Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
   Opts.UseSymbolTable = false;
@@ -24,6 +27,22 @@ symbolizer_t::~symbolizer_t() {}
 template <bool MT, bool MinSize>
 std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
                                     uint64_t Addr) {
+  if (Addr2Line) {
+    std::string path_to_stdout = "/tmp/stdout";
+    std::string path_to_stderr = "/tmp/stderr";
+
+    RunExecutableToExit(locator.mingw_addr2line(IsTarget32),
+                        [&](auto Arg) {
+                          Arg(locator.mingw_addr2line(IsTarget32));
+                          Arg("-e");
+                          Arg(binary.Name.c_str());
+                          Arg((fmt("0x%" PRIx64) % Addr).str());
+                        },
+                        path_to_stdout ,
+                        path_to_stderr);
+    return read_file_into_string(path_to_stdout.c_str());
+  }
+
   if (!binary.is_file())
     return std::string();
 
