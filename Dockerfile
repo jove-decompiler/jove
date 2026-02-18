@@ -218,7 +218,6 @@ RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
 RUN patch -p1 -d /jove/boost/libs/stacktrace -i /jove/patches/boost-stacktrace.diff
-RUN patch -p1 -d /jove/boost/libs/dynamic_bitset -i /jove/patches/boost-dynamic_bitset.diff
 RUN patch -p1 -d /jove/boost/libs/serialization -i /jove/patches/boost-serialization.diff
 
 RUN /jove/scripts/ci/build.sh
