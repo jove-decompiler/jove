@@ -32,7 +32,7 @@ bool handle_exceptions(std::function<void(void)> f, std::string &msg) {
   msg.clear();
   try {
     f();
-    return true;
+    return false;
   } catch (const boost::interprocess::bad_alloc &) {
     initialize_error_message(msg);
     msg.append(
@@ -81,7 +81,7 @@ bool handle_exceptions(std::function<void(void)> f, std::string &msg) {
       "exception was thrown!\n%s") % boost::stacktrace::to_string(trace)).str();
   }
 
-  return false;
+  return true;
 }
 
 }

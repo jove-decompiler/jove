@@ -186,22 +186,21 @@ int main(int argc, char **argv) {
 
         rc = tool->Run();
       }, msg)) {
-    llvm::errs() << msg << '\n';
-    return rc;
-  }
-
   //
   // if we get here, an exception occurred. something *might* be in an undefined
   // state. At this point, behave as though `execve("/usr/bin/false")` occurred.
   //
   llvm::errs() << msg << '\n';
   llvm::errs().flush();
-  }
 
   for (;;)
     _exit(rc);
 
   __builtin_unreachable();
+  }
+
+  return rc;
+  }
 }
 
 namespace fs = boost::filesystem;
