@@ -14,8 +14,8 @@
 
 namespace jove {
 
-template <typename Alloc, bool MT>
-int objdump_thinks_t<Alloc, MT>::run(const char *filename, const B::ref &Bin) {
+template <bool MT>
+int objdump_thinks_t<MT>::run(const char *filename, const B::ref &Bin) {
   std::unique_ptr<temp_exe> the_exe;
   if (!filename) {
     the_exe = std::make_unique<temp_exe>(
@@ -176,21 +176,7 @@ int objdump_thinks_t<Alloc, MT>::run(const char *filename, const B::ref &Bin) {
   return rc;
 }
 
-typedef boost::interprocess::allocator<unsigned long, segment_manager_t>
-    alloc_t;
-
-#define VALUES_TO_INSTANTIATE_WITH1                                            \
-    ((alloc_t))
-#define VALUES_TO_INSTANTIATE_WITH2                                            \
-    ((true))                                                                   \
-    ((false))
-
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, product)                                             \
-  template struct objdump_thinks_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),   \
-                                   GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
-
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+template struct objdump_thinks_t<false>;
+template struct objdump_thinks_t<true>;
 
 }

@@ -2,32 +2,37 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
-template <typename Alloc, bool MT>
+template <bool MT>
 struct objdump_thinks_t : public ip_base_rw_accessible_nospin<MT> {
-  using allocator_type = Alloc;
+  typedef boost::interprocess::allocator<uint32_t, segment_manager_t> alloc_type;
 
-  using type = boost::dynamic_bitset<unsigned long /* FIXME */, Alloc>;
+  typedef boost::container::vector_options<
+      boost::container::stored_size<uint32_t>>::type VectorOptions;
+
+  typedef boost::interprocess::vector<uint32_t, alloc_type, VectorOptions>
+      buffer_type;
+
+  using type = boost::dynamic_bitset<uint32_t, buffer_type>;
 
 private:
   taddr_t begin = ~0UL;
   type good;
 
-  template <typename, bool> friend struct objdump_thinks_t;
+  template <bool> friend struct objdump_thinks_t;
 
 public:
-  template <typename... Args>
-  objdump_thinks_t(Args &&...args) : good(std::forward<Args>(args)...) {}
+  objdump_thinks_t(segment_manager_t *psm) : good(alloc_type(psm)) {}
 
   template <bool MT2>
-  objdump_thinks_t(const objdump_thinks_t<Alloc, MT2> &other) noexcept
+  objdump_thinks_t(const objdump_thinks_t<MT2> &other) noexcept
       : begin(other.begin), good(other.good) {}
 
   template <bool MT2>
-  objdump_thinks_t(objdump_thinks_t<Alloc, MT2> &&other) noexcept
+  objdump_thinks_t(objdump_thinks_t<MT2> &&other) noexcept
       : begin(other.begin), good(std::move(other.good)) {}
 
   template <bool MT2>
-  objdump_thinks_t &operator=(objdump_thinks_t<Alloc, MT2> &&other) noexcept {
+  objdump_thinks_t &operator=(objdump_thinks_t<MT2> &&other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
         return *this;
@@ -40,7 +45,7 @@ public:
 
   template <bool MT2>
   objdump_thinks_t &
-  operator=(const objdump_thinks_t<Alloc, MT2> &other) noexcept {
+  operator=(const objdump_thinks_t<MT2> &other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
         return *this;

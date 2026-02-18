@@ -340,8 +340,19 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
     pub_t() noexcept = default;
 
-    pub_t(const pub_t &other) = delete;
-    pub_t &operator=(const pub_t &other) = delete;
+    pub_t(const pub_t &other) {
+    if (other.is.test())
+      this->is.test_and_set(boost::memory_order_relaxed);
+    else
+      this->is.clear(boost::memory_order_relaxed);
+    }
+    pub_t &operator=(const pub_t &other) {
+    if (other.is.test())
+      this->is.test_and_set(boost::memory_order_relaxed);
+    else
+      this->is.clear(boost::memory_order_relaxed);
+    return *this;
+    }
 
     pub_t(pub_t &&other) noexcept = default;
     pub_t &operator=(pub_t &&other) noexcept = default;
@@ -902,10 +913,7 @@ struct binary_analysis_t {
   void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
 #endif
 
-  objdump_thinks_t<boost::interprocess::allocator<unsigned long /* FIXME */,
-                                                  segment_manager_t>,
-                   MT>
-      objdump_thinks;
+  objdump_thinks_t<MT> objdump_thinks;
 
   segment_manager_t &get_segment_manager(void) const {
     segment_manager_t *const the_psm = psm.get();
