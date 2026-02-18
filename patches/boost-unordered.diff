@@ -1985,10 +1985,10 @@ index d2f0991c..718e993a 100644
  
  #endif
 diff --git a/include/boost/unordered/detail/foa/core.hpp b/include/boost/unordered/detail/foa/core.hpp
-index ee6cb927..9ebe8efe 100644
+index 38d50e68..2a9f1d7e 100644
 --- a/include/boost/unordered/detail/foa/core.hpp
 +++ b/include/boost/unordered/detail/foa/core.hpp
-@@ -985,41 +985,41 @@ struct arrays_holder
+@@ -987,41 +987,41 @@ struct arrays_holder
  
    ~arrays_holder()
    {
@@ -2031,7 +2031,7 @@ index ee6cb927..9ebe8efe 100644
      typename boost::pointer_traits<value_type_pointer>::template
        rebind<unsigned char>;
  
-@@ -1392,64 +1392,64 @@ using is_emplace_kv_able = std::integral_constant<bool,
+@@ -1394,64 +1394,64 @@ using is_emplace_kv_able = std::integral_constant<bool,
   *     the element_type itself is moved.
   */
  
@@ -2098,7 +2098,7 @@ index ee6cb927..9ebe8efe 100644
    using difference_type=std::ptrdiff_t;
    using locator=table_locator<group_type,element_type>;
    using arrays_holder_type=arrays_holder<arrays_type,Allocator>;
-@@ -2065,41 +2065,41 @@ public:
+@@ -2067,41 +2067,41 @@ public:
          while(mask){
            auto n=unchecked_countr_zero(mask);
            if(!f(pg,n,p+n))return false;
@@ -2516,7 +2516,7 @@ index 47540de8..0ef6c20f 100644
    }
  
 diff --git a/include/boost/unordered/detail/implementation.hpp b/include/boost/unordered/detail/implementation.hpp
-index d2c0cbd0..49d5d483 100644
+index 214243b1..86868a5f 100644
 --- a/include/boost/unordered/detail/implementation.hpp
 +++ b/include/boost/unordered/detail/implementation.hpp
 @@ -104,153 +104,153 @@ namespace boost {

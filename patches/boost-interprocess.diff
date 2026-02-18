@@ -1,8 +1,8 @@
 diff --git a/include/boost/interprocess/detail/file_wrapper.hpp b/include/boost/interprocess/detail/file_wrapper.hpp
-index 84b4953..a1f4c5c 100644
+index dc2fc7c..bbcc94f 100644
 --- a/include/boost/interprocess/detail/file_wrapper.hpp
 +++ b/include/boost/interprocess/detail/file_wrapper.hpp
-@@ -124,42 +124,43 @@ class file_wrapper
+@@ -125,42 +125,43 @@ class file_wrapper
  
     //!Returns the name of the file
     //!used in the constructor
@@ -226,10 +226,10 @@ index 3c4570c..4117d6b 100644
     <wchar_t
     ,rbtree_best_fit<mutex_family>
 diff --git a/include/boost/interprocess/mapped_region.hpp b/include/boost/interprocess/mapped_region.hpp
-index a76e0c4..4257ed4 100644
+index b410de4..58cf7d4 100644
 --- a/include/boost/interprocess/mapped_region.hpp
 +++ b/include/boost/interprocess/mapped_region.hpp
-@@ -640,43 +640,49 @@ inline mapped_region::mapped_region
+@@ -647,43 +647,49 @@ inline mapped_region::mapped_region
  
     //We calculate the difference between demanded and valid offset
     const offset_t page_offset = priv_page_offset_addr_fixup(offset, address);
