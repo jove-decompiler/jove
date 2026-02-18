@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
   llvm::errs().flush();
 
   for (;;)
-    _exit(rc);
+    _exit(1);
 
   __builtin_unreachable();
   }

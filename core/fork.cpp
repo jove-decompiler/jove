@@ -39,7 +39,7 @@ pid_t long_fork(std::function<int(void)> f) {
 
     std::string msg;
     int rc = EXIT_FAILURE;
-    if (!handle_exceptions([&] { rc = f(); }, msg)) {
+    if (handle_exceptions([&] { rc = f(); }, msg)) {
       fprintf(stderr, "%s\n", msg.c_str());
       fflush(stderr);
     }
