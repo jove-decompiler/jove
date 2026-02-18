@@ -93,7 +93,7 @@ struct truncated_aux_exception {};
 #define IsVeryVerbose() (Verbosity >= 2)
 
 template <bool DoNotGoFurther, bool InfiniteLoopThrow, bool MT, bool MinSize,
-	 unsigned Verbosity = 0>
+          unsigned Verbosity = 0>
 static std::pair<basic_block_index_t, bool>
 StraightLineGo(const binary_base_t<MT, MinSize> &b,
                basic_block_index_t Res,
@@ -738,8 +738,8 @@ protected:
 
     case PERF_RECORD_COMM: {
 #if 0
-		const struct pev_record_comm *comm = event.record.comm;
-                assert(comm);
+      const struct pev_record_comm *comm = event.record.comm;
+      assert(comm);
       if (event.misc & PERF_RECORD_MISC_COMM_EXEC) {
         do_comm_exec(*comm);
       CheckEngaged();
