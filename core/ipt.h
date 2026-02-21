@@ -63,7 +63,6 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
   static const char *const nr64_##nm##_nm = #nm;
 
 #include <arch/x86_64/syscalls.inc.h>
-static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
 static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
 static const unsigned nr64_old_mmap = VERY_UNIQUE_NUM();
 

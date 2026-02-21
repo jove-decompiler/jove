@@ -41,6 +41,13 @@ typedef uint32_t u32;
 typedef unsigned long old_sigset_t;
 typedef int32_t s32;
 typedef s32 old_time32_t;
+typedef unsigned int	__kernel_uid32_t;
+typedef __kernel_uid32_t qid_t;
+enum landlock_rule_type {
+  LANDLOCK_RULE_PATH_BENEATH = 1,
+  LANDLOCK_RULE_NET_PORT,
+};
+typedef unsigned short		umode_t;
 
 #ifndef __user
 #define __user
@@ -65,7 +72,7 @@ typedef s32 old_time32_t;
                                                                                \
     uint32_t _nr = nr;                                                         \
                                                                                \
-    int32_t _a1 = (int32_t)a1;                                                 \
+    uint32_t _a1 = (uint32_t)a1;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -81,8 +88,8 @@ typedef s32 old_time32_t;
                                                                                \
     uint32_t _nr = nr;                                                         \
                                                                                \
-    int32_t _a1 = (int32_t)a1;                                                 \
-    int32_t _a2 = (int32_t)a2;                                                 \
+    uint32_t _a1 = (uint32_t)a1;                                               \
+    uint32_t _a2 = (uint32_t)a2;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -98,9 +105,9 @@ typedef s32 old_time32_t;
                                                                                \
     uint32_t _nr = nr;                                                         \
                                                                                \
-    int32_t _a1 = (int32_t)a1;                                                 \
-    int32_t _a2 = (int32_t)a2;                                                 \
-    int32_t _a3 = (int32_t)a3;                                                 \
+    uint32_t _a1 = (uint32_t)a1;                                               \
+    uint32_t _a2 = (uint32_t)a2;                                               \
+    uint32_t _a3 = (uint32_t)a3;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -116,10 +123,10 @@ typedef s32 old_time32_t;
                                                                                \
     uint32_t _nr = nr;                                                         \
                                                                                \
-    int32_t _a1 = (int32_t)a1;                                                 \
-    int32_t _a2 = (int32_t)a2;                                                 \
-    int32_t _a3 = (int32_t)a3;                                                 \
-    int32_t _a4 = (int32_t)a4;                                                 \
+    uint32_t _a1 = (uint32_t)a1;                                               \
+    uint32_t _a2 = (uint32_t)a2;                                               \
+    uint32_t _a3 = (uint32_t)a3;                                               \
+    uint32_t _a4 = (uint32_t)a4;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -136,11 +143,11 @@ typedef s32 old_time32_t;
                                                                                \
     uint32_t _nr = nr;                                                         \
                                                                                \
-    int32_t _a1 = (int32_t)a1;                                                 \
-    int32_t _a2 = (int32_t)a2;                                                 \
-    int32_t _a3 = (int32_t)a3;                                                 \
-    int32_t _a4 = (int32_t)a4;                                                 \
-    int32_t _a5 = (int32_t)a5;                                                 \
+    uint32_t _a1 = (uint32_t)a1;                                               \
+    uint32_t _a2 = (uint32_t)a2;                                               \
+    uint32_t _a3 = (uint32_t)a3;                                               \
+    uint32_t _a4 = (uint32_t)a4;                                               \
+    uint32_t _a5 = (uint32_t)a5;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \

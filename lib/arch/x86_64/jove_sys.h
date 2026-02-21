@@ -35,6 +35,13 @@
 #include <linux/bpf.h>
 
 #define __user
+typedef unsigned int	__kernel_uid32_t;
+typedef __kernel_uid32_t qid_t;
+enum landlock_rule_type {
+  LANDLOCK_RULE_PATH_BENEATH = 1,
+  LANDLOCK_RULE_NET_PORT,
+};
+typedef unsigned short		umode_t;
 
 #define __SYSCALL_CLOBBERS "memory", "cc", "r11", "rcx"
 
