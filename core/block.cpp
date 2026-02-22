@@ -185,6 +185,8 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.template get<MT>();
 
+    auto s_lck = RCG.shared_access();
+
     std::for_each(maybe_par_unseq,
                   ParentsVec.cbegin(),
                   ParentsVec.cend(), [&](function_index_t FIdx) {
