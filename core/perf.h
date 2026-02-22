@@ -23,6 +23,19 @@ class scoped_fd;
 
 namespace perf {
 
+static inline bool is_magic(uint64_t magic) {
+  static const char *__magic1 = "PERFFILE";
+  static const uint64_t __magic2    = 0x32454c4946524550ULL;
+  static const uint64_t __magic2_sw = 0x50455246494c4532ULL;
+
+  if (!memcmp(&magic, __magic1, sizeof(magic))
+      || magic == __magic2
+      || magic == __magic2_sw)
+  return true;
+
+  return false;
+}
+
 static constexpr unsigned PERF_RECORD_EVENT_TYPE_AUXTRACE = 71;
 
 struct file_section {
@@ -133,7 +146,9 @@ struct data_reader {
   }
 
   template <bool H = HasHeader, typename = std::enable_if_t<H>>
-  bool check_magic(void) const;
+  bool check_magic(void) const {
+    return is_magic(*reinterpret_cast<const uint64_t *>(&get_header().magic[0]));
+  }
 
   const uint8_t *data_begin(void) const {
     if constexpr (HasHeader)
