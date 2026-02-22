@@ -212,9 +212,6 @@ int CodeDigger::Run(void) {
   for_each_function(maybe_par_unseq, jv,
                     [](function_t &f, binary_t &b) { f.InvalidateAnalysis(); });
 
-  if (IsVerbose())
-    WithColor::note() << "writing jv...\n";
-
   return 0;
 }
 
@@ -336,9 +333,7 @@ void CodeDigger::Worker(binary_index_t BIdx) {
 
           //Arg("--inline-helpers");
           //Arg("--optimize");
-        },
-        path_to_stdout,
-        path_to_stderr);
+        });
 
     //
     // check exit code
@@ -369,7 +364,7 @@ void CodeDigger::Worker(binary_index_t BIdx) {
           Arg(locator().klee());
 
           Arg("--entry-point=_jove_begin");
-          Arg("--solver-backend=stp");
+          Arg("--solver-backend=z3");
           Arg("--write-no-tests");
           Arg("--output-stats=0");
           Arg("--output-istats=0");
@@ -388,9 +383,7 @@ void CodeDigger::Worker(binary_index_t BIdx) {
           if (!opts.SingleBBIdx.empty())
             Arg("--jove-single-bbidx=" + opts.SingleBBIdx);
           Arg(bcfp);
-        },
-        path_to_stdout,
-        path_to_stderr);
+        });
 
     //
     // check exit code
