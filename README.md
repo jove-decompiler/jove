@@ -75,7 +75,7 @@ The application and its recompiled counterpart are run on the same inputs. The s
 
 The CI test suite [spins up](https://github.com/jove-decompiler/mk-deb-vm) whole-system debian linux emulations (via `qemu-system-*`) for all the architectures. Thus we can test `jove` with ease without needing the physical machines.
 
-The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
+The [latest docker image](https://hub.docker.com/repository/docker/aototokizawa/jove/general) is guaranteed to have passed the aforementioned test suite.
 
 ### What filesystem should I use? ###
 Ideally something that supports:
