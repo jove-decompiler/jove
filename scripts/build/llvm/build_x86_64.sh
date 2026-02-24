@@ -64,5 +64,5 @@ if test "$#" -ge 1 ; then
     exit 1
   fi
 else
-  ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+  ninja
 fi

@@ -58,18 +58,21 @@ Y="$cmdsdir"
 # -------- Stage 3 --------
 . "$Y/03_make.sh"
 . "$Y/llvm.tblgen.sh"
+. "$Y/minisat.sh"
 
 . "$X/parallel.sh"
 
 # -------- Stage 4 --------
 . "$Y/wine32.sh"
 . "$Y/llvm.sh"
+. "$Y/stp.sh"
 
 . "$X/parallel.sh"
 
 # -------- Stage 5 --------
 . "$Y/llknife.sh"
 . "$Y/qemu.softfpu.sh"
+. "$Y/klee.sh"
 
 . "$X/parallel.sh"
 

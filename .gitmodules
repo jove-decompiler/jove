@@ -51,3 +51,9 @@
 [submodule "winetricks"]
 	path = winetricks
 	url = https://github.com/Winetricks/winetricks.git
+[submodule "stp"]
+	path = stp
+	url = https://github.com/stp/stp.git
+[submodule "minisat"]
+	path = minisat
+	url = https://github.com/stp/minisat.git
