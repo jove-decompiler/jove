@@ -42,6 +42,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
     cl::opt<unsigned> PathLength;
     cl::opt<bool> ListLocalGotos;
     cl::opt<std::string> SingleBBIdx;
+    cl::opt<std::string> SolverBackend;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : NoSave("no-save",
@@ -64,6 +65,11 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
           SingleBBIdx(
               "single-bbidx",
               cl::desc("Only analyze indirect jump at given basic block index"),
+              cl::cat(JoveCategory)),
+
+          SolverBackend(
+              "solver-backend",
+              cl::init("stp"),
               cl::cat(JoveCategory)) {}
   } opts;
 
@@ -364,7 +370,7 @@ void CodeDigger::Worker(binary_index_t BIdx) {
           Arg(locator().klee());
 
           Arg("--entry-point=_jove_begin");
-          Arg("--solver-backend=z3");
+          Arg("--solver-backend=" + opts.SolverBackend);
           Arg("--write-no-tests");
           Arg("--output-stats=0");
           Arg("--output-istats=0");
