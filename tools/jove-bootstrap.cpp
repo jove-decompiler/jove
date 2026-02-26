@@ -539,7 +539,7 @@ int BootstrapTool::Run(void) {
     //
     // mode 1: attach
     //
-    if (::ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
+    if (_jove_sys_ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
       HumanOut() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
       return 1;
     }
@@ -570,7 +570,7 @@ int BootstrapTool::Run(void) {
                            PTRACE_O_TRACEVFORK |
                            PTRACE_O_TRACECLONE;
 
-      if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+      if (_jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                           __func__,
@@ -678,7 +678,7 @@ int BootstrapTool::Run(void) {
           //
           // the request
           //
-          ::ptrace(PTRACE_TRACEME);
+          _jove_sys_ptrace(PTRACE_TRACEME, 0UL, 0UL, 0UL);
           //
           // turns the calling thread into a tracee.  the thread continues to
           // run (doesn't enter ptrace-stop).  a common practice is to follow
@@ -762,7 +762,7 @@ int BootstrapTool::Run(void) {
   //
   // establish options
   //
-  if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+  if (_jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
     int err = errno;
     HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                 __func__, strerror(err));
@@ -823,9 +823,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
   {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(::ptrace((RightArch && opts.Syscalls) ? PTRACE_SYSCALL : PTRACE_CONT,
-                              child, nullptr,
-                              reinterpret_cast<void *>(sig)) < 0))
+        if (unlikely(_jove_sys_ptrace((RightArch && opts.Syscalls)
+                                          ? PTRACE_SYSCALL
+                                          : PTRACE_CONT,
+                                      child, 0UL, sig) < 0))
           HumanOut() << llvm::formatv("failed to resume tracee {0}: {1}\n",
                                       child, strerror(errno));
       }
@@ -868,7 +869,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           //
           // upon a fork(), we detach, fork(), and then reattach.
           //
-          if (::ptrace(PTRACE_DETACH, new_child, 0UL, reinterpret_cast<void *>(SIGSTOP)) < 0) {
+          if (_jove_sys_ptrace(PTRACE_DETACH, new_child, 0UL, SIGSTOP) < 0) {
             int err = errno;
             die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
           } else {
@@ -906,7 +907,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               }
             }
 
-            if (::ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL) < 0) {
+            if (_jove_sys_ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL) < 0) {
               int err = errno;
               die("PTRACE_ATTACH on fork() " + std::string(strerror(err)));
             } else {
@@ -928,7 +929,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               //
               static_assert(ptrace_options & PTRACE_O_TRACEEXEC, "needs to be set here");
 
-              if (::ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
+              if (_jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
                 int err = errno;
                 HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                                   __func__,
@@ -1265,7 +1266,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
             case PTRACE_EVENT_VFORK:
             case PTRACE_EVENT_FORK: {
               unsigned long new_child;
-              if (::ptrace(PTRACE_GETEVENTMSG, child, 0UL, &new_child) < 0) {
+              if (_jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL, reinterpret_cast<uintptr_t>(&new_child)) < 0) {
                 HumanOut() << llvm::formatv("what the fuck? [{0}]\n", child);
                 die("PTRACE_GETEVENTMSG on fork()/vfork()");
               }
@@ -1283,7 +1284,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
             }
             case PTRACE_EVENT_CLONE: {
               unsigned long new_child;
-              ::ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
+              _jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL, reinterpret_cast<uintptr_t>(&new_child));
 
               if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_CLONE) -> "
@@ -1297,7 +1298,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               break;
             case PTRACE_EVENT_EXEC: {
               unsigned long new_pid;
-              if (::ptrace(PTRACE_GETEVENTMSG, child, 0UL, &new_pid) < 0) {
+              if (_jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL, reinterpret_cast<uintptr_t>(&new_pid)) < 0) {
                 int err = errno;
                 WithColor::warning() << llvm::formatv(
                     "PTRACE_GETEVENTMSG failed: {0} (PTRACE_EVENT_EXEC)\n",
@@ -1407,7 +1408,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               }
 
               auto DetachFromChild = [&](void) -> void {
-                if (::ptrace(PTRACE_DETACH, child, nullptr, nullptr) < 0) {
+                if (_jove_sys_ptrace(PTRACE_DETACH, child, 0UL, 0UL) < 0) {
                   int err = errno;
                   die("PTRACE_DETACH on exec of wineserver: " + std::string(strerror(err)));
                 }
@@ -1474,7 +1475,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
             try {
               on_breakpoint(child, tracee_state);
             } catch (const notrap_exception &) {
-              if (::ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
+              if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL, reinterpret_cast<uintptr_t>(&si)) < 0) {
                 HumanOut() << "getsiginfo failed!\n";
               }
 #if 0
@@ -1533,7 +1534,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
               }
             }
           }
-        } else if (::ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
+        } else if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL, reinterpret_cast<uintptr_t>(&si)) < 0) {
           //
           // (3) group-stop
           //
@@ -3096,7 +3097,7 @@ void SignalHandler(int no) {
 
       tool.HumanOut() << llvm::formatv("waited on {0}.\n", child);
 
-      if (::ptrace(PTRACE_DETACH, child, 0UL, reinterpret_cast<void *>(SIGSTOP)) < 0) {
+      if (_jove_sys_ptrace(PTRACE_DETACH, child, 0UL, SIGSTOP) < 0) {
         int err = errno;
         tool.HumanOut() << llvm::formatv(
             "failed to detach from tracee [{0}]: {1}\n", child,
