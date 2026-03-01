@@ -11,7 +11,7 @@ static const uint8_t TargetBrkpt[] = {
     0x00, 0x00, 0x01, 0x8c, /* lw at,0(zero) */
 #endif
 #elif defined(TARGET_X86_64) || defined(TARGET_I386)
-    0x0f, 0x0b /* ud2 */
+    0xcc /* int3 */
 #elif defined(TARGET_AARCH64)
     0x00, 0x00, 0x00, 0x00 /* udf #0 */
 #else
