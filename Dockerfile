@@ -106,6 +106,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       hostname \
                       libavcodec-dev \
                       libavformat-dev \
+                      libboost-all-dev \
                       libc6-dev-i386 \
                       libclang-19-dev \
                       libegl1-mesa-dev \
@@ -147,6 +148,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       openssh-client \
                       parallel \
                       parted \
+                      perl \
                       pkg-config \
                       pkgconf \
                       python3-dev \
@@ -162,7 +164,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       unzip \
                       vim-common \
                       xfsprogs \
-                      xxd && \
+                      xxd \
+                      zlib1g-dev && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
