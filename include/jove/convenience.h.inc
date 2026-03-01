@@ -377,82 +377,50 @@ constexpr void for_each_basic_block_if(jv_base_t<MT, MinSize> &jv,
       });
 }
 
-template <bool MT, bool MinSize, class _ExecutionPolicy, class Proc>
-static inline
-void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
-                                    binary_base_t<MT, MinSize> &b,
-                                    Proc proc) {
-  auto it_pair = b.Analysis.ICFG.vertices();
+template <class T, class _ExecutionPolicy, class Proc>
+static inline void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
+                                                  T &b, Proc proc) {
+  auto &ICFG = b.Analysis.ICFG;
 
-  std::for_each(std::forward<_ExecutionPolicy>(__exec),
-                it_pair.first,
-                it_pair.second, [proc](auto bb) { proc(bb); });
+  unsigned N = ICFG.num_vertices();
+
+  auto BBIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
+  auto BBIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
+
+  std::for_each(
+      std::forward<_ExecutionPolicy>(__exec), BBIdxBegin, BBIdxEnd,
+      [proc, &ICFG](unsigned BBIdx) { proc(basic_block_of_index(BBIdx, ICFG)); });
+}
+
+template <class T, class Proc>
+static inline void for_each_basic_block_in_binary(T &b, Proc proc) {
+  return for_each_basic_block_in_binary(std::execution::seq, b, proc);
 }
 
 template <bool MT, bool MinSize, class _ExecutionPolicy, class Proc>
 static inline
 void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
-                                    const binary_base_t<MT, MinSize> &b,
+                                    const binary_analysis_t<MT, MinSize> &Analysis,
                                     Proc proc) {
-  auto it_pair = b.Analysis.ICFG.vertices();
+  using binary_t = binary_base_t<MT, MinSize>;
 
-  std::for_each(std::forward<_ExecutionPolicy>(__exec),
-                it_pair.first,
-                it_pair.second, [proc](auto bb) { proc(bb); });
-}
-
-template <bool MT, bool MinSize, class Proc>
-static inline
-void for_each_basic_block_in_binary(binary_base_t<MT, MinSize> &b, Proc proc) {
-  auto it_pair = b.Analysis.ICFG.vertices();
-
-  std::for_each(it_pair.first,
-                it_pair.second,
-                [proc](auto bb) { proc(bb); });
-}
-
-template <bool MT, bool MinSize, class Proc>
-static inline void
-for_each_basic_block_in_binary(const binary_base_t<MT, MinSize> &b, Proc proc) {
-  auto it_pair = b.Analysis.ICFG.vertices();
-
-  std::for_each(it_pair.first,
-                it_pair.second,
-                [proc](auto bb) { proc(bb); });
+  return for_each_basic_block_in_binary(
+      std::forward<_ExecutionPolicy>(__exec),
+      *JOVE_CONTAINER_OF_CONST(&Analysis, binary_t, Analysis),
+      proc);
 }
 
 template <bool MT, bool MinSize, class _ExecutionPolicy, class Proc>
-static inline void
-for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
-                               const binary_analysis_t<MT, MinSize> &Analysis,
-                               Proc proc) {
-  auto it_pair = Analysis.ICFG.vertices();
+static inline
+void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
+                                    binary_analysis_t<MT, MinSize> &Analysis,
+                                    Proc proc) {
+  using binary_t = binary_base_t<MT, MinSize>;
 
-  std::for_each(std::forward<_ExecutionPolicy>(__exec),
-                it_pair.first,
-                it_pair.second, [proc](auto bb) { proc(bb); });
-}
-
-template <bool MT, bool MinSize, class Proc>
-static inline void
-for_each_basic_block_in_binary(binary_analysis_t<MT, MinSize> &Analysis,
-                               Proc proc) {
-  auto it_pair = Analysis.ICFG.vertices();
-
-  std::for_each(it_pair.first,
-                it_pair.second,
-                [proc](auto bb) { proc(bb); });
-}
-
-template <bool MT, bool MinSize, class Proc>
-static inline void
-for_each_basic_block_in_binary(const binary_analysis_t<MT, MinSize> &Analysis,
-                               Proc proc) {
-  auto it_pair = Analysis.ICFG.vertices();
-
-  std::for_each(it_pair.first,
-                it_pair.second,
-                [proc](auto bb) { proc(bb); });
+  return for_each_basic_block_in_binary(
+      std::forward<_ExecutionPolicy>(__exec),
+      *JOVE_CONTAINER_OF_CONST(&Analysis, binary_t, Analysis),
+      proc);
 }
 
 template <bool MT, bool MinSize, class Pred, class Proc>
