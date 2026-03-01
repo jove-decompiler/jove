@@ -1,6 +1,7 @@
 #include "except.h"
 #include "term.h"
 #include "ansi.h"
+#include "ptrace.h"
 
 #include <boost/format.hpp>
 #include <boost/archive/archive_exception.hpp>
@@ -50,6 +51,16 @@ bool handle_exceptions(std::function<void(void)> f, std::string &msg) {
 
     initialize_bug_message(msg);
     msg.append("(serialization)\n");
+    msg.append(boost::stacktrace::to_string(trace));
+  } catch (const ptrace::tracer_exception &x) {
+    auto trace = boost::stacktrace::stacktrace::from_current_exception();
+
+    initialize_bug_message(msg);
+    msg.append("(ptracer) ");
+    msg.append(strerror(x.err));
+    msg.append(" @ ");
+    msg.append(taddr2str(x.addr));
+    msg.append("\n");
     msg.append(boost::stacktrace::to_string(trace));
   } catch (const jove::assertion_failure_base &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
