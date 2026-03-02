@@ -48,10 +48,13 @@ public:
     return likely(fd >= 0);
   }
 
+  template <bool Check = true>
   [[clang::always_inline]] int get(void) const noexcept(false) {
     const int res = this->fd;
-    aassert(res >= 0);
-    __builtin_assume(res >= 0);
+    if constexpr (Check) {
+      aassert(res >= 0);
+      __builtin_assume(res >= 0);
+    }
     return res;
   }
 
