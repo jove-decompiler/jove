@@ -243,7 +243,6 @@ struct BootstrapTool
   bool Engaged = false;
 
   const bool IsCOFF;
-  bool ForkFirstTime = true;
   unordered_set<pid_t> forked;
   unordered_set<pid_t> exited;
 
@@ -283,7 +282,9 @@ struct BootstrapTool
   pid_t _child = 0; /* XXX */
 
   struct {
+#if 0
     std::set<pid_t> set;
+#endif
     unordered_map<pid_t, bool> is_target_map;
     unordered_map<pid_t, scoped_fd> mem_fdmap;
   } children;
