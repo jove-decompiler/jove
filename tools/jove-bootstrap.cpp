@@ -174,14 +174,14 @@ ssize_t BootstrapTool::peek(const taddr_t src,
                             const size_t len) {
   auto peek_using_proc_mem = [&](void) -> bool {
     scoped_fd &fd = mem_for_child();
-    if (!fd)
+    if (unlikely(!fd))
       return false;
 
     size_t n = 0;
     while (n != len) {
       size_t left = len - n;
       ssize_t ret =
-          sys::retry_eintr(::pread64, fd.get(), &dst[n], left, src + n);
+          sys::retry_eintr(::pread64, fd.get<false>(), &dst[n], left, src + n);
 
       if (likely(ret > 0)) {
         n += static_cast<size_t>(ret);
@@ -212,7 +212,7 @@ ssize_t BootstrapTool::peek(const taddr_t src,
     return ptrace::vm_peek<Throw>(_child, src, dst, len) == len;
   };
 
-  if (peek_using_proc_mem()   ||
+  if (likely(peek_using_proc_mem()) ||
       peek_using_process_vm() ||
       peek_using_peekdata())
     return len;
@@ -229,13 +229,14 @@ ssize_t BootstrapTool::poke(const taddr_t dst,
                             const size_t len) {
   auto poke_using_proc_mem = [&](void) -> bool {
     scoped_fd &fd = mem_for_child();
-    if (!fd)
+    if (unlikely(!fd))
       return false;
 
     size_t n = 0;
     while (n != len) {
       size_t left  = len - n;
-      ssize_t ret = sys::retry_eintr(::pwrite64, fd.get(), &src[n], left, dst + n);
+      ssize_t ret =
+          sys::retry_eintr(::pwrite64, fd.get<false>(), &src[n], left, dst + n);
 
       if (likely(ret > 0)) {
         n += static_cast<size_t>(ret);
@@ -270,7 +271,7 @@ ssize_t BootstrapTool::poke(const taddr_t dst,
     return ptrace::vm_poke<Throw>(_child, dst, src, len) == len;
   };
 
-  if (poke_using_proc_mem()   ||
+  if (likely(poke_using_proc_mem()) ||
       poke_using_process_vm() ||
       poke_using_pokedata())
     return len;
@@ -704,23 +705,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         // examination, because it returns the value (status>>8) & 0xff.)
         //
         const int stopsig = WSTOPSIG(status);
-        if (stopsig == (SIGTRAP | 0x80)) {
-          //
-          // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
-          // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
-          // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
-          // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
-          //
-          if constexpr (std::is_void_v<ptrace::compat_tracee_state_t>) {
-            aassert(is_child_target(child));
-            on_syscall_enter_or_exit<false>(child);
-          } else {
-            if (is_child_compat(child))
-              on_syscall_enter_or_exit<true>(child);
-            else
-              on_syscall_enter_or_exit<false>(child);
-          }
-        } else if (stopsig == SIGTRAP) {
+        if (likely(stopsig == SIGTRAP)) {
           const unsigned int event = (unsigned int)status >> 16;
 
           //
@@ -923,7 +908,24 @@ int BootstrapTool::TracerLoop(pid_t child) {
             aassert(is_child_target(child));
             handle_breakpoint();
           }
-        } else if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL, reinterpret_cast<uintptr_t>(&si)) < 0) {
+        } else if (stopsig == (SIGTRAP | 0x80)) {
+          //
+          // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
+          // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
+          // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
+          // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
+          //
+          if constexpr (std::is_void_v<ptrace::compat_tracee_state_t>) {
+            aassert(is_child_target(child));
+            on_syscall_enter_or_exit<false>(child);
+          } else {
+            if (is_child_compat(child))
+              on_syscall_enter_or_exit<true>(child);
+            else
+              on_syscall_enter_or_exit<false>(child);
+          }
+        } else if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL,
+                                    reinterpret_cast<uintptr_t>(&si)) < 0) {
           //
           // (3) group-stop
           //
@@ -1758,22 +1760,26 @@ void BootstrapTool::on_breakpoint(pid_t child,
     bool IsGoto = false;
   } ControlFlow;
 
+  auto do_print_thing = [&](const char *extra = "") -> void {
+    HumanOut() << llvm::formatv("{5}{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+                                ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
+                                description_of_program_counter(SavedPC),
+                                description_of_program_counter(TargetAddr),
+                                ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
+                                child,
+                                extra).str();
+  };
+
   auto print_thing = [&](void) -> void {
     if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
-      HumanOut() << llvm::formatv("{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
-                                  ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
-                                  description_of_program_counter(SavedPC),
-                                  description_of_program_counter(TargetAddr),
-                                  ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
-                                  child).str();
+      do_print_thing();
   };
 
   if (unlikely(!is_binary_index_valid(Target.BIdx))) {
-    print_thing();
+    if (IsVeryVerbose())
+      do_print_thing("<unknown binary>");
     return;
   }
-
-  assert(is_binary_index_valid(Target.BIdx));
 
   auto &TargetBinary = jv.Binaries.at(Target.BIdx);
   auto &TargetICFG = TargetBinary.Analysis.ICFG;
@@ -2642,6 +2648,10 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   }
 
   assert(pm_it != pmm.end());
+
+  const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+  if (pm.nm.empty() || (pm.nm.front() == '[' && pm.nm != "[vdso]"))
+    return invalid_binary_index;
 
   // WARN_ON(!pm.x);
 
