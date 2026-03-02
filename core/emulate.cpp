@@ -1,10 +1,17 @@
 #if (defined(__x86_64__)  && defined(TARGET_X86_64))  || \
+    (defined(__x86_64__)  && defined(TARGET_I386))    || \
     (defined(__i386__)    && defined(TARGET_I386))    || \
     (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
     (defined(__mips64)    && defined(TARGET_MIPS64))  || \
+    (defined(__mips64)    && defined(TARGET_MIPS32))  || \
     (defined(__mips__)    && defined(TARGET_MIPS32))
 #include "emulate.h"
 #include "ptrace.h"
+#include "bootstrap.h"
+#include "tcg.h"
+#include "symbolizer.h"
+#include "explore.h"
+#include "brkpt.h"
 
 #include <vector>
 
@@ -81,14 +88,12 @@ static std::string StringOfMCInst(disas_t &disas, const llvm::MCInst &Inst) {
   return res;
 }
 
-template <bool MT, bool MinSize>
-trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
+trapped_t::trapped_t(ptrace_emulator_t &emu,
                      basic_block_index_t BBIdx,
                      binary_index_t BIdx,
-                     pid_t child,
-                     void *const ptr,
+                     taddr_t pc,
                      B::ref Bin) {
-  auto &b = emu.jv.Binaries.at(BIdx);
+  auto &b = emu.tool.jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
   auto &bbprop = ICFG[ICFG.template vertex(BBIdx)];
   const bool isCall = IsTerminatorCall(bbprop.Term.Type);
@@ -126,20 +131,22 @@ trapped_t::trapped_t(ptrace_emulator_t<MT, MinSize> &emu,
     throw std::runtime_error((fmt("no data at address 0x%lx in %s\n") % this->TermAddr % b.Name.c_str()).str());
   }
 
-  aassert(N);
+  aassert(N >= TargetBrkptLen);
 
 #undef THE_N
 
-  std::vector<std::byte> InstBytes;
-  ptrace::memcpy_from(child, InstBytes, ptr, 2*N);
+  std::vector<uint8_t> InstBytes;
+  InstBytes.resize(N);
 
-  //llvm::errs() << InstBytes.size() << '\n';
+  aassert(emu.tool.peek(pc, &InstBytes[0], N) == N);
 
-  aassert(!InstBytes.empty());
+  //
+  // TODO: explain this
+  //
   {
     const void *Ptr = B::toMappedAddr(Bin, bbprop.Term.Addr);
     aassert(Ptr);
-    __builtin_memcpy_inline(&InstBytes[0], Ptr, IsX86Target ? 1 : 4);
+    __builtin_memcpy_inline(&InstBytes[0], Ptr, TargetBrkptLen);
   }
 
 #ifdef NDEBUG
@@ -205,21 +212,6 @@ __attribute__((unused)) static const unsigned RetReg0 = 0;
 __attribute__((unused)) static const unsigned DelaySlotOpcode = 0;
 
 #include "emulate.cpp.inc"
-
-#define VALUES_TO_INSTANTIATE_WITH1                                            \
-    ((true))                                                                   \
-    ((false))
-#define VALUES_TO_INSTANTIATE_WITH2                                            \
-    ((true))                                                                   \
-    ((false))
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, product)                                   \
-  template trapped_t::trapped_t(                                     \
-      ptrace_emulator_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),    \
-                        GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &, \
-      basic_block_index_t, binary_index_t, pid_t child, void *const ptr, B::ref);
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 #if defined(__mips64) || defined(__mips__)
 

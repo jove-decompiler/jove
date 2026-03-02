@@ -1,10 +1,11 @@
 #if (defined(__x86_64__)  && defined(TARGET_X86_64))  || \
+    (defined(__x86_64__)  && defined(TARGET_I386))  || \
     (defined(__i386__)    && defined(TARGET_I386))    || \
     (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
     (defined(__mips64)    && defined(TARGET_MIPS64))  || \
+    (defined(__mips64)    && defined(TARGET_MIPS32))  || \
     (defined(__mips__)    && defined(TARGET_MIPS32))
-#include "tool.h"
-#include "B.h"
+#include "bootstrap.h"
 #include "tcg.h"
 #include "disas.h"
 #include "explore.h"
@@ -23,6 +24,7 @@
 #include "emulate.h"
 #include "fallthru.h"
 #include "wine.h"
+#include "brkpt.h"
 #include "jove/assert.h"
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -77,11 +79,6 @@
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
-static const char *syscall_names[] = {
-#define ___SYSCALL(nr, nm) [nr] = #nm,
-#include "syscalls.inc.h"
-};
-
 //#define JOVE_HAVE_MEMFD
 
 namespace fs = boost::filesystem;
@@ -92,374 +89,47 @@ using llvm::WithColor;
 
 namespace jove {
 
-struct proc_map_t {
-  uintptr_t beg;
-  uintptr_t end;
-  std::ptrdiff_t off;
+#if defined(__x86_64__)
+#define SYSCALLS_INC_H "arch/x86_64/syscalls.inc.h"
+#define COMPAT_SYSCALLS_INC_H "arch/i386/syscalls.inc.h"
+#elif defined(__i386__)
+#define SYSCALLS_INC_H "arch/i386/syscalls.inc.h"
+#elif defined(__aarch64__)
+#define SYSCALLS_INC_H "arch/aarch64/syscalls.inc.h"
+#elif defined(__mips64)
+#define SYSCALLS_INC_H "arch/mips64/syscalls.inc.h"
+#define COMPAT_SYSCALLS_INC_H "arch/mips32/syscalls.inc.h"
+#elif defined(__mips__)
+#define SYSCALLS_INC_H "arch/mips32/syscalls.inc.h"
+#else
+#error
+#endif
 
-  bool r, w, x; /* unix permissions */
-  bool p;       /* private memory? (i.e. not shared) */
-
-  std::string nm;
-
-  bool operator==(const proc_map_t &pm) const {
-    return beg == pm.beg && end == pm.end;
-  }
-
-  bool operator<(const proc_map_t &pm) const { return beg < pm.beg; }
+namespace NR {
+#define ___SYSCALL(nr, nm) static constexpr unsigned nm = nr;
+#include SYSCALLS_INC_H
+}
+static const char *the_syscall_names[] = {
+#define ___SYSCALL(nr, nm) [nr] = #nm,
+#include SYSCALLS_INC_H
 };
+#undef SYSCALLS_INC_H
 
-using indirect_branch_t = trapped_t;
-using return_t          = trapped_t;
-using breakpoint_t      = trapped_t;
-
-struct child_syscall_state_t {
-  unsigned no;
-  unsigned long a1, a2, a3, a4, a5, a6;
-  unsigned int dir : 1;
-
-  unsigned long pc;
-
-  child_syscall_state_t() : dir(0), pc(0) {}
+#ifdef COMPAT_SYSCALLS_INC_H
+namespace compat {
+namespace NR {
+#define ___SYSCALL(nr, nm) static constexpr unsigned nm = nr;
+#include COMPAT_SYSCALLS_INC_H
+}
+}
+static const char *the_compat_syscall_names[] = {
+#define ___SYSCALL(nr, nm) [nr] = #nm,
+#include COMPAT_SYSCALLS_INC_H
 };
-
-struct binary_state_t {
-  bool Skip = false;
-
-  uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
-  uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
-
-  bool Loaded(void) const {
-    return LoadAddr != std::numeric_limits<uintptr_t>::max() &&
-           LoadOffset != std::numeric_limits<uintptr_t>::max();
-  }
-
-  B::unique_ptr Bin;
-  struct {
-    elf::DynRegionInfo DynamicTable;
-    llvm::StringRef DynamicStringTable;
-    const Elf_Shdr *SymbolVersionSection;
-    std::vector<elf::VersionMapEntry> VersionMap;
-    std::optional<elf::DynRegionInfo> OptionalDynSymRegion;
-
-    elf::DynRegionInfo DynRelRegion;
-    elf::DynRegionInfo DynRelaRegion;
-    elf::DynRegionInfo DynRelrRegion;
-    elf::DynRegionInfo DynPLTRelRegion;
-  } _elf;
-
-  binary_state_t(const auto &b) {
-    Bin = B::Create(b.data());
-
-    B::_elf(Bin.get(), [&](ELFO &Obj) {
-    elf::loadDynamicTable(Obj, _elf.DynamicTable);
-
-    _elf.OptionalDynSymRegion =
-        loadDynamicSymbols(Obj,
-                           _elf.DynamicTable,
-                           _elf.DynamicStringTable,
-                           _elf.SymbolVersionSection,
-                           _elf.VersionMap);
-
-    loadDynamicRelocations(Obj,
-                           _elf.DynamicTable,
-                           _elf.DynRelRegion,
-                           _elf.DynRelaRegion,
-                           _elf.DynRelrRegion,
-                           _elf.DynPLTRelRegion);
-    });
-  }
-};
+#endif
 
 struct notrap_exception {
-  uintptr_t pc;
-};
-
-struct BootstrapTool
-    : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
-  struct Cmdline {
-    cl::opt<std::string> Prog;
-    cl::list<std::string> Args;
-    cl::list<std::string> Envs;
-    cl::opt<bool> Quiet;
-    cl::alias QuietAlias;
-    cl::opt<std::string> HumanOutput;
-    cl::opt<bool> RtldDbgBrk;
-    cl::opt<bool> PrintPtraceEvents;
-    cl::alias PrintPtraceEventsAlias;
-    cl::opt<bool> Syscalls;
-    cl::alias SyscallsAlias;
-    cl::opt<bool> Signals;
-    cl::opt<bool> PrintLinkMap;
-    cl::alias PrintLinkMapAlias;
-    cl::opt<unsigned> PID;
-    cl::alias PIDAlias;
-    cl::opt<bool> Fast;
-    cl::alias FastAlias;
-    cl::opt<bool> Longjmps;
-    cl::opt<std::string> ShowMe;
-    cl::opt<bool> Symbolize;
-    cl::opt<bool> Addr2Line;
-    cl::opt<std::string> Group;
-    cl::alias GroupAlias;
-    cl::opt<std::string> User;
-    cl::alias UserAlias;
-    cl::list<std::string> SkipBins;
-
-    Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
-               cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          Args("args", cl::CommaSeparated, cl::ConsumeAfter,
-               cl::desc("<program arguments>..."), cl::cat(JoveCategory)),
-
-          Envs("env", cl::CommaSeparated,
-               cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
-               cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
-
-          Quiet("quiet", cl::desc("Suppress non-error messages"),
-                cl::cat(JoveCategory), cl::init(false)),
-
-          QuietAlias("q", cl::desc("Alias for -quiet."), cl::aliasopt(Quiet),
-                     cl::cat(JoveCategory)),
-
-          HumanOutput("human-output",
-                      cl::desc("Print messages to the given file path"),
-                      cl::cat(JoveCategory)),
-
-          RtldDbgBrk("rtld-dbg-brk", cl::desc("look for r_debug::r_brk"),
-                     cl::cat(JoveCategory)),
-
-          PrintPtraceEvents("events",
-                            cl::desc("Print PTRACE events when they occur"),
-                            cl::cat(JoveCategory)),
-
-          PrintPtraceEventsAlias("e", cl::desc("Alias for -events."),
-                                 cl::aliasopt(PrintPtraceEvents),
-                                 cl::cat(JoveCategory)),
-
-          Addr2Line("addr2line", cl::desc("Run addr2line to symbolize"),
-                   cl::cat(JoveCategory)),
-
-          Syscalls("syscalls", cl::desc("Always trace system calls"),
-                   cl::cat(JoveCategory)),
-
-          SyscallsAlias("s", cl::desc("Alias for -syscalls."),
-                        cl::aliasopt(Syscalls), cl::cat(JoveCategory)),
-
-          Signals("signals", cl::desc("Print when delivering signals"),
-                  cl::cat(JoveCategory)),
-
-          PrintLinkMap("print-link-map", cl::desc("Always scan link map"),
-                       cl::cat(JoveCategory)),
-
-          PrintLinkMapAlias("l", cl::desc("Alias for -print-link-map."),
-                            cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory)),
-
-          PID("attach", cl::desc("attach to existing process PID"),
-              cl::cat(JoveCategory), cl::init(0)),
-
-          PIDAlias("p", cl::desc("Alias for -attach."), cl::aliasopt(PID),
-                   cl::cat(JoveCategory)),
-
-          Fast("fast", cl::desc("\"Fast\" mode"), cl::cat(JoveCategory)),
-
-          FastAlias("f", cl::desc("Alias for -fast."), cl::aliasopt(Fast),
-                    cl::cat(JoveCategory)),
-
-          Longjmps("longjmps", cl::desc("Print when longjmp happens"),
-                   cl::cat(JoveCategory)),
-
-          ShowMe("show",
-                 cl::desc("Control whether to print when code is recovered"),
-                 cl::value_desc("(n)ever|(a)lways|(s)ometimes"), cl::init("s"),
-                 cl::cat(JoveCategory)),
-
-          Symbolize("symbolize", cl::desc("Whether to run addr2line"),
-                    cl::init(true), cl::cat(JoveCategory)),
-
-          Group("group", cl::desc("Run as given group"), cl::cat(JoveCategory)),
-
-          GroupAlias("g", cl::desc("Alias for --group"), cl::aliasopt(Group),
-                     cl::cat(JoveCategory)),
-
-          User("user", cl::desc("Run as given user"), cl::cat(JoveCategory)),
-
-          UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
-                    cl::cat(JoveCategory)),
-
-          SkipBins("skip-binaries", cl::CommaSeparated, cl::value_desc("name"),
-                   cl::cat(JoveCategory)) {}
-  } opts;
-
-  template <typename Key, typename Value>
-  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
-
-  template <typename T>
-  using unordered_set = boost::unordered::unordered_flat_set<T>;
-
-  bool RightArch = true;
-  const bool IsCOFF;
-  bool ForkFirstTime = true;
-  unordered_set<pid_t> forked;
-  unordered_set<pid_t> exited;
-
-  std::unique_ptr<ptrace_emulator_t<IsToolMT, IsToolMinSize>> emulator;
-
-  std::unique_ptr<tiny_code_generator_t> tcg;
-  std::unique_ptr<disas_t> disas;
-  std::unique_ptr<symbolizer_t> symbolizer;
-  std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> E;
-
-  std::vector<struct proc_map_t> cached_proc_maps;
-
-  typedef boost::container::flat_map<addr_intvl, unsigned, addr_intvl_cmp>
-      pmm_t;
-
-  pmm_t pmm;
-
-  unordered_set<binary_index_t> Loaded;
-  bool AllLoaded(void) const { return Loaded.size() == jv.Binaries.size(); }
-
-  address_space_t AddressSpace;
-
-  struct {
-    std::string path_to_debug_log;
-  } _coff;
-
-  unsigned TurboToggle = 0;
-
-  static constexpr int ptrace_options =
-      PTRACE_O_TRACESYSGOOD
-    | PTRACE_O_EXITKILL
-    | PTRACE_O_TRACEEXIT
-    | PTRACE_O_TRACEEXEC
-    | PTRACE_O_TRACEFORK
-    | PTRACE_O_TRACEVFORK
-    | PTRACE_O_TRACECLONE
-  ;
-
-  pid_t _child = 0; /* XXX */
-
-  std::set<pid_t> children;
-
-  unordered_map<uintptr_t, trapped_t> trapmap;
-
-  struct {
-    bool Found = false;
-
-    void *ptr = nullptr;
-    uintptr_t brk = 0;
-
-    void Reset(void) {
-      Found = false;
-
-      ptr = nullptr;
-      brk = 0;
-    }
-  } _r_debug;
-
-  unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
-
-  bool ShowMeN = false;
-  bool ShowMeA = false;
-  bool ShowMeS = false;
-
-  void on_new_binary(binary_t &b) {
-    const binary_index_t BIdx = index_of_binary(b, jv);
-
-    assert(is_binary_index_valid(BIdx));
-
-    b.IsDynamicallyLoaded = true;
-
-    if (IsVerbose())
-      HumanOut() << llvm::formatv("added {0}\n", b.Name.c_str());
-  }
-
-  void Reset(void) noexcept {
-    RightArch = true;
-
-    trapmap.clear();
-    Loaded.clear();
-    cached_proc_maps.clear();
-    pmm.clear();
-    AddressSpace.clear();
-    children_syscall_state.clear();
-
-    _r_debug.Reset();
-
-    emulator->ExecutableRegionAddress = 0x0;
-    TurboToggle = 0;
-  }
-
-public:
-  BootstrapTool()
-      : opts(JoveCategory),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {}
-
-  int Run(void) override;
-
-  int TracerLoop(pid_t child);
-
-  // breakpoints aren't placed until on_binary_loaded()
-
-  template <bool ValidatePath>
-  binary_index_t BinaryFromPath(pid_t, const char *path);
-  binary_index_t BinaryFromData(pid_t, std::string_view data,
-                                const char *name = nullptr);
-
-  void on_new_basic_block(binary_t &, bbprop_t &, basic_block_index_t);
-  void on_new_function(binary_t &, function_t &);
-
-  void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
-                                           indirect_branch_t &);
-
-  void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret);
-
-  void on_binary_loaded(pid_t, binary_index_t, const proc_map_t &);
-
-  void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
-
-  trapped_t &place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
-  void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
-  void on_breakpoint(pid_t, ptrace::tracee_state_t &);
-  void on_return(pid_t child,
-                 binary_index_t RetBIdx,
-                 uintptr_t AddrOfRet,
-                 uintptr_t RetAddr);
-
-  void rendezvous_with_dynamic_linker(pid_t);
-  void scan_rtld_link_map(pid_t);
-
-  bool UpdateVM(pid_t);
-  void ScanAddressSpace(pid_t child, bool VMUpdate = true);
-
-  uintptr_t pc_of_offset(uintptr_t off, binary_index_t BIdx);
-  uintptr_t pc_of_va(uintptr_t Addr, binary_index_t BIdx);
-  uintptr_t va_of_pc(uintptr_t Addr, binary_index_t BIdx);
-
-  binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
-  block_t
-  block_at_program_counter(pid_t, uintptr_t valid_pc);
-  std::pair<binary_index_t, function_index_t>
-  function_at_program_counter(pid_t, uintptr_t valid_pc);
-
-  std::pair<binary_index_t, basic_block_index_t>
-  existing_block_at_program_counter(pid_t child, uintptr_t pc);
-
-  std::string description_of_program_counter(uintptr_t, bool Verbose = false, bool Symbolize = true);
-  std::string StringOfMCInst(llvm::MCInst &);
-
-  pid_t saved_child = -1;
-  std::atomic<bool> ToggleTurbo = false;
-
-  static_assert(sizeof(binary_index_t) + sizeof(basic_block_index_t) == 8);
-
-  bool DidAttach(void) {
-    return opts.PID != 0;
-  }
-
-  void DropPrivileges(void);
+  taddr_t pc;
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
@@ -481,6 +151,135 @@ static std::string ProcMapsForPid(pid_t);
 
 static BootstrapTool *pTool;
 static void SignalHandler(int no);
+
+BootstrapTool::~BootstrapTool() {}
+
+scoped_fd &BootstrapTool::mem_for_child(void) {
+  auto it = children.mem_fdmap.find(_child);
+  if (it == children.mem_fdmap.end()) {
+    std::string path_to_mem = "/proc/" + std::to_string(_child) + "/mem";
+    int fd = sys::retry_eintr(::open, path_to_mem.c_str(), O_RDWR | O_CLOEXEC);
+    if (fd < 0)
+      throw std::runtime_error("failed to open " + path_to_mem + ": " +
+                               strerror(errno));
+
+    return (*children.mem_fdmap.emplace(_child, fd).first).second;
+  }
+  return (*it).second;
+}
+
+template <bool Throw>
+ssize_t BootstrapTool::peek(const taddr_t src,
+                            uint8_t *const dst,
+                            const size_t len) {
+  auto peek_using_proc_mem = [&](void) -> bool {
+    scoped_fd &fd = mem_for_child();
+    if (!fd)
+      return false;
+
+    size_t n = 0;
+    while (n != len) {
+      size_t left = len - n;
+      ssize_t ret =
+          sys::retry_eintr(::pread64, fd.get(), &dst[n], left, src + n);
+
+      if (likely(ret > 0)) {
+        n += static_cast<size_t>(ret);
+        continue;
+      }
+
+      if (ret == 0)
+        return false;
+
+      aassert(ret < 0);
+      const int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      if (err == EIO)
+        return false;
+    }
+
+    return n == len;
+  };
+
+  auto peek_using_process_vm = [&](void) -> bool {
+    return ptrace::vm_read<Throw>(_child, src, dst, len) == len;
+  };
+
+  auto peek_using_peekdata = [&](void) -> bool {
+    return ptrace::vm_peek<Throw>(_child, src, dst, len) == len;
+  };
+
+  if (peek_using_proc_mem()   ||
+      peek_using_process_vm() ||
+      peek_using_peekdata())
+    return len;
+
+  if constexpr (Throw)
+    throw ptrace::tracer_exception(EIO, src);
+
+  abort();
+}
+
+template <bool Throw>
+ssize_t BootstrapTool::poke(const taddr_t dst,
+                            const uint8_t *src,
+                            const size_t len) {
+  auto poke_using_proc_mem = [&](void) -> bool {
+    scoped_fd &fd = mem_for_child();
+    if (!fd)
+      return false;
+
+    size_t n = 0;
+    while (n != len) {
+      size_t left  = len - n;
+      ssize_t ret = sys::retry_eintr(::pwrite64, fd.get(), &src[n], left, dst + n);
+
+      if (likely(ret > 0)) {
+        n += static_cast<size_t>(ret);
+        continue;
+      }
+
+      if (ret == 0) {
+        abort(); /* should never happen */
+      }
+
+      aassert(ret < 0);
+      const int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      if constexpr (Throw) {
+        throw ptrace::tracer_exception(err, dst);
+      }
+
+      return -err;
+    }
+
+    return n == len;
+  };
+
+  auto poke_using_process_vm = [&](void) -> bool {
+    return ptrace::vm_write<Throw>(_child, dst, src, len) == len;
+  };
+
+  auto poke_using_pokedata = [&](void) -> bool {
+    return ptrace::vm_poke<Throw>(_child, dst, src, len) == len;
+  };
+
+  if (poke_using_proc_mem()   ||
+      poke_using_process_vm() ||
+      poke_using_pokedata())
+    return len;
+
+  if constexpr (Throw)
+    throw ptrace::tracer_exception(EIO, dst);
+
+  abort();
+}
 
 int BootstrapTool::Run(void) {
   pTool = this;
@@ -718,9 +517,8 @@ int BootstrapTool::Run(void) {
   symbolizer = std::make_unique<symbolizer_t>(locator(), opts.Addr2Line);
   }
   E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-  emulator =
-      std::make_unique<ptrace_emulator_t<IsToolMT, IsToolMinSize>>(jv, *disas);
+      jv_file, jv, *disas, *tcg, std::max<unsigned>(GetVerbosityLevel(), 1u));
+  emulator = std::make_unique<ptrace_emulator_t>(*this, *disas);
   emulator->SetVerbosityLevel(GetVerbosityLevel());
   E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
                               std::placeholders::_1,
@@ -734,29 +532,28 @@ int BootstrapTool::Run(void) {
   // look around, what do we see?
   //
   _child = child;
+  Engaged = true;
   ScanAddressSpace(child);
 
   if (IsVerbose()) {
     //
     // we should be at the entry point of the dynamic linker
     //
-    ptrace::tracee_state_t tracee_state;
-    ptrace::get(child, tracee_state);
+    ptrace::target_tracee_state_t tracee_state;
+    tracee_state.get(child);
 
     if (IsVerbose())
       HumanOut() << llvm::formatv(
           "first ptrace-stop @ {0}\n",
-          description_of_program_counter(
-              ptrace::pc_of_tracee_state(tracee_state), true));
+          description_of_program_counter(tracee_state.program_counter(), true));
 
-    auto BBPair = block_at_program_counter(
-        child, ptrace::pc_of_tracee_state(tracee_state));
+    auto BBPair =
+        block_at_program_counter(child, tracee_state.program_counter());
 
     if (unlikely(!is_basic_block_index_valid(BBPair.second)))
       HumanOut() << llvm::formatv(
           "failed to translate block at first ptrace-stop @ {0}\n",
-          description_of_program_counter(
-              ptrace::pc_of_tracee_state(tracee_state), true));
+          description_of_program_counter(tracee_state.program_counter(), true));
   }
 
   //
@@ -768,10 +565,41 @@ int BootstrapTool::Run(void) {
                                 __func__, strerror(err));
   }
 
+  //
+  // go
+  //
+  aassert(_jove_sys_ptrace(opts.Syscalls ? PTRACE_SYSCALL : PTRACE_CONT, child,
+                           0UL, 0UL) == 0);
+
   return TracerLoop(child);
 }
 
-uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
+void BootstrapTool::Reset(void) {
+  Engaged = true;
+
+  trapmap.clear();
+  Loaded.clear();
+  cached_proc_maps.clear();
+  pmm.clear();
+  AddressSpace.clear();
+#if 0
+  children.set.clear();
+#endif
+  children.mem_fdmap.clear();
+  children.is_target_map.clear();
+  children_syscall_state_map.clear();
+
+  _r_debug.Reset();
+
+  emulator->ExecutableRegionAddress = 0x0;
+
+#if defined(TARGET_I386)
+  emulator->fs_base = ~0ul;
+  emulator->fs_base = ~0ul;
+#endif
+}
+
+taddr_t BootstrapTool::pc_of_offset(taddr_t off, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
   auto &x = state.for_binary(binary);
 
@@ -782,7 +610,7 @@ uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
   return off + (x.LoadAddr - x.LoadOffset);
 }
 
-uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
+taddr_t BootstrapTool::pc_of_va(taddr_t Addr, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
   auto &x = state.for_binary(binary);
 
@@ -799,7 +627,7 @@ uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
   return off + (x.LoadAddr - x.LoadOffset);
 }
 
-uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
+taddr_t BootstrapTool::va_of_pc(taddr_t pc, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
   auto &x = state.for_binary(binary);
 
@@ -819,28 +647,26 @@ uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
 int BootstrapTool::TracerLoop(pid_t child) {
   siginfo_t si;
   long sig = 0;
+  const unsigned long syscall_or_cont =
+      opts.Syscalls ? PTRACE_SYSCALL : PTRACE_CONT;
 
   {
-    for (;;) {
-      if (likely(!(child < 0))) {
-        if (unlikely(_jove_sys_ptrace((RightArch && opts.Syscalls)
-                                          ? PTRACE_SYSCALL
-                                          : PTRACE_CONT,
-                                      child, 0UL, sig) < 0))
-          HumanOut() << llvm::formatv("failed to resume tracee {0}: {1}\n",
-                                      child, strerror(errno));
-      }
+    for (;; (void)({
+           if (!(child < 0)) {
+             if (unlikely(_jove_sys_ptrace(syscall_or_cont, child, 0UL, sig) <
+                          0))
+               HumanOut() << llvm::formatv("failed to resume tracee {0}: {1}\n",
+                                           child, strerror(errno));
+           }
 
-      //
-      // reset restart signal
-      //
-      sig = 0;
+           0;
+         })) {
 
       //
       // wait for a child process to stop or terminate
       //
       int status;
-      child = saved_child = _jove_sys_wait4(-1, &status, __WALL, NULL);
+      _child = child = _jove_sys_wait4(-1, &status, __WALL, NULL);
       if (unlikely(child < 0)) {
         const int err = -child;
         assert(err != EINTR);
@@ -851,181 +677,15 @@ int BootstrapTool::TracerLoop(pid_t child) {
         break;
       }
 
-      children.insert(child);
-      _child = child; /* XXX */
+#if 0
+      children.set.insert(child);
+#endif
 
       if (likely(WIFSTOPPED(status))) {
         //
         // this is an opportunity to examine the state of the tracee
         //
-        if (unlikely(forked.contains(child))) {
-          const pid_t new_child = child;
-
-          forked.erase(new_child);
-
-          if (IsVeryVerbose())
-            llvm::errs() << llvm::formatv("waited on forked child. [{0}]\n", child);
-
-          //
-          // upon a fork(), we detach, fork(), and then reattach.
-          //
-          if (_jove_sys_ptrace(PTRACE_DETACH, new_child, 0UL, SIGSTOP) < 0) {
-            int err = errno;
-            die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
-          } else {
-            if (IsVeryVerbose())
-              llvm::errs() << llvm::formatv("detached [{0}]\n", new_child);
-          }
-
-          scoped_fd our_pfd(pidfd_open(::getpid(), 0));
-          if (jove::fork()) {
-            child = -1;
-          } else {
-            if (::prctl(PR_SET_PDEATHSIG, SIGKILL) < 0) {
-              int err = errno;
-              if (IsVerbose())
-                WithColor::warning()
-                    << llvm::formatv("prctl failed: {0}\n", strerror(err));
-            }
-
-            if (our_pfd) {
-              const int poll_ret = ({
-                struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
-                sys::retry_eintr(::poll, &pfd, 1, 0);
-              });
-
-              aassert(poll_ret >= 0);
-
-              our_pfd.close();
-              if (poll_ret != 0) {
-                //
-                // parent is already gone.
-                //
-                for (;;)
-                  _exit(0);
-                __builtin_unreachable();
-              }
-            }
-
-            if (_jove_sys_ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL) < 0) {
-              int err = errno;
-              die("PTRACE_ATTACH on fork() " + std::string(strerror(err)));
-            } else {
-              if (IsVeryVerbose())
-                llvm::errs() << llvm::formatv("attached [{0}]\n", new_child);
-
-              //
-              // the tracee will not necessarily have stopped by the completion of this call.
-              //
-              {
-                int status;
-                do
-                  ::waitpid(-1, &status, __WALL);
-                while (!WIFSTOPPED(status));
-              }
-
-              //
-              // establish options
-              //
-              static_assert(ptrace_options & PTRACE_O_TRACEEXEC, "needs to be set here");
-
-              if (_jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
-                int err = errno;
-                HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                                  __func__,
-                                                  strerror(err));
-              }
-            }
-          }
-
-          continue;
-        }
-
-#if 0
-        if (unlikely(ToggleTurbo.load())) {
-          ToggleTurbo.store(false);
-
-          if (!TurboToggle) {
-            HumanOut() << __ANSI_BOLD_GREEN "TURBO ON" __ANSI_NORMAL_COLOR "\n";
-
-            for (const auto &Entry : RetMap) {
-              uintptr_t Addr  = Entry.first;
-              const auto &Ret = Entry.second;
-
-              // write the word back
-              try {
-                _ptrace_pokedata(child, Addr, Ret.words[0]);
-              } catch (...) {
-                ;
-              }
-            }
-
-            for (const auto &Entry : IndBrMap) {
-              uintptr_t Addr  = Entry.first;
-              const auto &Jmp = Entry.second;
-
-              // write the word back
-              try {
-                _ptrace_pokedata(child, Addr, Jmp.words[0]);
-              } catch (...) {
-                ;
-              }
-            }
-
-            for (const auto &Entry : BrkMap) {
-              uintptr_t Addr = Entry.first;
-              const auto &Brk = Entry.second;
-
-              // write the word back
-              try {
-                _ptrace_pokedata(child, Addr, Brk.words[0]);
-              } catch (...) {
-                ;
-              }
-            }
-          } else {
-            HumanOut() << __ANSI_BOLD_RED "TURBO OFF" __ANSI_NORMAL_COLOR "\n";
-
-            for (const auto &Entry : RetMap) {
-              uintptr_t Addr  = Entry.first;
-              const auto &Ret = Entry.second;
-
-              // write the word back
-              try {
-                _ptrace_pokedata(child, Addr, Ret.words[1]);
-              } catch (...) {
-                ;
-              }
-            }
-
-            for (const auto &Entry : IndBrMap) {
-              uintptr_t Addr  = Entry.first;
-              const auto &Jmp = Entry.second;
-
-              // write the word back
-              try {
-                _ptrace_pokedata(child, Addr, Jmp.words[1]);
-              } catch (...) {
-                ;
-              }
-            }
-
-            for (const auto &Entry : BrkMap) {
-              uintptr_t Addr = Entry.first;
-              const auto &Brk = Entry.second;
-
-              // write the word back
-              try {
-                _ptrace_pokedata(child, Addr, Brk.words[1]);
-              } catch (...) {
-                ;
-              }
-            }
-          }
-
-          TurboToggle ^= 1;
-        }
-#endif
+        sig = 0;
 
         rendezvous_with_dynamic_linker(child);
 
@@ -1044,209 +704,22 @@ int BootstrapTool::TracerLoop(pid_t child) {
         // examination, because it returns the value (status>>8) & 0xff.)
         //
         const int stopsig = WSTOPSIG(status);
-        if (likely(RightArch) && stopsig == (SIGTRAP | 0x80)) {
+        if (stopsig == (SIGTRAP | 0x80)) {
           //
           // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
           // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
           // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
           // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
           //
-          child_syscall_state_t &syscall_state = children_syscall_state[child];
-
-          ptrace::tracee_state_t tracee_state;
-          ptrace::get(child, tracee_state);
-
-          long pc = ptrace::pc_of_tracee_state(tracee_state);
-          long ra =
-#if defined(__mips64) || defined(__mips__)
-              tracee_state.regs[31]
-#else
-              0
-#endif
-              ;
-
-          //
-          // determine whether this syscall is entering or has exited
-          //
-#if defined(__arm__)
-          unsigned dir = tracee_state.uregs[12]; /* unambiguous */
-#else
-          unsigned dir = syscall_state.dir;
-
-          if (syscall_state.pc != pc)
-            dir = 0; /* we must see the same pc twice */
-#endif
-
-          if (dir == 0 /* enter */) {
-            //
-            // syscall # and arguments
-            //
-#if defined(__x86_64__)
-            const auto no = tracee_state.orig_rax;
-            const auto a1 = tracee_state.rdi;
-            const auto a2 = tracee_state.rsi;
-            const auto a3 = tracee_state.rdx;
-            const auto a4 = tracee_state.r10;
-            const auto a5 = tracee_state.r8;
-            const auto a6 = tracee_state.r9;
-#elif defined(__i386__)
-            const auto no = tracee_state.orig_eax;
-            const auto a1 = tracee_state.ebx;
-            const auto a2 = tracee_state.ecx;
-            const auto a3 = tracee_state.edx;
-            const auto a4 = tracee_state.esi;
-            const auto a5 = tracee_state.edi;
-            const auto a6 = tracee_state.ebp;
-#elif defined(__aarch64__)
-            const auto no = tracee_state.regs[8];
-            const auto a1 = tracee_state.regs[0];
-            const auto a2 = tracee_state.regs[1];
-            const auto a3 = tracee_state.regs[2];
-            const auto a4 = tracee_state.regs[3];
-            const auto a5 = tracee_state.regs[4];
-            const auto a6 = tracee_state.regs[5];
-#elif defined(__mips64) || defined(__mips__)
-            const auto no = tracee_state.regs[2];
-            const auto a1 = tracee_state.regs[4];
-            const auto a2 = tracee_state.regs[5];
-            const auto a3 = tracee_state.regs[6];
-            const auto a4 = tracee_state.regs[7];
-            const auto a5 = ptrace::peekdata(child, tracee_state.regs[29 /* sp */] + 16);
-            const auto a6 = ptrace::peekdata(child, tracee_state.regs[29 /* sp */] + 20);
-#else
-#error
-#endif
-
-            syscall_state.no = no;
-            syscall_state.a1 = a1;
-            syscall_state.a2 = a2;
-            syscall_state.a3 = a3;
-            syscall_state.a4 = a4;
-            syscall_state.a5 = a5;
-            syscall_state.a6 = a6;
-
-            auto on_syscall_enter = [&](void) -> void {
-              switch (no) {
-              case __NR_exit:
-              case __NR_exit_group:
-                if (IsVerbose())
-                  HumanOut() << "Observed program exit.\n";
-                break;
-
-              default:
-                break;
-              }
-            };
-
-            try {
-              on_syscall_enter();
-            } catch (const std::exception &e) {
-              ;
-            }
-          } else { /* exit */
-#if defined(__mips64) || defined(__mips__)
-            long r7 = tracee_state.regs[7];
-            long r2 = tracee_state.regs[2];
-#endif
-
-            long ret =
-#if defined(__x86_64__)
-                tracee_state.rax
-#elif defined(__i386__)
-                tracee_state.eax
-#elif defined(__aarch64__)
-                tracee_state.regs[0]
-#elif defined(__arm__)
-                tracee_state.uregs[0]
-#elif defined(__mips64) || defined(__mips__)
-                r7 && r2 > 0 ? -r2 : r2
-#else
-#error
-#endif
-                ;
-
-            const auto no = syscall_state.no;
-            const auto a1 = syscall_state.a1;
-            const auto a2 = syscall_state.a2;
-            const auto a3 = syscall_state.a3;
-            const auto a4 = syscall_state.a4;
-            const auto a5 = syscall_state.a5;
-            const auto a6 = syscall_state.a6;
-
-            auto on_syscall_exit = [&](void) -> void {
-              if (unlikely(ret < 0 && ret > -4096))
-                return; /* system call probably failed */
-
-              HumanOut() << syscall_names[no] << '\n';
-
-              switch (no) {
-#ifdef __NR_rt_sigaction
-              case __NR_rt_sigaction: {
-                if (IsVeryVerbose())
-                  HumanOut() << llvm::formatv(
-                      "rt_sigaction({0}, {1:x}, {2:x}, {3})\n", a1, a2, a3, a4);
-
-                uintptr_t act = a2;
-                if (act) {
-                  constexpr unsigned handler_offset =
-#if defined(__mips__)
-                      4
-#else
-                      0
-#endif
-                      ;
-                  uintptr_t handler = ptrace::peekdata(child, act + handler_offset);
-
-                  if (IsVeryVerbose() && handler)
-                    HumanOut() << llvm::formatv(
-                        "on rt_sigaction(): handler={0:x}\n", handler);
-
-                  if (handler && (void *)handler != SIG_IGN) {
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-                    handler &= ~1UL;
-#endif
-
-                    binary_index_t BIdx;
-                    function_index_t FIdx;
-                    std::tie(BIdx, FIdx) = function_at_program_counter(child, handler);
-                    if (likely(is_function_index_valid(FIdx))) {
-                      function_t &f = jv.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-                      f.IsSignalHandler = true;
-                      f.IsABI = true;
-                    } else {
-                      HumanOut() << llvm::formatv(
-                          "on rt_sigaction(): failed to translate handler {0}\n",
-                          description_of_program_counter(handler), true);
-                    }
-                  }
-                }
-
-                break;
-              }
-#endif
-
-              default:
-                break;
-              }
-            };
-
-            try {
-              on_syscall_exit();
-            } catch (const std::exception &e) {
-              ;
-            }
+          if constexpr (std::is_void_v<ptrace::compat_tracee_state_t>) {
+            aassert(is_child_target(child));
+            on_syscall_enter_or_exit<false>(child);
+          } else {
+            if (is_child_compat(child))
+              on_syscall_enter_or_exit<true>(child);
+            else
+              on_syscall_enter_or_exit<false>(child);
           }
-
-          dir ^= 1;
-
-          syscall_state.pc = pc;
-          syscall_state.dir = dir;
-
-          if (unlikely(opts.PrintLinkMap))
-            scan_rtld_link_map(child);
-
-          if (unlikely(!AllLoaded()))
-            ScanAddressSpace(child);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
@@ -1366,9 +839,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 HumanOut() << llvm::formatv(
                     "<PTRACE_EVENT_EXEC> \"{0}\" [{1}]\n", exe_path, new_pid);
               else if (IsVerbose())
-                HumanOut() << llvm::formatv(
-                    "tracee {0} exec'd!{1}\n", new_pid,
-                    IsVeryVerbose() ? (" (" + exe_path + ")") : "");
+                HumanOut() << llvm::formatv("tracee {0} exec'd {1}\n", new_pid,
+                                            exe_path);
 
               //
               // the address space has been reset, so we need
@@ -1377,37 +849,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
               //
               this->Reset(); /* right arch is assumed */
 
-              //
-              // check that the executable architecture matches our target.
-              //
-              // even if one provides a 64-bit windows program for WINE to run,
-              // it still may exec a 32-bit windows program (i.e. the preloader)
-              // as part of the startup sequence.
-              //
-              if (!exe_path.empty()) {
-                std::vector<uint8_t> BinBytes;
-                B::unique_ptr Bin;
-
-                //
-                // XXX memfd cover-up
-                //
-                const bool Ex =
-                    ignore_exception([&] {
-                      if (boost::algorithm::starts_with(exe_path, "/memfd:jove/bootstrap"))
-                        Bin = B::Create(jv.Binaries.at(0).data());
-                      else
-                        Bin = B::CreateFromFile(exe_path.c_str(), BinBytes);
-                    });
-
-                if (Ex || (!B::is_elf(Bin.get()) && !B::is_coff(Bin.get()))) {
-                  RightArch = false;
-
-                  //if (IsVeryVerbose())
-                    WithColor::note() << llvm::formatv("!RightArch [{0}]\n", child);
-                }
-              }
-
               auto DetachFromChild = [&](void) -> void {
+                if (IsVerbose())
+                  HumanOut() << llvm::formatv("detaching from {0}!\n", child);
+
                 if (_jove_sys_ptrace(PTRACE_DETACH, child, 0UL, 0UL) < 0) {
                   int err = errno;
                   die("PTRACE_DETACH on exec of wineserver: " + std::string(strerror(err)));
@@ -1415,14 +860,19 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
                 ::kill(child, SIGCONT);
 
+#if 0
                 child = -1;
+#endif
               };
 
               bool ShouldDetach = false;
 
-              if (fs::equivalent(locator().wine_server(IsTarget32), exe_path))
+              if (!is_child_target(child))
+                Engaged = false;
+
+              if (fs::equivalent(locator().wine_server(IsTarget32), exe_path)) {
                 ShouldDetach = true;
-              if (fs::equivalent(locator().wine_preloader(IsTarget32), exe_path)) {
+              } else if (fs::equivalent(locator().wine_preloader(IsTarget32), exe_path)) {
                 aassert(args.size() >= 3);
 
                 if (!fs::equivalent(args.at(2), jv.Binaries.at(0).path_str())) {
@@ -1437,8 +887,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
               }
 
               if (ShouldDetach) {
+                Engaged = false;
                 DetachFromChild();
-              } else {
+              } else if (Engaged) {
                 ScanAddressSpace(child, true);
               }
 
@@ -1469,70 +920,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
               break;
             }
           } else {
-            ptrace::tracee_state_t tracee_state;
-            ptrace::scoped_tracee_state_t scoped_tracee_state(child,
-                                                              tracee_state);
-            try {
-              on_breakpoint(child, tracee_state);
-            } catch (const notrap_exception &) {
-              if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL, reinterpret_cast<uintptr_t>(&si)) < 0) {
-                HumanOut() << "getsiginfo failed!\n";
-              }
-#if 0
-              {
-                HumanOut() << "si.si_signo=" << si.si_signo << '\n';
-                HumanOut() << "si.si_code=" << si.si_code << '\n';
-              }
-#endif
-
-              if (si.si_code <= 0) {
-                //
-                // SIGTRAP was generated by a user-space action
-                //
-                ;
-              } else if (si.si_code == 128) {
-#if 1
-                ScanAddressSpace(child);
-#endif
-                auto &pc = ptrace::pc_of_tracee_state(tracee_state);
-
-                uintptr_t SavedPC = pc;
-
-#if defined(__x86_64__) || defined(__i386__)
-                //
-                // rewind before the breakpoint instruction (why is this x86-specific?)
-                //
-                SavedPC -= 1; /* int3 */
-#endif
-
-                binary_index_t BIdx;
-                basic_block_index_t BBIdx;
-                std::tie(BIdx, BBIdx) =
-                    existing_block_at_program_counter(child, SavedPC);
-
-                if (unlikely(!is_basic_block_index_valid(BBIdx))) {
-                  HumanOut() << llvm::formatv(
-                      "wtf @ {0}\n",
-                      description_of_program_counter(SavedPC, true));
-                }
-
-                binary_t &b = jv.Binaries.at(BIdx);
-                auto &ICFG = b.Analysis.ICFG;
-                fallthru<void>(
-                    jv, BIdx, BBIdx,
-                    [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
-                      if (IsTerminatorIndirect(bbprop.Term.Type))
-                        place_breakpoints_in_block(
-                            b, ICFG[ICFG.vertex<false>(BBIdx_)], BBIdx_);
-                    });
-
-                try {
-                  on_breakpoint(child, tracee_state);
-                } catch (const notrap_exception &) {
-                  die("wtf");
-                }
-              }
-            }
+            aassert(is_child_target(child));
+            handle_breakpoint();
           }
         } else if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL, reinterpret_cast<uintptr_t>(&si)) < 0) {
           //
@@ -1554,8 +943,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
           sig = stopsig;
 
           if (stopsig == SIGSEGV) {
+            if (ptrace::is_target_compat)
+              aassert(is_child_compat(child));
+            else
+              aassert(!is_child_compat(child));
+
             ptrace::tracee_state_t tracee_state;
-            ptrace::get(child, tracee_state);
+            tracee_state.get(child);
 #if defined(__mips64) || defined(__mips__)
           //
           // recognize the 'jr $zero' hack. This trickery is to avoid emulating
@@ -1568,10 +962,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
               // 'jr $zero', so we simply set the program counter to the return
               // address register.
               //
-              uintptr_t RetAddr = tracee_state.regs[31 /* ra */];
+              taddr_t RetAddr = tracee_state.regs[31 /* ra */];
 
               tracee_state.cp0_epc = RetAddr;
-              ptrace::set(child, tracee_state);
+              tracee_state.set(child);
 
               sig = 0; /* suppress */
 
@@ -1580,11 +974,98 @@ int BootstrapTool::TracerLoop(pid_t child) {
 #else
             if (IsVerbose()) {
               HumanOut() << llvm::formatv(
-                  "sigsegv @ {0}\n",
-                  description_of_program_counter(
-                      ptrace::pc_of_tracee_state(tracee_state), true));
+                  "sigsegv @ {0}\n", description_of_program_counter(
+                                         tracee_state.program_counter(), true));
             }
 #endif
+          } else if (stopsig == SIGSTOP) {
+            if (unlikely(forked.contains(child))) {
+              sig = 0; /* suppress */
+
+              const pid_t new_child = child;
+
+              forked.erase(new_child);
+
+              if (IsVeryVerbose())
+                llvm::errs() << llvm::formatv("waited on forked child. [{0}]\n", child);
+
+              //
+              // upon a fork(), we detach, fork(), and then reattach.
+              //
+              if (_jove_sys_ptrace(PTRACE_DETACH, new_child, 0UL, SIGSTOP) < 0) {
+                int err = errno;
+                die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
+              } else {
+                if (IsVeryVerbose())
+                  llvm::errs() << llvm::formatv("detached [{0}]\n", new_child);
+              }
+
+              scoped_fd our_pfd(pidfd_open(::getpid(), 0));
+
+              if (IsVeryVerbose())
+                HumanOut() << "forking!\n";
+
+              if (jove::fork()) {
+                child = -1;
+                continue;
+              } else {
+                if (::prctl(PR_SET_PDEATHSIG, SIGKILL) < 0) {
+                  int err = errno;
+                  if (IsVerbose())
+                    WithColor::warning()
+                        << llvm::formatv("prctl failed: {0}\n", strerror(err));
+                }
+
+                if (our_pfd) {
+                  const int poll_ret = ({
+                    struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
+                    sys::retry_eintr(::poll, &pfd, 1, 0);
+                  });
+
+                  aassert(poll_ret >= 0);
+
+                  our_pfd.close();
+                  if (poll_ret != 0) {
+                    //
+                    // parent is already gone.
+                    //
+                    for (;;)
+                      _exit(0);
+                    __builtin_unreachable();
+                  }
+                }
+
+                if (_jove_sys_ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL) < 0) {
+                  int err = errno;
+                  die("PTRACE_ATTACH on fork() " + std::string(strerror(err)));
+                } else {
+                  if (IsVeryVerbose())
+                    llvm::errs() << llvm::formatv("attached [{0}]\n", new_child);
+
+                  //
+                  // the tracee will not necessarily have stopped by the completion of this call.
+                  //
+                  {
+                    int status;
+                    do
+                      ::waitpid(-1, &status, __WALL);
+                    while (!WIFSTOPPED(status));
+                  }
+
+                  //
+                  // establish options
+                  //
+                  static_assert(ptrace_options & PTRACE_O_TRACEEXEC, "needs to be set here");
+
+                  if (_jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
+                    int err = errno;
+                    HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                                      __func__,
+                                                      strerror(err));
+                  }
+                }
+              }
+            }
           }
 
           if (sig && opts.Signals)
@@ -1663,6 +1144,413 @@ int BootstrapTool::TracerLoop(pid_t child) {
   return 0;
 }
 
+bool BootstrapTool::is_child_target(pid_t child) {
+  auto it = children.is_target_map.find(child);
+  if (it == children.is_target_map.end()) {
+    std::string exe_path;
+    exe_path.resize(2 * PATH_MAX);
+
+    //
+    // check that the executable architecture matches our target.
+    //
+    // even if one provides a 64-bit windows program for WINE to run,
+    // it still may exec a 32-bit windows program (i.e. the preloader)
+    // as part of the startup sequence.
+    //
+    {
+      ssize_t len = ({
+        char buff[PATH_MAX];
+        snprintf(buff, sizeof(buff), "/proc/%u/exe", static_cast<unsigned>(child));
+
+        ::readlink(buff, &exe_path[0], exe_path.size() - 1);
+      });
+
+      aassert(len != exe_path.size());
+      exe_path.resize(len);
+    }
+
+    bool is_target = true;
+
+    std::vector<std::byte> BinBytes;
+    B::unique_ptr Bin;
+      const bool Ex =
+          ignore_exception([&] {
+            if (boost::algorithm::starts_with(exe_path, "/memfd:jove/bootstrap"))
+              Bin = B::Create(jv.Binaries.at(0).data());
+            else
+              Bin = B::CreateFromFile(exe_path.c_str(), BinBytes);
+          });
+
+    if (Ex || (!B::is_elf(Bin.get()) && !B::is_coff(Bin.get())))
+      is_target = false;
+
+    children.is_target_map.emplace(child, is_target);
+
+    return is_target;
+  }
+
+  return (*it).second;
+}
+
+bool BootstrapTool::is_child_compat(pid_t child) {
+  const bool is_target = is_child_target(child);
+
+  return (ptrace::is_target_compat && is_target) ||
+         (!ptrace::is_target_compat && !is_target);
+}
+
+template <bool Compat>
+enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
+  PTraceStop Res = PTraceStop::Unknown;
+
+  using the_tracee_state_t =
+      std::conditional_t<Compat,
+                         ptrace::compat_tracee_state_t,
+                         ptrace::tracee_state_t>;
+  static constexpr bool is64 = the_tracee_state_t::is64;
+  using word_t = std::conditional_t<is64, uint64_t, uint32_t>;
+
+  child_syscall_state_t &syscall_state = children_syscall_state_map[child];
+
+  the_tracee_state_t tracee_state;
+  tracee_state.get(child);
+
+  word_t pc = tracee_state.program_counter();
+  word_t &syscall_pc = [&]() -> word_t & {
+    if constexpr (is64)
+      return syscall_state._64.pc;
+    else
+      return syscall_state._32.pc;
+  }();
+
+  //
+  // determine whether this syscall is entering or has exited
+  //
+  unsigned dir = syscall_state.dir;
+
+  if (syscall_pc != pc)
+    dir = 0; /* we must see the same pc twice */
+
+  if (dir == 0 /* enter */) {
+    Res = PTraceStop::SyscallEnter;
+
+    //
+    // syscall # and arguments
+    //
+    const unsigned no = tracee_state.syscall_number();
+    const word_t a0 = tracee_state.syscall_argument(0);
+    const word_t a1 = tracee_state.syscall_argument(1);
+    const word_t a2 = tracee_state.syscall_argument(2);
+    const word_t a3 = tracee_state.syscall_argument(3);
+    const word_t a4 = tracee_state.syscall_argument(4);
+    const word_t a5 = tracee_state.syscall_argument(5);
+
+    syscall_state.no = no;
+    if (is64) {
+      syscall_state._64.args[0] = a0;
+      syscall_state._64.args[1] = a1;
+      syscall_state._64.args[2] = a2;
+      syscall_state._64.args[3] = a3;
+      syscall_state._64.args[4] = a4;
+      syscall_state._64.args[5] = a5;
+    } else {
+      syscall_state._32.args[0] = a0;
+      syscall_state._32.args[1] = a1;
+      syscall_state._32.args[2] = a2;
+      syscall_state._32.args[3] = a3;
+      syscall_state._32.args[4] = a4;
+      syscall_state._32.args[5] = a5;
+    }
+
+    auto on_syscall_enter = [&](void) -> void {
+      switch (no) {
+      case __NR_exit:
+      case __NR_exit_group:
+        if (IsVerbose())
+          HumanOut() << "Observed program exit.\n";
+        break;
+
+      default:
+        break;
+      }
+    };
+
+    try {
+      on_syscall_enter();
+    } catch (const std::exception &e) {
+      ;
+    }
+  } else { /* exit */
+    Res = PTraceStop::SyscallExit;
+
+    const word_t ret = tracee_state.syscall_return();
+
+    const unsigned no = syscall_state.no;
+    word_t a0, a1, a2, a3, a4, a5;
+    if (sizeof(word_t) == 8) {
+      a0 = syscall_state._64.args[0];
+      a1 = syscall_state._64.args[1];
+      a2 = syscall_state._64.args[2];
+      a3 = syscall_state._64.args[3];
+      a4 = syscall_state._64.args[4];
+      a5 = syscall_state._64.args[5];
+    } else {
+      a0 = syscall_state._32.args[0];
+      a1 = syscall_state._32.args[1];
+      a2 = syscall_state._32.args[2];
+      a3 = syscall_state._32.args[3];
+      a4 = syscall_state._32.args[4];
+      a5 = syscall_state._32.args[5];
+    }
+
+    auto on_syscall_exit = [&](void) -> void {
+      if (unlikely(ret < 0 && ret > -4096))
+        return; /* system call probably failed */
+
+      const char **syscall_names = nullptr;
+      unsigned num_syscall_names = 0;
+
+#ifdef COMPAT_SYSCALLS_INC_H
+      if (Compat) {
+        syscall_names = the_compat_syscall_names;
+        num_syscall_names = ARRAY_SIZE(the_compat_syscall_names);
+      } else {
+        syscall_names = the_syscall_names;
+        num_syscall_names = ARRAY_SIZE(the_syscall_names);
+      }
+#else
+      static_assert(std::is_void_v<ptrace::compat_tracee_state_t>);
+
+      aassert(!Compat);
+      syscall_names = the_syscall_names;
+      num_syscall_names = ARRAY_SIZE(the_syscall_names);
+#endif
+
+      if (IsVeryVerbose())
+        HumanOut() << (no < num_syscall_names
+                           ? std::string(syscall_names[no])
+                           : ("unknown syscall " + std::to_string(no)))
+                   << '\n';
+
+#define VERY_UNIQUE_BASE 0xffffffULL
+#define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
+
+      static constexpr unsigned NR_set_thread_area =
+#if defined(__x86_64__)
+          Compat ? compat::NR::set_thread_area : VERY_UNIQUE_NUM()
+#elif defined(__i386__)
+          NR::set_thread_area
+#else
+          VERY_UNIQUE_NUM()
+#endif
+          ;
+
+      static constexpr unsigned NR_modify_ldt =
+#if defined(__x86_64__)
+          Compat ? compat::NR::modify_ldt : VERY_UNIQUE_NUM()
+#elif defined(__i386__)
+          NR::modify_ldt
+#else
+          VERY_UNIQUE_NUM()
+#endif
+          ;
+
+      static constexpr unsigned NR_arch_prctl =
+#if defined(__x86_64__)
+          Compat ? compat::NR::arch_prctl : VERY_UNIQUE_NUM()
+#elif defined(__i386__)
+          NR::arch_prctl
+#else
+          VERY_UNIQUE_NUM()
+#endif
+          ;
+
+      static constexpr unsigned NR_clone =
+#if defined(__x86_64__)
+          Compat ? compat::NR::clone : VERY_UNIQUE_NUM()
+#elif defined(__i386__)
+          NR::clone
+#else
+          VERY_UNIQUE_NUM()
+#endif
+          ;
+
+      static constexpr unsigned NR_clone3 =
+#if defined(__x86_64__)
+          Compat ? compat::NR::clone3 : VERY_UNIQUE_NUM()
+#elif defined(__i386__)
+          NR::clone3
+#else
+          VERY_UNIQUE_NUM()
+#endif
+          ;
+
+      switch (no & 0xfffffful) {
+#ifdef __NR_rt_sigaction
+#if 0
+      case __NR_rt_sigaction: {
+        if (IsVeryVerbose())
+          HumanOut() << llvm::formatv(
+              "rt_sigaction({0}, {1:x}, {2:x}, {3})\n", a0, a1, a2, a3);
+
+        taddr_t act = a2;
+        if (act) {
+          constexpr unsigned handler_offset =
+#if defined(__mips__)
+              4
+#else
+              0
+#endif
+              ;
+          taddr_t handler = ptrace::peekdata(child, act + handler_offset);
+
+          if (IsVeryVerbose() && handler)
+            HumanOut() << llvm::formatv(
+                "on rt_sigaction(): handler={0:x}\n", handler);
+
+          if (handler && (void *)handler != SIG_IGN) {
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+            handler &= ~1UL;
+#endif
+
+            binary_index_t BIdx;
+            function_index_t FIdx;
+            std::tie(BIdx, FIdx) = function_at_program_counter(child, handler);
+            if (likely(is_function_index_valid(FIdx))) {
+              function_t &f = jv.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+              f.IsSignalHandler = true;
+              f.IsABI = true;
+            } else {
+              HumanOut() << llvm::formatv(
+                  "on rt_sigaction(): failed to translate handler {0}\n",
+                  description_of_program_counter(handler), true);
+            }
+          }
+        }
+
+        break;
+      }
+#endif
+#endif
+
+#if defined(TARGET_I386)
+      case NR_set_thread_area:
+      case NR_modify_ldt:
+      case NR_arch_prctl:
+      case NR_clone:
+      case NR_clone3:
+        emulator->ss_base = ~0u;
+        emulator->cs_base = ~0u;
+        emulator->ds_base = ~0u;
+        emulator->es_base = ~0u;
+        emulator->fs_base = ~0u;
+        emulator->gs_base = ~0u;
+        break;
+#endif
+
+      default:
+        break;
+      }
+    };
+
+    try {
+      on_syscall_exit();
+    } catch (const std::exception &e) {
+      ;
+    }
+  }
+
+  dir ^= 1;
+
+  syscall_pc = pc;
+  syscall_state.dir = dir;
+
+#if 0
+  if (unlikely(opts.PrintLinkMap) && ((Compat && ptrace::is_target_compat) ||
+                                      (!Compat && !ptrace::is_target_compat)))
+    scan_rtld_link_map(child);
+
+  if (unlikely(!AllLoaded()))
+    ScanAddressSpace(child);
+#endif
+
+  return Res;
+}
+
+bool BootstrapTool::handle_breakpoint(void) {
+  ptrace::target_tracee_state_t tracee_state;
+  ptrace::scoped_tracee_state_t<ptrace::target_tracee_state_t>
+      scoped_tracee_state(_child, tracee_state);
+
+  try {
+    on_breakpoint(_child, tracee_state);
+    return true;
+  } catch (const notrap_exception &) {}
+
+  siginfo_t si;
+  if (_jove_sys_ptrace(PTRACE_GETSIGINFO, _child, 0UL,
+                       reinterpret_cast<uintptr_t>(&si)) < 0) {
+    HumanOut() << "getsiginfo failed!\n";
+  }
+
+#if 0
+  {
+    HumanOut() << "si.si_signo=" << si.si_signo << '\n';
+    HumanOut() << "si.si_code=" << si.si_code << '\n';
+  }
+#endif
+
+  if (si.si_code <= 0) {
+    //
+    // SIGTRAP was generated by a user-space action
+    //
+    ;
+  } else if (si.si_code == 128) {
+#if 1
+    ScanAddressSpace(_child);
+#endif
+    auto &pc = tracee_state.program_counter();
+
+    taddr_t SavedPC = pc;
+
+#if defined(__x86_64__) || defined(__i386__)
+    //
+    // rewind before the breakpoint instruction (why is this x86-specific?)
+    //
+    SavedPC -= 1; /* int3 */
+#endif
+
+    binary_index_t BIdx;
+    basic_block_index_t BBIdx;
+    std::tie(BIdx, BBIdx) = existing_block_at_program_counter(_child, SavedPC);
+
+    if (unlikely(!is_basic_block_index_valid(BBIdx))) {
+      HumanOut() << llvm::formatv(
+          "wtf @ {0}\n",
+          description_of_program_counter(SavedPC, true));
+    }
+
+    binary_t &b = jv.Binaries.at(BIdx);
+    auto &ICFG = b.Analysis.ICFG;
+    fallthru<void>(
+        jv, BIdx, BBIdx,
+        [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
+          if (IsTerminatorIndirect(bbprop.Term.Type))
+            place_breakpoints_in_block(
+                b, ICFG[ICFG.vertex<false>(BBIdx_)], BBIdx_);
+        });
+
+    try {
+      on_breakpoint(_child, tracee_state);
+      return true;
+    } catch (const notrap_exception &) {}
+
+    return false;
+  }
+
+  return true;
+}
+
 void BootstrapTool::on_new_basic_block(binary_t &b,
                                        bbprop_t &bbprop,
                                        basic_block_index_t BBIdx) {
@@ -1694,7 +1582,7 @@ BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
   const auto TermType = bbprop.Term.Type;
   aassert(IsTerminatorIndirect(TermType));
 
-  const uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
+  const taddr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
 #if 0
   if (trapmap.contains(termpc))
     return;
@@ -1703,8 +1591,8 @@ BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
 
   assert(disas);
 
-  auto trapmap_pair =
-      trapmap.emplace(termpc, trapped_t(*emulator, BBIdx, BIdx, saved_child, reinterpret_cast<void *>(termpc), x.Bin.get()));
+  auto trapmap_pair = trapmap.emplace(
+      termpc, trapped_t(*emulator, BBIdx, BIdx, termpc, x.Bin.get()));
   aassert(trapmap_pair.second);
   trapped_t &trapped = (*trapmap_pair.first).second;
 
@@ -1719,17 +1607,15 @@ BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
 static void arch_put_breakpoint(void *code);
 
 void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
-                                                        uintptr_t Addr,
+                                                        taddr_t pc,
                                                         indirect_branch_t &indbr) {
   if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("indjmp @ {0:x}\n", Addr);
+    llvm::errs() << llvm::formatv("indjmp @ {0:x}\n", pc);
 
-  unsigned long word = ptrace::peekdata(child, Addr);
-  arch_put_breakpoint(&word);
-  ptrace::pokedata(child, Addr, word);
+  auto wrote = this->poke(pc, TargetBrkpt, TargetBrkptLen);
 }
 
-void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
+void BootstrapTool::place_breakpoint(pid_t child, taddr_t Addr,
                                      breakpoint_t &brk) {
   if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("break @ {0:x}\n", Addr);
@@ -1739,12 +1625,10 @@ void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
   ptrace::pokedata(child, Addr, word);
 }
 
-void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
+void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
                                                return_t &r) {
   if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("return @ {0:x}\n", Addr);
-
-  unsigned long word = ptrace::peekdata(child, Addr);
+    llvm::errs() << llvm::formatv("return @ {0:x}\n", pc);
 
 #if defined(__mips64) || defined(__mips__)
   //
@@ -1754,20 +1638,20 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
   // information is lost: the program counter. for returns instructions, this
   // doesn't really matter.
   //
-  ((uint32_t *)&word)[0] = encoding_of_jump_to_reg(llvm::Mips::ZERO);
+  uint32_t insn = encoding_of_jump_to_reg(llvm::Mips::ZERO);
+  auto wrote = this->poke(pc, reinterpret_cast<uint8_t *>(&insn), sizeof(insn));
 #else
-  arch_put_breakpoint(&word);
+  auto wrote = this->poke(pc, TargetBrkpt, TargetBrkptLen);
 #endif
-
-  ptrace::pokedata(child, Addr, word);
 }
 
-void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_state) {
-  uintptr_t SavedPC = ~0UL;
+void BootstrapTool::on_breakpoint(pid_t child,
+                                  ptrace::target_tracee_state_t &tracee_state) {
+  taddr_t SavedPC = ~0UL;
   trapped_t *ptrapped  = nullptr;
 
-  const uintptr_t TargetAddr = ({
-    auto &pc = ptrace::pc_of_tracee_state(tracee_state);
+  const taddr_t TargetAddr = ({
+    auto &pc = tracee_state.program_counter();
 
     SavedPC = pc;
 
@@ -1825,11 +1709,10 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
 #endif
 
 
-    const uintptr_t ExecutableRegionAddress = emulator->ExecutableRegionAddress;
+    const taddr_t ExecutableRegionAddress = emulator->ExecutableRegionAddress;
     pc = SavedPC;
-    const uintptr_t NewPC = trapped.single_step_proc(tracee_state, trapped, child
-                                                   , ExecutableRegionAddress
-                                                     );
+    const taddr_t NewPC =
+        trapped.single_step_proc(tracee_state, trapped, *emulator);
 
 #if !defined(__mips64) && !defined(__mips__)
 
@@ -1902,8 +1785,8 @@ void BootstrapTool::on_breakpoint(pid_t child, ptrace::tracee_state_t &tracee_st
 
   try {
     if (TermType == TERMINATOR::RETURN) {
-      const uintptr_t AddrOfRet = SavedPC;
-      const uintptr_t RetAddr = TargetAddr;
+      const taddr_t AddrOfRet = SavedPC;
+      const taddr_t RetAddr = TargetAddr;
 
       on_return(child, BIdx, AddrOfRet, RetAddr);
     } else if (TermType == TERMINATOR::INDIRECT_CALL) {
@@ -2046,7 +1929,7 @@ std::pair<int, int> extract_fd_and_off(std::string_view s) {
 }
 
 void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
-  if (unlikely(!RightArch))
+  if (unlikely(!Engaged))
     return;
 
   if (VMUpdate) {
@@ -2061,7 +1944,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
   for_each_binary(jv, [&](binary_t &b) {
     state.for_binary(b).LoadAddr =
     state.for_binary(b).LoadOffset =
-        std::numeric_limits<uintptr_t>::max(); /* reset */
+        std::numeric_limits<taddr_t>::max(); /* reset */
   });
 
   for (const proc_map_t &pm : cached_proc_maps) {
@@ -2074,7 +1957,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     if (nm.empty())
       continue;
 
-    auto ItsTheBinary = [&](binary_index_t BIdx, uintptr_t off) -> void {
+    auto ItsTheBinary = [&](binary_index_t BIdx, taddr_t off) -> void {
       if (!is_binary_index_valid(BIdx))
         return;
 
@@ -2085,7 +1968,8 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
       auto &x = state.for_binary(b);
 
       bool NewlyLoaded = Loaded.insert(BIdx).second;
-      if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, pm.beg)))
+      if (updateVariable(x.LoadAddr,
+                         std::min(x.LoadAddr, static_cast<taddr_t>(pm.beg))))
         x.LoadOffset = off;
 
       if (NewlyLoaded) {
@@ -2189,19 +2073,19 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     aassert(!emulator->ExecutableRegionAddress);
 
     aassert(pm.end - pm.beg >= emulator->N);
-    const uintptr_t ExecutableRegionAddress = pm.end - emulator->N;
+    const taddr_t ExecutableRegionAddress = pm.end - emulator->N;
     emulator->ExecutableRegionAddress = ExecutableRegionAddress;
 
 #if defined(__x86_64__) || defined(__i386__)
-    const std::byte ret_insns[] = {
-      static_cast<std::byte>(0xc3),
-      static_cast<std::byte>(0xc2), static_cast<std::byte>(0x00), static_cast<std::byte>(0x00),
-      static_cast<std::byte>(0xc2), static_cast<std::byte>(0x04), static_cast<std::byte>(0x00),
-      static_cast<std::byte>(0xc2), static_cast<std::byte>(0x08), static_cast<std::byte>(0x00)
+    const uint8_t ret_insns[] = {
+      0xc3,
+      0xc2, 0x00, 0x00,
+      0xc2, 0x04, 0x00,
+      0xc2, 0x08, 0x00
     };
 
-    ptrace::memcpy_to(child, reinterpret_cast<void *>(ExecutableRegionAddress),
-                      &ret_insns[0], sizeof(ret_insns));
+//  ptrace::memcpy_to(child, ExecutableRegionAddress,
+//                    &ret_insns[0], sizeof(ret_insns));
 #elif defined(__mips64) || defined(__mips__)
     //
     // "initialize" code cave
@@ -2212,11 +2096,11 @@ void BootstrapTool::on_binary_loaded(pid_t child,
         0x00
       };
 
-      const uintptr_t jumpr_insn_addr =
+      const taddr_t jumpr_insn_addr =
           emulator->ExecutableRegionAddress + i * (2 * sizeof(ptrace::word));
-      const uintptr_t delay_slot_addr = jumpr_insn_addr + 4;
+      const taddr_t delay_slot_addr = jumpr_insn_addr + 4;
 
-      uintptr_t addr = emulator->ExecutableRegionAddress + i * (2 * sizeof(ptrace::word));
+      taddr_t addr = emulator->ExecutableRegionAddress + i * (2 * sizeof(ptrace::word));
       if constexpr (sizeof(ptrace::word) == 8) {
         ptrace::word the_poke;
         __builtin_memcpy_inline(&the_poke, &insns[0], sizeof(the_poke));
@@ -2240,18 +2124,31 @@ void BootstrapTool::on_binary_loaded(pid_t child,
                                   emulator->ExecutableRegionAddress);
   }
 
-  for_each_basic_block_in_binary_if(
-      binary,
-      [&](bb_t bb) -> bool {
-        const auto TermType = binary.Analysis.ICFG[bb].Term.Type;
-        return IsTerminatorIndirect(TermType);
-      },
-      [&](bb_t bb) {
-        fallthru<void>(jv, BIdx, index_of_basic_block(ICFG, bb),
-                       [&](bbprop_t &bbprop, basic_block_index_t BBIdx) {
-          place_breakpoints_in_block(binary, bbprop, BBIdx);
-        });
-      });
+  bool res = false;
+  for_each_basic_block_in_binary(binary, [&](bb_t bb) -> void {
+    bbprop_t &bbprop = ICFG[bb];
+
+    aassert(bbprop.pub.is.test(boost::memory_order_acquire));
+    auto s_lck = bbprop.shared_access<IsToolMT>();
+
+    const auto TermType = bbprop.Term.Type;
+    if (!IsTerminatorIndirect(TermType))
+      return;
+
+    std::string msg;
+    res |= catch_exception([&] {
+      place_breakpoints_in_block(binary, bbprop,
+                                 index_of_basic_block(binary, bb));
+    });
+
+    if (!msg.empty()) {
+      if (IsVerbose()) {
+        HumanOut() << llvm::formatv(
+            "<{0}:{1}> failed to place breakpoint in block!{2}\n",
+            binary.Name.c_str(), taddr2str(bbprop.Term.Addr, true), msg);
+      }
+    }
+  });
 }
 
 bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
@@ -2348,24 +2245,24 @@ struct link_map {
   /* These first few members are part of the protocol with the debugger.
      This is the same format used in SVR4.  */
 
-  unsigned long l_addr; /* Difference between the address in the ELF file and
+  taddr_t l_addr; /* Difference between the address in the ELF file and
                            the addresses in memory.  */
-  char *l_name;         /* Absolute file name object was found in.  */
-  unsigned long *l_ld;  /* Dynamic section of the shared object.  */
-  struct link_map *l_next, *l_prev; /* Chain of loaded objects.  */
+  taddr_t l_name;         /* Absolute file name object was found in.  */
+  taddr_t l_ld;  /* Dynamic section of the shared object.  */
+  taddr_t l_next, l_prev; /* Chain of loaded objects.  */
 };
 
 struct r_debug {
   int r_version; /* Version number for this protocol.  */
 
-  struct link_map *r_map; /* Head of the chain of loaded objects.  */
+  taddr_t r_map; /* Head of the chain of loaded objects.  */
 
   /* This is the address of a function internal to the run-time linker,
      that will always be called when the linker begins to map in a
      library or unmap it, and again when the mapping change is complete.
      The debugger can set a breakpoint at this address if it wants to
      notice shared object mapping changes.  */
-  unsigned long r_brk;
+  taddr_t r_brk;
   enum {
     /* This state value describes the mapping change taking place when
        the `r_brk' address is called.  */
@@ -2374,27 +2271,18 @@ struct r_debug {
     RT_DELETE      /* Beginning to remove an object mapping.  */
   } r_state;
 
-  unsigned long r_ldbase; /* Base address the linker is loaded at.  */
+  taddr_t r_ldbase; /* Base address the linker is loaded at.  */
 };
 
 void BootstrapTool::scan_rtld_link_map(pid_t child) {
-  void *const rdbg_ptr = _r_debug.ptr;
+  const taddr_t rdbg_ptr = _r_debug.ptr;
   if (!rdbg_ptr)
     return;
 
   struct r_debug rdbg;
-  std::vector<std::byte> rdbg_bytes;
 
-  if (catch_exception([&] {
-        ptrace::memcpy_from(child,
-                            rdbg_bytes,
-                            rdbg_ptr,
-                            sizeof(rdbg));
-      }))
+  if (catch_exception([&] { peek(rdbg_ptr, (uint8_t *)(&rdbg), sizeof(rdbg)); }))
     return;
-
-  aassert(rdbg_bytes.size() == sizeof(rdbg));
-  __builtin_memcpy_inline(&rdbg, rdbg_bytes.data(), sizeof(rdbg));
 
   if (opts.PrintLinkMap)
       HumanOut() << llvm::formatv("[r_debug] r_version = {0}\n"
@@ -2419,25 +2307,16 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
 
   const unsigned SavedNumBinaries = jv.NumBinaries();
 
-  struct link_map *lmp = rdbg.r_map;
+  taddr_t lmp = rdbg.r_map;
   do {
     struct link_map lm;
-    std::vector<std::byte> lm_bytes;
 
-    if (catch_exception([&] {
-          ptrace::memcpy_from(child,
-                              lm_bytes,
-                              lmp,
-                              sizeof(lm));
-        }))
+    if (catch_exception([&] { peek(lmp, (uint8_t *)&lm, sizeof(lm)); }))
       return;
-
-    aassert(lm_bytes.size() == sizeof(lm));
-    __builtin_memcpy_inline(&lm, lm_bytes.data(), sizeof(lm));
 
     std::string s;
     try {
-      s = ptrace::read_c_str(child, reinterpret_cast<uintptr_t>(lm.l_name));
+      s = ptrace::read_c_str(child, lm.l_name);
     } catch (const std::exception &e) {
       ;
     }
@@ -2530,11 +2409,11 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
       llvm::StringRef SymName = *ExpectedSymName;
       if (SymName == "_r_debug" ||
           SymName == "_dl_debug_addr") {
-        const uintptr_t off = Sym.st_value;
-        const uintptr_t pc = pc_of_offset(off, BIdx);
+        const uint64_t off = Sym.st_value;
+        const taddr_t pc = pc_of_offset(off, BIdx);
 
         _r_debug.Found = true;
-        _r_debug.ptr = (void *)pc;
+        _r_debug.ptr = pc;
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("_r_debug @ {0} <{1}+{2}>\n",
@@ -2565,21 +2444,11 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
   //
   if (!_r_debug.brk) {
     struct r_debug rdbg;
-    std::vector<std::byte> rdbg_bytes;
 
-    void *const rdbg_ptr = _r_debug.ptr;
-    if (catch_exception([&] {
-          ptrace::memcpy_from(child,
-                              rdbg_bytes,
-                              rdbg_ptr,
-                              sizeof(rdbg));
-        }))
+    if (catch_exception([&] { peek(_r_debug.ptr, (uint8_t *)&rdbg, sizeof(rdbg)); }))
       return;
 
-    aassert(rdbg_bytes.size() == sizeof(rdbg));
-    __builtin_memcpy_inline(&rdbg, rdbg_bytes.data(), sizeof(rdbg));
-
-    const uintptr_t pc = rdbg.r_brk;
+    const taddr_t pc = rdbg.r_brk;
     if (!is_block_valid(block_at_program_counter(child, pc)))
       return;
 
@@ -2592,8 +2461,8 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
 
 void BootstrapTool::on_return(pid_t child,
                               binary_index_t RetBIdx,
-                              uintptr_t AddrOfRet,
-                              uintptr_t RetAddr) {
+                              taddr_t AddrOfRet,
+                              taddr_t RetAddr) {
   if (unlikely(!opts.Quiet && !ShowMeN && ShowMeA))
     HumanOut() << llvm::formatv(__ANSI_YELLOW "[{2}] (ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                 description_of_program_counter(RetAddr),
@@ -2605,7 +2474,7 @@ void BootstrapTool::on_return(pid_t child,
   //
   if (AddrOfRet)
   {
-    uintptr_t pc = AddrOfRet;
+    taddr_t pc = AddrOfRet;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     pc &= ~1UL;
@@ -2642,7 +2511,7 @@ void BootstrapTool::on_return(pid_t child,
   //
   if (RetAddr)
   {
-    uintptr_t pc = RetAddr;
+    taddr_t pc = RetAddr;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     pc &= ~1UL;
@@ -2663,7 +2532,7 @@ void BootstrapTool::on_return(pid_t child,
     //
     // what came before?
     //
-    uintptr_t before_pc = pc - 1 - IsMIPSTarget*4;
+    taddr_t before_pc = pc - 1 - IsMIPSTarget*4;
 
     binary_index_t Before_BIdx;
     basic_block_index_t Before_BBIdx;
@@ -2748,7 +2617,7 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
 }
 
 binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
-                                                        uintptr_t pc) {
+                                                        taddr_t pc) {
   {
     auto it = intvl_map_find(AddressSpace, pc);
     if (likely(it != AddressSpace.end()))
@@ -2823,7 +2692,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
     } else {
       const bool IsVDSO = nm == "[vdso]";
       std::string_view sv;
-      std::vector<std::byte> buff_bytes;
+      std::vector<uint8_t> buff_bytes;
       if (IsVDSO) {
         sv = get_vdso();
       } else {
@@ -2882,7 +2751,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
 }
 
 std::pair<binary_index_t, function_index_t>
-BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
+BootstrapTool::function_at_program_counter(pid_t child, taddr_t pc) {
   binary_index_t BIdx = binary_at_program_counter(child, pc);
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_function_index);
@@ -2904,7 +2773,7 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
 }
 
 block_t
-BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
+BootstrapTool::block_at_program_counter(pid_t child, taddr_t pc) {
   binary_index_t BIdx = binary_at_program_counter(child, pc);
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
@@ -2922,13 +2791,13 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
 
 // bbmap needs to be locked.
 std::pair<binary_index_t, basic_block_index_t>
-BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
+BootstrapTool::existing_block_at_program_counter(pid_t child, taddr_t pc) {
   binary_index_t BIdx = binary_at_program_counter(child, pc);
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
   binary_t &b = jv.Binaries.at(BIdx);
-  uintptr_t rva = va_of_pc(pc, BIdx);
+  taddr_t rva = va_of_pc(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
     bbmap_t *const pbbmap = b.BBMap.map.get();
@@ -2944,12 +2813,14 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   return std::make_pair(BIdx, BBIdx);
 }
 
-std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Verbose, bool Symbolize) {
+std::string BootstrapTool::description_of_program_counter(taddr_t pc,
+                                                          bool Verbose,
+                                                          bool Symbolize) {
 #if 0 /* defined(__mips64) || defined(__mips__) */
   if (ExecutableRegionAddress &&
       pc >= ExecutableRegionAddress &&
       pc < ExecutableRegionAddress + 8) {
-    uintptr_t off = pc - ExecutableRegionAddress;
+    taddr_t off = pc - ExecutableRegionAddress;
     return (fmt("[exeregion]+%#lx") % off).str();
   }
 #endif
@@ -2977,7 +2848,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
     const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
 
     std::string nm = pm.nm;
-    uintptr_t the_off = pm.off;
+    taddr_t the_off = pm.off;
 
     if (nm.empty())
       return (fmt("%#lx+%#lx%s") % pm.beg % (pc - pm.beg) % extra).str();
@@ -3011,7 +2882,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
           //
           ptrdiff_t off = pc - (pm.beg - the_off);
 
-          uintptr_t Addr;
+          taddr_t Addr;
           try {
             Addr = B::va_of_offset(x.Bin.get(), off);
 
@@ -3083,7 +2954,8 @@ void SignalHandler(int no) {
     //
     // detach from tracee
     //
-    for (pid_t child : boost::adaptors::reverse(tool.children)) {
+#if 0
+    for (pid_t child : boost::adaptors::reverse(tool.children.set)) {
 //    for (unsigned i = 0; i < 10; ++i)
         if (::tgkill(child, child, SIGSTOP) < 0)
           continue;
@@ -3106,6 +2978,7 @@ void SignalHandler(int no) {
         tool.HumanOut() << "PTRACE_DETACH succeeded\n";
       }
     }
+#endif
 
     for (;;) sleep(1);
 
@@ -3145,6 +3018,12 @@ void SignalHandler(int no) {
     }
   }
 }
+
+template ssize_t BootstrapTool::poke<true>(const taddr_t, const uint8_t *, const size_t);
+template ssize_t BootstrapTool::poke<false>(const taddr_t, const uint8_t *, const size_t);
+
+template ssize_t BootstrapTool::peek<true>(const taddr_t, uint8_t *const, const size_t);
+template ssize_t BootstrapTool::peek<false>(const taddr_t, uint8_t *const, const size_t);
 
 }
 

@@ -1,3 +1,10 @@
+#if (defined(__x86_64__)  && defined(TARGET_X86_64))  || \
+    (defined(__x86_64__)  && defined(TARGET_I386))  || \
+    (defined(__i386__)    && defined(TARGET_I386))    || \
+    (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
+    (defined(__mips64)    && defined(TARGET_MIPS64))  || \
+    (defined(__mips64)    && defined(TARGET_MIPS32))  || \
+    (defined(__mips__)    && defined(TARGET_MIPS32))
 #include "ptrace.h"
 
 #include <stdexcept>
@@ -13,57 +20,71 @@ namespace ptrace {
 
 typedef boost::format fmt;
 
-ssize_t memcpy_from(pid_t child,
-                    std::vector<std::byte> &dst,
-                    const void *src,
-                    size_t N) {
-  dst.reserve(N);
+#if 0
+void memcpy_from(pid_t child,
+                 std::vector<uint8_t> &dst,
+                 const uint64_t src,
+                 const size_t N) {
   dst.clear();
 
+  if (N == 0)
+    return;
+
+  dst.reserve(N);
+
+  constexpr size_t W = sizeof(unsigned long);
+  const size_t before = src % W;
+  const size_t need = N + before;
+
   try {
-  uintptr_t Addr = reinterpret_cast<uintptr_t>(src);
+    size_t done = 0;
+    for (uint64_t Addr = src - before; done < need; done += W, Addr += W) {
+      const auto chunk = peekdata<true>(child, Addr);
 
-  size_t done = 0;
-  for (; done < N; done += sizeof(ptrace::word)) {
-    const auto chunk = peekdata(child, Addr);
-    static_assert(sizeof(chunk) == sizeof(ptrace::word));
-
-    Addr += sizeof(chunk);
-
-    const size_t M = dst.size();
-    dst.resize(dst.size() + sizeof(chunk));
-    __builtin_memcpy_inline(&dst[M], &chunk, sizeof(chunk));
-  }
+      for (unsigned i = 0; i < sizeof(chunk); ++i)
+        dst.push_back(reinterpret_cast<const uint8_t *>(&chunk)[i]);
+    }
   } catch (const tracer_exception &) {}
 
-  return dst.size();
+  if (dst.size() == 0)
+    return;
+
+  aassert(dst.size() >= W);
+  if (before) {
+    aassert(dst.size() >= before);
+    dst.erase(dst.begin(), dst.begin() + before);
+  }
+
+  aassert(dst.size() >= N);
+  dst.resize(N);
 }
 
 ssize_t memcpy_to(pid_t child,
-                  void *dst,
-                  const std::byte *src,
+                  uint64_t dst,
+                  const uint8_t *src,
                   size_t N) {
-  uintptr_t Addr = reinterpret_cast<uintptr_t>(dst);
+  uint64_t Addr = dst;
 
-  ssize_t left = N;
-  for (; left > 0; left -= sizeof(ptrace::word)) {
-    size_t offset = N - left;
+  try {
+    ssize_t left = N;
+    for (; left > 0; left -= sizeof(unsigned long), Addr += sizeof(unsigned long)) {
+      const size_t pos = N - left;
 
-    ptrace::word chunk;
-    size_t M = std::min<size_t>(left, sizeof(chunk));
-    if (M < sizeof(chunk))
-      chunk = peekdata(child, Addr);
-    memcpy(&chunk, &src[offset], M);
+      unsigned long chunk;
+      size_t M = std::min<size_t>(left, sizeof(chunk));
+      if (M < sizeof(chunk))
+        chunk = peekdata(child, Addr);
+      memcpy(&chunk, &src[pos], M);
 
-    pokedata(child, Addr, chunk);
+      pokedata(child, Addr, chunk);
+    }
+  } catch (const tracer_exception &) {}
 
-    Addr += sizeof(chunk);
-  }
-
-  return N;
+  return Addr - dst;
 }
+#endif
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(TARGET_I386)
 constexpr unsigned GDT_ENTRY_TLS_ENTRIES = 3;
 
 static void get_segment_descriptors(
@@ -81,7 +102,7 @@ static void get_segment_descriptors(
                              std::string(strerror(errno)));
 }
 
-uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
+uint32_t segment_address_of_selector(pid_t child, unsigned segsel) {
   unsigned index = segsel >> 3;
 
   std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> seg_descs;
@@ -99,7 +120,7 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
 }
 #endif
 
-std::string read_c_str(pid_t child, uintptr_t Addr) {
+std::string read_c_str(pid_t child, uint64_t Addr) {
   std::string res;
 
   for (;;) {
@@ -120,3 +141,4 @@ std::string read_c_str(pid_t child, uintptr_t Addr) {
 
 }
 }
+#endif

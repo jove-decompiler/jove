@@ -17,13 +17,18 @@ class MCInst;
 
 namespace jove {
 
+struct BootstrapTool;
+
 struct trapped_t;
+struct ptrace_emulator_t;
 
 typedef uintptr_t
 #if !defined(__x86_64__) && defined(__i386__)
-  __attribute__((regparm(3)))
+    __attribute__((regparm(3)))
 #endif
-  (*single_step_proc_t)(ptrace::tracee_state_t &, trapped_t &, pid_t, uintptr_t);
+    (*single_step_proc_t)(ptrace::target_tracee_state_t &,
+                          trapped_t &,
+                          ptrace_emulator_t &);
 
 struct unsupported_opcode_exception {};
 
@@ -37,9 +42,8 @@ struct ptrace_emulation {
                                                   );
 };
 
-template <bool MT, bool MinSize>
 struct ptrace_emulator_t : public VerboseThing {
-  jv_base_t<MT, MinSize> &jv;
+  BootstrapTool &tool;
   disas_t &disas;
 
   //
@@ -59,8 +63,17 @@ struct ptrace_emulator_t : public VerboseThing {
 
   uintptr_t ExecutableRegionAddress = 0;
 
-  ptrace_emulator_t(jv_base_t<MT, MinSize> &jv, disas_t &disas)
-      : jv(jv), disas(disas) {}
+#if defined(TARGET_I386)
+  uint32_t ss_base = ~0u;
+  uint32_t cs_base = ~0u;
+  uint32_t ds_base = ~0u;
+  uint32_t es_base = ~0u;
+  uint32_t fs_base = ~0u;
+  uint32_t gs_base = ~0u;
+#endif
+
+  ptrace_emulator_t(BootstrapTool &tool, disas_t &disas)
+      : tool(tool), disas(disas) {}
 };
 
 struct __attribute__((packed)) trapped_t {
@@ -90,12 +103,10 @@ struct __attribute__((packed)) trapped_t {
   llvm::MCInst Inst;
 #endif
 
-  template <bool MT, bool MinSize>
-  explicit trapped_t(ptrace_emulator_t<MT, MinSize> &,
+  explicit trapped_t(ptrace_emulator_t &,
                      basic_block_index_t,
                      binary_index_t,
-                     pid_t child,
-                     void *const ptr,
+                     taddr_t pc,
                      B::ref);
 };
 

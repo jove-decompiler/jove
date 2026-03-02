@@ -17,35 +17,31 @@ __attribute__((flatten))
 __attribute__((regparm(3)))
 #endif
 static uintptr_t BOOST_PP_CAT(BOOST_PP_CAT(single_step_,JOVE_SINGLESTEP_OPCODE),_proc)(
-    ptrace::tracee_state_t &tracee_state, trapped_t &trapped, pid_t child
-  , uintptr_t ExecutableRegionAddress
+    ptrace::target_tracee_state_t &tracee_state,
+    trapped_t &trapped,
+    ptrace_emulator_t &emu
 ) noexcept {
   auto &gpr = tracee_state;
 
-  const uintptr_t savedpc = ptrace::pc_of_tracee_state(tracee_state);
-  RegValue_t nextpc = static_cast<RegValue_t>(savedpc + static_cast<uintptr_t>(trapped.IL));
-#if defined(__mips64) || defined(__mips__)
-  RegValue_t nextnextpc = nextpc + 4;
+  const taddr_t savedpc = tracee_state.program_counter();
+  const taddr_t nextpc = savedpc + static_cast<taddr_t>(trapped.IL);
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  const taddr_t nextnextpc = nextpc + 4;
 #endif
 
-#if defined(__i386__)
-  struct {
-    long ss;
-    long cs;
-    long ds;
-    long es;
-    long fs;
-    long gs;
-  } _hack; /* purely so we can take a reference to the segment fields */
-#endif
-
-  auto LoadAddr = [&](uintptr_t addr) -> uintptr_t {
-    return ptrace::peekdata<false>(child, addr);
+  auto LoadAddr = [&](taddr_t addr) -> taddr_t {
+    try {
+      taddr_t res = 0;
+      ssize_t got = emu.tool.peek(addr, (uint8_t *)&res, sizeof(res));
+      assert(got == sizeof(res));
+      return res;
+    } catch (const ptrace::tracer_exception &x) {}
+    abort();
   };
 
-  auto RegValue = [&](unsigned llreg) -> RegValue_t & {
+  auto RegValue = [&](unsigned llreg) -> taddr_t {
     switch (llreg) {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     case llvm::X86::RAX:
       return gpr.rax;
     case llvm::X86::RBP:
@@ -73,7 +69,7 @@ BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
 
 #undef __REG_CASE
 
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
 
     case llvm::X86::EAX:
       return gpr.eax;
@@ -98,31 +94,26 @@ BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
     // for segment registers, return the base address of the segment descriptor
     // which they reference (bits 15-3)
     //
-    case llvm::X86::SS:
-      _hack.ss = ptrace::segment_address_of_selector(child, gpr.xss);
-      return _hack.ss;
+#define SEGREG_CASE(name, ucname)                                              \
+  case llvm::X86::ucname: {                                                    \
+    taddr_t base = emu.BOOST_PP_CAT(name,_base);                               \
+    if (unlikely(!(~base)))                                                    \
+      emu.BOOST_PP_CAT(name,_base) = base =                                    \
+          ptrace::segment_address_of_selector(emu.tool._child,                 \
+                                              gpr.BOOST_PP_CAT(x,name));       \
+    return base;                                                               \
+  }
 
-    case llvm::X86::CS:
-      _hack.cs = ptrace::segment_address_of_selector(child, gpr.xcs);
-      return _hack.cs;
+    SEGREG_CASE(ss, SS)
+    SEGREG_CASE(cs, CS)
+    SEGREG_CASE(ds, DS)
+    SEGREG_CASE(es, ES)
+    SEGREG_CASE(fs, FS)
+    SEGREG_CASE(gs, GS)
 
-    case llvm::X86::DS:
-      _hack.ds = ptrace::segment_address_of_selector(child, gpr.xds);
-      return _hack.ds;
+#undef SEGREG_CASE
 
-    case llvm::X86::ES:
-      _hack.es = ptrace::segment_address_of_selector(child, gpr.xes);
-      return _hack.es;
-
-    case llvm::X86::FS:
-      _hack.fs = ptrace::segment_address_of_selector(child, gpr.xfs);
-      return _hack.fs;
-
-    case llvm::X86::GS:
-      _hack.gs = ptrace::segment_address_of_selector(child, gpr.xgs);
-      return _hack.gs;
-
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
 
 #define __REG_CASE(n, i, data)                                                 \
   case BOOST_PP_CAT(llvm::AArch64::X, i):                                      \
@@ -139,7 +130,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     case llvm::AArch64::SP:
       return gpr.sp;
 
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 
     case llvm::Mips::ZERO: assert(gpr.regs[0] == 0); return gpr.regs[0];
     case llvm::Mips::AT: return gpr.regs[1];
@@ -184,11 +175,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
   };
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   auto emulate_delay_slot = [&](const unsigned r) -> uintptr_t {
     if constexpr (DelaySlotOpcode == llvm::Mips::INSTRUCTION_LIST_END) {
       unsigned idx = code_cave_idx_of_reg(r);
-      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
+      uintptr_t jumpr_insn_addr = emu.ExecutableRegionAddress +
                                   idx * (2 * sizeof(ptrace::word));
       uintptr_t delay_slot_addr = jumpr_insn_addr + 4;
 
@@ -200,9 +191,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         ptrace::word the_poke;
         __builtin_memcpy_inline(&the_poke, &insns[0], sizeof(the_poke));
-        ptrace::pokedata(child, jumpr_insn_addr, the_poke);
+        ptrace::pokedata(emu.tool._child, jumpr_insn_addr, the_poke);
       } else if constexpr (sizeof(ptrace::word) == 4) {
-        ptrace::pokedata(child, delay_slot_addr, trapped.DelaySlotInsn);
+        ptrace::pokedata(emu.tool._child, delay_slot_addr,
+                         trapped.DelaySlotInsn);
       } else {
         __compiletime_unreachable();
       }
@@ -216,7 +208,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #else
 
   auto emulate = [&](void) -> uintptr_t {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     if constexpr (Opcode == llvm::X86::JMP64r ||
                   Opcode == llvm::X86::CALL64r) {
       return RegValue(Reg0);
@@ -241,7 +233,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       return res;
     }
 
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     if constexpr (Opcode == llvm::X86::JMP32r ||
                   Opcode == llvm::X86::CALL32r) {
       return RegValue(Reg0);
@@ -252,7 +244,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       if (Reg0 == llvm::X86::NoRegister &&
           Reg2 == llvm::X86::NoRegister &&
           Reg4 == llvm::X86::NoRegister) {
-        return LoadAddr(*reinterpret_cast<uint32_t *>(&trapped.Disp));
+        return LoadAddr(static_cast<uint32_t>(trapped.Disp));
       }
 
       uint32_t disp   = static_cast<uint32_t>(static_cast<uint64_t>(trapped.Disp));
@@ -282,7 +274,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       return res;
     }
 
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
 
     if constexpr (Opcode == llvm::AArch64::BR ||
                   Opcode == llvm::AArch64::BLR)
@@ -302,19 +294,23 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #if 1
   auto emulate_call = [&](void) -> void {
-//  assert(static_cast<TERMINATOR>(trapped.TT) == TERMINATOR::INDIRECT_CALL);
+  //  assert(static_cast<TERMINATOR>(trapped.TT) == TERMINATOR::INDIRECT_CALL);
 
-#if defined(__x86_64__)
-    const uintptr_t newsp = static_cast<uint64_t>(gpr.rsp) - 8u;
-    ptrace::pokedata<false>(child, newsp, nextpc);
-    gpr.rsp = newsp;
-#elif defined(__i386__)
-    const uintptr_t newsp = static_cast<uint32_t>(gpr.esp) - 4u;
-    ptrace::pokedata<false>(child, newsp, nextpc);
-    gpr.esp = newsp;
-#elif defined(__aarch64__)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    const taddr_t newsp =
+        static_cast<taddr_t>(gpr.stack_pointer()) - sizeof(taddr_t);
+    gpr.stack_pointer() = newsp;
+    try {
+      auto wrote = emu.tool.poke(
+          newsp, reinterpret_cast<const uint8_t *>(&nextpc), sizeof(nextpc));
+      assert(wrote == sizeof(nextpc));
+      return;
+    } catch (const ptrace::tracer_exception &) {
+    }
+    abort();
+#elif defined(TARGET_AARCH64)
     gpr.regs[30 /* lr */] = nextpc;
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     gpr.regs[31 /* ra */] = nextnextpc;
 #else
 #error
@@ -326,11 +322,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // determine the target address of the indirect control transfer and update
   // program counter accordingly
   //
-  const uintptr_t TargetAddr = ({
-#if defined(__mips64) || defined(__mips__)
+  const taddr_t TargetAddr = ({
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     const unsigned r = Reg0;
-    const uintptr_t TheTargetAddr = RegValue(r) & ~1UL;
-    ptrace::pc_of_tracee_state(tracee_state) = emulate_delay_slot(r);
+    const taddr_t TheTargetAddr = RegValue(r) & ~1UL;
+    tracee_state.program_counter() = emulate_delay_slot(r);
     TheTargetAddr;
 #else
     emulate();
@@ -339,15 +335,17 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #if 1
   switch (Opcode) {
-#if defined(__x86_64__)
+  default:
+    break;
+#if defined(TARGET_X86_64)
   case llvm::X86::CALL64m:
   case llvm::X86::CALL64r:
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
   case llvm::X86::CALL32m:
   case llvm::X86::CALL32r:
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
   case llvm::AArch64::BLR:
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   case llvm::Mips::JALR:
 #else
 #error
