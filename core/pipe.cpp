@@ -5,33 +5,46 @@
 #include <cstring>
 #include <stdexcept>
 
+#include <unistd.h>
+
 namespace jove {
 
-std::optional<std::string> pipe_line_reader::get_line(int rfd) {
-  std::string res;
+pipe_line_reader::pipe_line_reader() : chunk_size(sysconf(_SC_PAGESIZE)) {
+  aassert(chunk_size >= 4096);
+}
+
+std::optional<std::string> pipe_line_reader::get_line(int fd) {
   for (;;) {
-    // do we have a line ready to go?
-    ssize_t pos;
-    if ((pos = buff.find('\n')) != std::string::npos) {
-      res = buff.substr(0, pos);
-      buff.erase(0, pos + 1);
-      break;
+    // search only the unconsumed region
+    size_t pos = buff.find('\n', start);
+
+    if (pos != std::string::npos) {
+      std::string line(buff.data() + start, pos - start);
+      start = pos + 1;
+      return line;
     }
 
-    tmpbuff.resize(4096);
+    // occasionally compact buffer
+    if (start > 65536) {
+      buff.erase(0, start);
+      start = 0;
+    }
 
-    ssize_t ret = sys::retry_eintr(::read, rfd, &tmpbuff[0], tmpbuff.size());
-    if (ret < 0)
-      throw std::runtime_error("failed to read pipe: " + std::string(strerror(errno)));
+    size_t old = buff.size();
+    buff.resize(old + chunk_size);
 
-    if (ret == 0)
-      return std::optional<std::string>(std::nullopt);
+    ssize_t n = sys::retry_eintr(::read, fd, buff.data() + old, chunk_size);
 
-    tmpbuff.resize(ret);
-    buff.append(tmpbuff);
+    if (n < 0)
+      throw std::runtime_error("pipe read failed");
+
+    if (n == 0)
+      break;
+
+    buff.resize(old + n);
   }
 
-  return res;
+  return std::nullopt;
 }
 
 }
