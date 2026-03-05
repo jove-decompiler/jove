@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "hash.h"
 #include "tcg.h"
+#include "symbolizer.h"
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -38,52 +39,62 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::alias ListFunctionsAlias;
     cl::opt<std::string> ListFunctionBBs;
     cl::opt<bool> TCGGlobalNames;
+    cl::opt<bool> Addr2Line;
+    cl::opt<bool> Symbolize;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Output("output", cl::desc("Destination for output"),
-                 cl::value_desc("filename"), cl::cat(JoveCategory)),
+      : Output("output", cl::desc("Destination for output"),
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
-                      cl::cat(JoveCategory)),
-
-          Compact("compact",
-                  cl::desc("Print functions as list of basic-blocks addresses"),
+      OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
                   cl::cat(JoveCategory)),
 
-          Graphviz("graphviz",
-                   cl::desc("Produce control-flow graphs for each function"),
-                   cl::cat(JoveCategory)),
-
-          Statistics("binary-stats", cl::desc("Print statistics"),
-                     cl::cat(JoveCategory)),
-
-          ListBinaries("list-binaries",
-                       cl::desc("List binaries for jv"),
-                       cl::cat(JoveCategory)),
-
-          ListBinariesAlias("l", cl::desc("Alias for -list-binaries."),
-                            cl::aliasopt(ListBinaries), cl::cat(JoveCategory)),
-
-          ListFunctions("list-functions",
-                        cl::desc("List functions for given binary"),
-                        cl::cat(JoveCategory)),
-
-          ListFunctionsAlias("f", cl::desc("Alias for -list-functions."),
-                             cl::aliasopt(ListFunctions),
-                             cl::cat(JoveCategory)),
-
-          ListFunctionBBs(
-              "list-fn-bbs",
-              cl::desc("List basic blocks for functions for given binary"),
+      Compact("compact",
+              cl::desc("Print functions as list of basic-blocks addresses"),
               cl::cat(JoveCategory)),
 
-          TCGGlobalNames("tcg-names",
-                         cl::desc("Translate TCG global set bits into names"),
-                         cl::init(true), cl::cat(JoveCategory))
-          {}
+      Graphviz("graphviz",
+               cl::desc("Produce control-flow graphs for each function"),
+               cl::cat(JoveCategory)),
+
+      Statistics("binary-stats", cl::desc("Print statistics"),
+                 cl::cat(JoveCategory)),
+
+      ListBinaries("list-binaries",
+                   cl::desc("List binaries for jv"),
+                   cl::cat(JoveCategory)),
+
+      ListBinariesAlias("l", cl::desc("Alias for -list-binaries."),
+                        cl::aliasopt(ListBinaries), cl::cat(JoveCategory)),
+
+      ListFunctions("list-functions",
+                    cl::desc("List functions for given binary"),
+                    cl::cat(JoveCategory)),
+
+      ListFunctionsAlias("f", cl::desc("Alias for -list-functions."),
+                         cl::aliasopt(ListFunctions),
+                         cl::cat(JoveCategory)),
+
+      ListFunctionBBs(
+        "list-fn-bbs",
+        cl::desc("List basic blocks for functions for given binary"),
+        cl::cat(JoveCategory)),
+
+      TCGGlobalNames("tcg-names",
+                     cl::desc("Translate TCG global set bits into names"),
+                     cl::init(true), cl::cat(JoveCategory)),
+
+      Symbolize("symbolize", cl::desc("Whether to run addr2line"),
+                cl::init(true), cl::cat(JoveCategory)),
+
+      Addr2Line("addr2line", cl::desc("Run addr2line to symbolize"),
+               cl::cat(JoveCategory))
+
+      {}
   } opts;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
+  std::unique_ptr<symbolizer_t> symbolizer;
 
 public:
   DumpTool() : opts(JoveCategory) {}
@@ -99,6 +110,9 @@ JOVE_REGISTER_TOOL("dump", DumpTool);
 typedef boost::format fmt;
 
 void DumpTool::dumpDecompilation(const jv_t &jv) {
+  if (opts.Symbolize)
+    symbolizer = std::make_unique<symbolizer_t>(locator(), opts.Addr2Line);
+
   if (opts.TCGGlobalNames)
     TCG = std::make_unique<tiny_code_generator_t>();
 
@@ -162,7 +176,18 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
         Writer.printNumber("Size", ICFG[bb].Size);
 
         {
-          llvm::DictScope _____(Writer, (fmt("Term @ 0x%lX") % ICFG[bb].Term.Addr).str());
+          std::string detailed_desc;
+          if (opts.Symbolize)
+            detailed_desc = symbolizer->addr2line(B, ICFG[bb].Term.Addr);
+
+          std::string name = (fmt("Term @ 0x%lX") % ICFG[bb].Term.Addr).str();
+          if (!detailed_desc.empty()) {
+            name.append(" <");
+            name.append(detailed_desc);
+            name.append(">");
+          }
+
+          llvm::DictScope _____(Writer, name);
 
           //Writer.printHex("Address", ICFG[bb].Term.Addr);
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
@@ -294,8 +319,14 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             const function_t &callee = b.Analysis.Functions.at(FIdx);
             uint64_t target_addr = entry_address_of_function(callee, b);
 
-            descv.push_back(
-                (fmt("0x%lX @ %s") % target_addr % b.Name.c_str()).str());
+            std::string simple_desc =
+                (fmt("%s:0x%lX") % b.Name.c_str() % target_addr).str();
+            std::string detailed_desc = symbolizer->addr2line(b, target_addr);
+
+            if (!detailed_desc.empty())
+              descv.push_back(detailed_desc);
+            else
+              descv.push_back(simple_desc);
           });
 
           Writer.printList("DynTargets", descv);

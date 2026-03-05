@@ -502,7 +502,7 @@ int IPTTool::Analyze(void) {
               });
           wfd.close();
 
-          pipe_line_reader pipe;
+          pipe_line_reader pipe(rfd.get());
 
           using namespace std::placeholders;
 
@@ -549,7 +549,7 @@ int IPTTool::Analyze(void) {
           if (IsVerbose())
             llvm::errs() << "writing sideband files...\n";
 
-          while (auto o = pipe.get_line(rfd.get())) {
+          while (auto o = pipe.get_line()) {
             if (unlikely(!process_line(*o))) {
               WeFailed = true;
               return;

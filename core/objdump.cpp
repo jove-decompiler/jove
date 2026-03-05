@@ -59,7 +59,7 @@ int objdump_thinks_t<MT>::run(const char *filename, const B::ref &Bin) {
     rc = WaitForProcessToExit(pid);
   };
 
-  pipe_line_reader pipe;
+  pipe_line_reader pipe(rfd.get());
 
   auto do_parse_line = [&](std::string &line) -> void {
     auto it = line.begin();
@@ -162,7 +162,7 @@ int objdump_thinks_t<MT>::run(const char *filename, const B::ref &Bin) {
 #undef pos
   };
 
-  while (auto o = pipe.get_line(rfd.get()))
+  while (auto o = pipe.get_line())
     do_parse_line(*o);
   }
 
