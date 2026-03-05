@@ -154,9 +154,9 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
         std::string name = (fmt("0x%lX") % ICFG[bb].Addr).str();
         if (!detailed_desc.empty()) {
-          name.append(" <");
+          name.append(" [");
           name.append(detailed_desc);
-          name.append(">");
+          name.append("]");
         }
 
         llvm::DictScope ____(Writer, name);
@@ -193,9 +193,9 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
           std::string name = (fmt("Term @ 0x%lX") % ICFG[bb].Term.Addr).str();
           if (!detailed_desc.empty()) {
-            name.append(" <");
+            name.append(" [");
             name.append(detailed_desc);
-            name.append(">");
+            name.append("]");
           }
 
           llvm::DictScope _____(Writer, name);
