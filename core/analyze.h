@@ -17,6 +17,7 @@ struct analyzer_options_t : public VerboseThing {
   unsigned Precision = 0;
   unsigned Conservative = 1;
   bool ForCBE = false;
+  unsigned DynTargetInlineThreshold = 8;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 };

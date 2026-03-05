@@ -41,6 +41,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
     cl::opt<int> Conservative;
     cl::opt<unsigned> WaitMilli;
     cl::opt<bool> BottomUp;
+    cl::opt<unsigned> DynTargetInlineThreshold;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -70,7 +71,12 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
           BottomUp("bottom-up",
                    cl::desc("direction of Kahn-style traversal in analyze_functions()"),
+                   cl::cat(JoveCategory)),
+
+          DynTargetInlineThreshold("dyn-target-inline-threshold",
+                   cl::desc("Limit recursion of CFG copying"),
                    cl::cat(JoveCategory))
+
           {}
   } opts;
 
@@ -110,6 +116,7 @@ int AnalyzeTool::Run(void) {
 
   analyzer_opts.VerbosityLevel = GetVerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
+  analyzer_opts.DynTargetInlineThreshold = opts.DynTargetInlineThreshold;
 
   analyzer.examine_blocks();
   analyzer.examine_callers();

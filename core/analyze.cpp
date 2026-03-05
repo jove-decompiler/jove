@@ -465,8 +465,8 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
-  auto &bbvec = state.for_function(f).bbvec;
-  auto &exit_bbvec = state.for_function(f).exit_bbvec;
+  const auto &bbvec = state.for_function(f).bbvec;
+  const auto &exit_bbvec = state.for_function(f).exit_bbvec;
 
   //
   // make sure basic blocks have been analyzed
@@ -586,11 +586,12 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
         return function_of_target(X, jv).IsABI;
       });
 
-      if (auto Summary = DynTargetsSummary(DynTargets, IsABI)) {
+      auto UseSummary =
+          [&](const std::pair<tcg_global_set_t, tcg_global_set_t> &Summary) -> void {
         bb_analysis_t &TheAnalysis =
             G[boost::graph_bundle].extra.emplace_front();
 
-        std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
+        std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = Summary;
 
         flow_vertex_t dummyV = boost::add_vertex(G);
         G[dummyV].Analysis = &TheAnalysis;
@@ -603,6 +604,12 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
           if (IsABI)
             G[E].reach.mask = CallConvRets;
         }
+      };
+
+      if (auto Summary = DynTargetsSummary(DynTargets, IsABI)) {
+        UseSummary(*Summary);
+      } else if (IsABI && DynTargets.size() > options.DynTargetInlineThreshold) {
+        UseSummary(std::make_pair(CallConvArgs, CallConvRets));
       } else {
       bool FirstOne = true;
       auto process_dynamic_target =
@@ -789,14 +796,16 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
     }
 
     case TERMINATOR::INDIRECT_JUMP: {
+      if (!IsExitBlock(ICFG, bb))
+        continue;
+
       {
         auto it = std::find_if(exitVertices.begin(),
                                exitVertices.end(),
                                [&](exit_vertex_pair_t pair) -> bool {
                                  return pair.first == V;
-                               }); /* must be exit block */
-        if (it == exitVertices.end())
-          continue;
+                               });
+        aassert(it != exitVertices.end());
         exitVertices.erase(it); /* exit blocks of callees replace exit block */
       }
 
@@ -810,10 +819,11 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
         return function_of_target(X, jv).IsABI;
       });
 
-      if (auto Summary = DynTargetsSummary(DynTargets, IsABI)) {
+      auto UseSummary =
+          [&](const std::pair<tcg_global_set_t, tcg_global_set_t> &Summary) -> void {
         bb_analysis_t &TheAnalysis =
             G[boost::graph_bundle].extra.emplace_front();
-        std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
+        std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = Summary;
 
         flow_vertex_t dummyV = boost::add_vertex(G);
         G[dummyV].Analysis = &TheAnalysis;
@@ -828,6 +838,12 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 
         if (Returns)
           exitVertices.emplace_back(dummyV, IsABI);
+      };
+
+      if (auto Summary = DynTargetsSummary(DynTargets, IsABI)) {
+        UseSummary(*Summary);
+      } else if (IsABI && DynTargets.size() > options.DynTargetInlineThreshold) {
+        UseSummary(std::make_pair(CallConvArgs, CallConvRets));
       } else {
       bool FirstOne = true;
       auto process_dynamic_target =
