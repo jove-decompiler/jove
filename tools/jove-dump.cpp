@@ -148,7 +148,18 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           Writer, (fmt("Basic Blocks (%u)") % ICFG.num_vertices()).str());
 
       for (bb_t bb : boost::make_iterator_range(ICFG.vertices())) {
-        llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
+        std::string detailed_desc;
+        if (opts.Symbolize)
+          detailed_desc = symbolizer->addr2line(B, ICFG[bb].Addr);
+
+        std::string name = (fmt("0x%lX") % ICFG[bb].Addr).str();
+        if (!detailed_desc.empty()) {
+          name.append(" <");
+          name.append(detailed_desc);
+          name.append(">");
+        }
+
+        llvm::DictScope ____(Writer, name);
 
         if (ICFG[bb].Speculative)
           Writer.printBoolean("Speculative", ICFG[bb].Speculative);
