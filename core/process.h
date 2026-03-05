@@ -281,21 +281,15 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
   if (!stdout_path.empty()) {
     scoped_fd fd(sys::retry_eintr(::open, stdout_path.c_str(),
                                   O_CREAT | AppendOrTrunc | O_WRONLY, 0666));
-    if (fd) {
+    if (fd)
       robust::dup2(fd.get(), STDOUT_FILENO);
-
-      if constexpr (has_flag_v<Opts, ExecOpt::MergeStderrToStdout>)
-        robust::dup2(fd.get(), STDERR_FILENO);
-    }
   }
 
-  if constexpr (!has_flag_v<Opts, ExecOpt::MergeStderrToStdout>) {
-    if (!stderr_path.empty()) {
-      scoped_fd fd(sys::retry_eintr(::open, stderr_path.c_str(),
-                                    O_CREAT | AppendOrTrunc | O_WRONLY, 0666));
-      if (fd)
-        robust::dup2(fd.get(), STDERR_FILENO);
-    }
+  if (!stderr_path.empty()) {
+    scoped_fd fd(sys::retry_eintr(::open, stderr_path.c_str(),
+                                  O_CREAT | AppendOrTrunc | O_WRONLY, 0666));
+    if (fd)
+      robust::dup2(fd.get(), STDERR_FILENO);
   }
 
   if constexpr (has_flag_v<Opts, ExecOpt::CloseStdin>) {
