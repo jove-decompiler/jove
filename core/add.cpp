@@ -178,8 +178,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
         if (ExpectedLocalSyms) {
           auto LocalSyms = *ExpectedLocalSyms;
 
-          for_each_if(std::execution::seq,
-                      LocalSyms.begin(),
+          for_each_if(LocalSyms.begin(),
                       LocalSyms.end(),
                       [](const Elf_Sym &Sym) -> bool {
                         return !Sym.isUndefined() &&
@@ -238,8 +237,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
           if (ExpectedLocalSyms) {
             auto LocalSyms = *ExpectedLocalSyms;
 
-            for_each_if(std::execution::seq,
-                        LocalSyms.begin(),
+            for_each_if(LocalSyms.begin(),
                         LocalSyms.end(),
                         [](const Elf_Sym &Sym) -> bool {
                           return !Sym.isUndefined() &&
@@ -278,8 +276,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
   if (OptionalDynSymRegion) {
     auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    for_each_if(std::execution::seq,
-                DynSyms.begin(),
+    for_each_if(DynSyms.begin(),
                 DynSyms.end(),
                 [](const Elf_Sym &Sym) -> bool {
                   return !Sym.isUndefined() &&
@@ -289,8 +286,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
                   FunctionAtAddress(Sym.st_value);
                 });
 
-    for_each_if(std::execution::seq,
-                DynSyms.begin(),
+    for_each_if(DynSyms.begin(),
                 DynSyms.end(),
                 [](const Elf_Sym &Sym) -> bool {
                   return !Sym.isUndefined() &&
@@ -305,7 +301,6 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
     //
     if (SymbolVersionSection) {
       for_each_if(
-          std::execution::seq,
           DynSyms.begin(),
           DynSyms.end(),
           [](const Elf_Sym &Sym) -> bool {
@@ -492,8 +487,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
         b.Analysis.EntryFunction = FunctionAtAddress(coff::va_of_rva(O, entryRVA));
 
       auto exp_itr = O.export_directories();
-      for_each_if(std::execution::seq,
-                  exp_itr.begin(),
+      for_each_if(exp_itr.begin(),
                   exp_itr.end(),
                   [&](const obj::ExportDirectoryEntryRef &Exp) -> bool {
                     llvm::StringRef Name;
@@ -516,8 +510,7 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
                       ABIAtAddress(coff::va_of_rva(O, RVA));
                   });
 
-      for_each_if(std::execution::seq,
-                  O.symbol_begin(),
+      for_each_if(O.symbol_begin(),
                   O.symbol_end(),
                   [&](obj::SymbolRef SymbolRef) -> bool {
                     llvm::Expected<uint64_t> AddrOrErr = SymbolRef.getAddress();
