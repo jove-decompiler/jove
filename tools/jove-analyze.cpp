@@ -69,9 +69,14 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
               cl::desc("Number of milliseconds to update message in -v mode."),
               cl::cat(JoveCategory), cl::init(1000u)),
 
-          BottomUp("bottom-up",
-                   cl::desc("direction of Kahn-style traversal in analyze_functions()"),
-                   cl::cat(JoveCategory)),
+          BottomUp(
+              "bottom-up",
+              cl::desc(
+                  "direction of Kahn-style traversal in analyze_functions(). "
+                  "The primary consequence from setting this option is that "
+                  "function summaries will be seldom (if at all) used. This "
+                  "option is intended for debugging purposes only."),
+              cl::cat(JoveCategory)),
 
           DynTargetInlineThreshold("dyn-target-inline-threshold",
                    cl::desc("Limit recursion of CFG copying"),
