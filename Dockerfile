@@ -103,6 +103,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       gmsl \
                       graphviz \
                       gstreamer1.0-dev \
+                      google-perftools \
                       hostname \
                       libavcodec-dev \
                       libavformat-dev \
@@ -110,6 +111,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev-i386 \
                       libclang-19-dev \
                       libegl1-mesa-dev \
+                      libsqlite3-dev \
                       libfontconfig-dev \
                       libfontconfig-dev \
                       libfreetype-dev \
@@ -118,6 +120,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libgnutls28-dev \
                       libgraph-easy-perl \
                       libgcc-s1 \
+                      libgoogle-perftools-dev \
                       libgstreamer1.0-dev \
                       libkeyutils-dev \
                       libosmesa6-dev \
