@@ -944,7 +944,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
           // deliver it
           sig = stopsig;
 
-          if (stopsig == SIGSEGV) {
+          if (stopsig == SIGILL) { /* maybe us */
+            if (handle_breakpoint())
+              sig = 0; /* was us */
+          } else if (stopsig == SIGSEGV) {
             if (ptrace::is_target_compat)
               aassert(is_child_compat(child));
             else
