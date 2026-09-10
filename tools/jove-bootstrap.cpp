@@ -1566,7 +1566,7 @@ void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   //state.update();
 }
 
-trapped_t &
+std::pair<trapped_t &, bool>
 BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
                                           basic_block_index_t BBIdx) {
   auto &x = state.for_binary(b);
@@ -1585,17 +1585,15 @@ BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
   aassert(IsTerminatorIndirect(TermType));
 
   const taddr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
-#if 0
-  if (trapmap.contains(termpc))
-    return;
-#endif
-  aassert(!trapmap.contains(termpc));
-
-  assert(disas);
+  {
+    auto it = trapmap.find(termpc);
+    if (it != trapmap.end())
+      return {(*it).second, false};
+  }
 
   auto trapmap_pair = trapmap.emplace(
       termpc, trapped_t(*emulator, BBIdx, BIdx, termpc, x.Bin.get()));
-  aassert(trapmap_pair.second);
+  assert(trapmap_pair.second);
   trapped_t &trapped = (*trapmap_pair.first).second;
 
   if (TermType == TERMINATOR::RETURN)
@@ -1603,7 +1601,7 @@ BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
   else
     place_breakpoint_at_indirect_branch(_child, termpc, trapped);
 
-  return trapped;
+  return {trapped, true};
 }
 
 static void arch_put_breakpoint(void *code);
@@ -1612,25 +1610,20 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
                                                         taddr_t pc,
                                                         indirect_branch_t &indbr) {
   if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("indjmp @ {0:x}\n", pc);
+    llvm::errs() << llvm::formatv("indjmp @ {0}\n",
+                                  description_of_program_counter(pc));
 
   auto wrote = this->poke(pc, TargetBrkpt, TargetBrkptLen);
-}
-
-void BootstrapTool::place_breakpoint(pid_t child, taddr_t Addr,
-                                     breakpoint_t &brk) {
-  if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("break @ {0:x}\n", Addr);
-
-  unsigned long word = ptrace::peekdata(child, Addr);
-  arch_put_breakpoint(&word);
-  ptrace::pokedata(child, Addr, word);
+  aassert(wrote == TargetBrkptLen);
 }
 
 void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
                                                return_t &r) {
   if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("return @ {0:x}\n", pc);
+    llvm::errs() << llvm::formatv("return @ {0}\n", description_of_program_counter(pc));
+
+  const uint8_t *src = nullptr;
+  unsigned N = 0;
 
 #if defined(__mips64) || defined(__mips__)
   //
@@ -1640,11 +1633,17 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
   // information is lost: the program counter. for returns instructions, this
   // doesn't really matter.
   //
-  uint32_t insn = encoding_of_jump_to_reg(llvm::Mips::ZERO);
-  auto wrote = this->poke(pc, reinterpret_cast<uint8_t *>(&insn), sizeof(insn));
+  const uint32_t insn = encoding_of_jump_to_reg(llvm::Mips::ZERO);
+
+  src = reinterpret_cast<uint8_t *>(&insn);
+  N = sizeof(insn);
 #else
-  auto wrote = this->poke(pc, TargetBrkpt, TargetBrkptLen);
+  src = TargetBrkpt;
+  N = TargetBrkptLen;
 #endif
+
+  auto wrote = this->poke(pc, src, N);
+  aassert(wrote == N);
 }
 
 void BootstrapTool::on_breakpoint(pid_t child,
