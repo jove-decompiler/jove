@@ -1194,7 +1194,7 @@ bool BootstrapTool::is_child_target(pid_t child) {
     return is_target;
   }
 
-  return (*it).second;
+  return (*it).second; /* already computed */
 }
 
 bool BootstrapTool::is_child_compat(pid_t child) {
@@ -1638,7 +1638,7 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
   //
   const uint32_t insn = encoding_of_jump_to_reg(llvm::Mips::ZERO);
 
-  src = reinterpret_cast<uint8_t *>(&insn);
+  src = reinterpret_cast<const uint8_t *>(&insn);
   N = sizeof(insn);
 #else
   src = TargetBrkpt;
