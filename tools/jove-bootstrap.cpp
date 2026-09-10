@@ -1043,9 +1043,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   }
                 }
 
-                if (_jove_sys_ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL) < 0) {
-                  int err = errno;
-                  die("PTRACE_ATTACH on fork() " + std::string(strerror(err)));
+                int err = _jove_sys_ptrace(PTRACE_ATTACH, new_child, 0UL, 0UL);
+                if (err < 0) {
+                  die("PTRACE_ATTACH on fork() " + std::string(strerror(-err)));
                 } else {
                   if (IsVeryVerbose())
                     llvm::errs() << llvm::formatv("attached [{0}]\n", new_child);
@@ -1065,11 +1065,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   //
                   static_assert(ptrace_options & PTRACE_O_TRACEEXEC, "needs to be set here");
 
-                  if (_jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
-                    int err = errno;
+                  err = _jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options);
+                  if (err < 0) {
                     HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                                 __func__,
-                                                strerror(err));
+                                                strerror(-err));
                   }
                 }
               }
