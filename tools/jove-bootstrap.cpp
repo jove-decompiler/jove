@@ -906,7 +906,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
             }
           } else {
             aassert(is_child_target(child));
-            handle_breakpoint();
+            if (unlikely(!handle_breakpoint())) {
+              if (opts.PrintPtraceEvents)
+                HumanOut() << "mysterious ptrace event\n";
+            }
           }
         } else if (stopsig == (SIGTRAP | 0x80)) {
           //
@@ -956,10 +959,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
             ptrace::tracee_state_t tracee_state;
             tracee_state.get(child);
 #if defined(__mips64) || defined(__mips__)
-          //
-          // recognize the 'jr $zero' hack. This trickery is to avoid emulating
-          // the delay slot instruction of a return instruction.
-          //
+            //
+            // recognize the 'jr $zero' hack. This trickery is to avoid emulating
+            // the delay slot instruction of a return instruction.
+            //
 
             if (tracee_state.cp0_epc == 0) {
               //
@@ -979,8 +982,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
 #else
             if (IsVerbose()) {
               HumanOut() << llvm::formatv(
-                  "sigsegv @ {0}\n", description_of_program_counter(
-                                         tracee_state.program_counter(), true));
+                "sigsegv @ {0}\n", description_of_program_counter(
+                  tracee_state.program_counter(), true));
             }
 #endif
           } else if (stopsig == SIGSTOP) {
@@ -1065,8 +1068,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   if (_jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options) < 0) {
                     int err = errno;
                     HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                                      __func__,
-                                                      strerror(err));
+                                                __func__,
+                                                strerror(err));
                   }
                 }
               }
@@ -1165,7 +1168,8 @@ bool BootstrapTool::is_child_target(pid_t child) {
     {
       ssize_t len = ({
         char buff[PATH_MAX];
-        snprintf(buff, sizeof(buff), "/proc/%u/exe", static_cast<unsigned>(child));
+        snprintf(buff, sizeof(buff), "/proc/%u/exe",
+                 static_cast<unsigned>(child));
 
         ::readlink(buff, &exe_path[0], exe_path.size() - 1);
       });
@@ -1178,13 +1182,12 @@ bool BootstrapTool::is_child_target(pid_t child) {
 
     std::vector<std::byte> BinBytes;
     B::unique_ptr Bin;
-      const bool Ex =
-          ignore_exception([&] {
-            if (boost::algorithm::starts_with(exe_path, "/memfd:jove/bootstrap"))
-              Bin = B::Create(jv.Binaries.at(0).data());
-            else
-              Bin = B::CreateFromFile(exe_path.c_str(), BinBytes);
-          });
+    const bool Ex = ignore_exception([&] {
+      if (boost::algorithm::starts_with(exe_path, "/memfd:jove/bootstrap"))
+        Bin = B::Create(jv.Binaries.at(0).data());
+      else
+        Bin = B::CreateFromFile(exe_path.c_str(), BinBytes);
+    });
 
     if (Ex || (!B::is_elf(Bin.get()) && !B::is_coff(Bin.get())))
       is_target = false;
@@ -1201,7 +1204,7 @@ bool BootstrapTool::is_child_compat(pid_t child) {
   const bool is_target = is_child_target(child);
 
   return (ptrace::is_target_compat && is_target) ||
-         (!ptrace::is_target_compat && !is_target);
+    (!ptrace::is_target_compat && !is_target);
 }
 
 template <bool Compat>
@@ -1292,7 +1295,7 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
 
     const unsigned no = syscall_state.no;
     word_t a0, a1, a2, a3, a4, a5;
-    if (sizeof(word_t) == 8) {
+    if constexpr (sizeof(word_t) == 8) {
       a0 = syscall_state._64.args[0];
       a1 = syscall_state._64.args[1];
       a2 = syscall_state._64.args[2];
@@ -1406,7 +1409,7 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
 #else
               0
 #endif
-              ;
+            ;
           taddr_t handler = ptrace::peekdata(child, act + handler_offset);
 
           if (IsVeryVerbose() && handler)
@@ -1487,71 +1490,47 @@ bool BootstrapTool::handle_breakpoint(void) {
   ptrace::scoped_tracee_state_t<ptrace::target_tracee_state_t>
       scoped_tracee_state(_child, tracee_state);
 
-  try {
-    on_breakpoint(_child, tracee_state);
+  if (!on_breakpoint(_child, tracee_state))
     return true;
-  } catch (const notrap_exception &) {}
 
-  siginfo_t si;
-  if (_jove_sys_ptrace(PTRACE_GETSIGINFO, _child, 0UL,
-                       reinterpret_cast<uintptr_t>(&si)) < 0) {
-    HumanOut() << "getsiginfo failed!\n";
-  }
+  //
+  // someone else (or a forked version of us) could have discovered new code
+  //
+  ScanAddressSpace(_child);
+  auto &pc = tracee_state.program_counter();
 
-#if 0
-  {
-    HumanOut() << "si.si_signo=" << si.si_signo << '\n';
-    HumanOut() << "si.si_code=" << si.si_code << '\n';
-  }
-#endif
-
-  if (si.si_code <= 0) {
-    //
-    // SIGTRAP was generated by a user-space action
-    //
-    ;
-  } else if (si.si_code == 128) {
-#if 1
-    ScanAddressSpace(_child);
-#endif
-    auto &pc = tracee_state.program_counter();
-
-    taddr_t SavedPC = pc;
+  taddr_t SavedPC = pc;
 
 #if defined(__x86_64__) || defined(__i386__)
-    //
-    // rewind before the breakpoint instruction (why is this x86-specific?)
-    //
-    SavedPC -= 1; /* int3 */
+  //
+  // rewind before the breakpoint instruction (why is this x86-specific?)
+  //
+  SavedPC -= 1; /* int3 */
 #endif
 
-    binary_index_t BIdx;
-    basic_block_index_t BBIdx;
-    std::tie(BIdx, BBIdx) = existing_block_at_program_counter(_child, SavedPC);
+  binary_index_t BIdx;
+  basic_block_index_t BBIdx;
+  std::tie(BIdx, BBIdx) = existing_block_at_program_counter(_child, SavedPC);
 
-    if (unlikely(!is_basic_block_index_valid(BBIdx))) {
-      HumanOut() << llvm::formatv(
-          "wtf @ {0}\n",
-          description_of_program_counter(SavedPC, true));
-    }
-
-    binary_t &b = jv.Binaries.at(BIdx);
-    auto &ICFG = b.Analysis.ICFG;
-    fallthru<void>(
-        jv, BIdx, BBIdx,
-        [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
-          if (IsTerminatorIndirect(bbprop.Term.Type))
-            place_breakpoints_in_block(
-                b, ICFG[ICFG.vertex<false>(BBIdx_)], BBIdx_);
-        });
-
-    try {
-      on_breakpoint(_child, tracee_state);
-      return true;
-    } catch (const notrap_exception &) {}
-
+  if (unlikely(!is_basic_block_index_valid(BBIdx))) {
+    WithColor::error() << llvm::formatv(
+        "wtf @ {0}\n",
+        description_of_program_counter(SavedPC, true));
     return false;
   }
+
+  binary_t &b = jv.Binaries.at(BIdx);
+  auto &ICFG = b.Analysis.ICFG;
+  fallthru<void>(
+      jv, BIdx, BBIdx,
+      [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
+        if (IsTerminatorIndirect(bbprop.Term.Type))
+          place_breakpoints_in_block(
+              b, ICFG[ICFG.vertex<false>(BBIdx_)], BBIdx_);
+      });
+
+  if (on_breakpoint(_child, tracee_state))
+    return false;
 
   return true;
 }
@@ -1649,7 +1628,7 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
   aassert(wrote == N);
 }
 
-void BootstrapTool::on_breakpoint(pid_t child,
+bool BootstrapTool::on_breakpoint(pid_t child,
                                   ptrace::target_tracee_state_t &tracee_state) {
   taddr_t SavedPC = ~0UL;
   trapped_t *ptrapped  = nullptr;
@@ -1672,7 +1651,7 @@ void BootstrapTool::on_breakpoint(pid_t child,
 
       auto it = trapmap.find(SavedPC);
       if (unlikely(it == trapmap.end()))
-        throw notrap_exception(SavedPC);
+        return true;
 
       {
         trapped_t &trapped = (*it).second;
@@ -1778,9 +1757,9 @@ void BootstrapTool::on_breakpoint(pid_t child,
   };
 
   if (unlikely(!is_binary_index_valid(Target.BIdx))) {
-    if (IsVeryVerbose())
-      do_print_thing("<unknown binary>");
-    return;
+    if (IsVerbose())
+      do_print_thing("breakpoint appears to be contained in some unknown binary");
+    return false;
   }
 
   auto &TargetBinary = jv.Binaries.at(Target.BIdx);
@@ -1902,6 +1881,8 @@ void BootstrapTool::on_breakpoint(pid_t child,
     if (IsVerbose())
       HumanOut() << ProcMapsForPid(child);
   }
+
+  return false;
 }
 
 static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
