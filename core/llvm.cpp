@@ -10249,8 +10249,37 @@ static inline int ctpop64(uint64_t val)
     BREAK();
   }
 
-  CASE(addco):
-  CASE(addci):
+/*
+            t1 = regs[r1] + regs[r2];
+            carry = t1 < regs[r1];
+            regs[r0] = t1;
+*/
+  CASE(addco): {
+    auto *OverflowOp =
+        IRB.CreateBinaryIntrinsic(llvm::Intrinsic::uadd_with_overflow,
+                                  get(input_arg(0)), get(input_arg(1)));
+
+    IRB.CreateStore(IRB.CreateExtractValue(OverflowOp, 1), BorrowAlloca);
+    set(IRB.CreateExtractValue(OverflowOp, 0), output_arg(0));
+
+    BREAK();
+  }
+
+/*
+            regs[r0] = regs[r1] + regs[r2] + carry;
+*/
+  CASE(addci): {
+    auto *LHS = get(input_arg(0));
+    auto *RHS = get(input_arg(1));
+    auto *Carry = IRB.CreateLoad(IRB.getInt1Ty(), BorrowAlloca);
+
+    auto *CarryExt = IRB.CreateZExt(Carry, LHS->getType());
+
+    set(IRB.CreateAdd(IRB.CreateAdd(LHS, RHS), CarryExt), output_arg(0));
+
+    BREAK();
+  }
+
   CASE(addcio):
     TODO();
 
