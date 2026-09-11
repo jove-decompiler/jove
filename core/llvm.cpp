@@ -6623,8 +6623,10 @@ int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
           LI->getType()->isIntegerTy(WordBits())) {
         replaceValue();
       } else {
+        ;
       }
     } else if (SI) {
+      ;
     }
 
     return Erase;
