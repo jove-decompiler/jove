@@ -1147,6 +1147,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
+      || ((opts.ForCBE || opts.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
       || (opts.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
@@ -3599,6 +3600,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       WithColor::warning() << llvm::formatv("%s:%d\n", __FILE__, __LINE__);
 
     Sect.Stuff.Constants[Off] = C;
+    ConstantRelocations.emplace(Addr, C);
   };
 
   llvm::StructType *SectsGlobalTy;
@@ -4031,6 +4033,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   };
 
   auto clear_section_stuff = [&](void) -> void {
+    ConstantRelocations.clear();
     for (section_t &Sect : SectTable) {
       Sect.Stuff.Constants.clear();
       Sect.Stuff.Types.clear();
@@ -6488,74 +6491,185 @@ int llvm_t<MT, MinSize>::Debugify(void) {
 }
 
 template <bool MT, bool MinSize>
-int llvm_t<MT, MinSize>::ConstifyRelocationSectionPointers(void) {
-  return 0;
-
+int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
   if (opts.LayOutSections)
-    return 0;
+    return 0; /* FIXME */
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
-  assert(SectsGlobal && ConstSectsGlobal);
+  if (!SectsGlobal)
+    return 0;
 
-  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+  std::vector<llvm::Instruction *> ToErase;
 
-  for (llvm::User *U_0 : SectsGlobal->users()) {
-    if (!llvm::isa<llvm::ConstantExpr>(U_0))
-      continue;
+  auto will_erase = [&](std::function<void(void)> F) -> void {
+    ToErase.clear();
 
-    llvm::ConstantExpr *CE_0 = llvm::cast<llvm::ConstantExpr>(U_0);
-    if (CE_0->getOpcode() != llvm::Instruction::PtrToInt)
-      continue;
+    F();
 
-    for (llvm::User *U_1 : CE_0->users()) {
-      if (!llvm::isa<llvm::ConstantExpr>(U_1))
-        continue;
+    for (auto *Inst : ToErase) {
+      assert(Inst->use_empty());
+      Inst->eraseFromParent();
+    }
 
-      llvm::ConstantExpr *CE_1 = llvm::cast<llvm::ConstantExpr>(U_1);
-      if (CE_1->getOpcode() != llvm::Instruction::Add)
-        continue;
+    ToErase.clear();
+  };
 
-      assert(CE_1->getNumOperands() == 2);
-      llvm::Value *Addend = CE_1->getOperand(1);
-      if (!llvm::isa<llvm::ConstantInt>(Addend))
-        continue;
+  //
+  // hunt for loads and stores
+  //
+  will_erase([&](void) {
+    for (llvm::Function &F : *Module) {
+      for (llvm::BasicBlock &BB : F) {
+        for (llvm::Instruction &I : BB) {
+          unsigned PointerOperandIdx = ~0u;
 
-      if (llvm::cast<llvm::ConstantInt>(Addend)->getValue().isStrictlyPositive()) {
-        uint64_t off =
-            llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue();
+          llvm::LoadInst *LI = nullptr;
+          llvm::StoreInst *SI = nullptr;
 
-        uintptr_t FileAddr = off + state.for_binary(Binary).SectsStartAddr;
+          if (LI = llvm::dyn_cast<llvm::LoadInst>(&I))
+            PointerOperandIdx = 0;
+          else if (SI = llvm::dyn_cast<llvm::StoreInst>(&I))
+            PointerOperandIdx = 1;
+          else
+            continue;
 
-        bool RelocLoc = ConstantRelocationLocs.find(FileAddr) !=
-                        ConstantRelocationLocs.end();
+          llvm::ConstantInt *matched_Addend1 = nullptr;
+          llvm::ConstantInt *matched_Addend2 = nullptr;
+          llvm::Value *matched_Value = nullptr;
 
-        if (RelocLoc) {
-          IRBuilderTy IRB(Context);
-          llvm::SmallVector<llvm::Value *, 4> Indices;
-          llvm::Value *SectionGEP = llvm::getNaturalGEPWithOffset(
-              IRB, DL,
-              std::make_pair(ConstSectsGlobal,
-                             ConstSectsGlobal->getValueType()),
-              llvm::APInt(64, off), nullptr, Indices, "");
+          auto AddrPattern =
+#ifdef TARGET_AARCH64
+              llvm::PatternMatch::m_And(
+                  llvm::PatternMatch::m_AShr(
+                      llvm::PatternMatch::m_Shl(
+                          llvm::PatternMatch::m_Add(
+                              llvm::PatternMatch::m_PtrToInt(
+                                  llvm::PatternMatch::m_Specific(
+                                      SectionsTop())),
+                              llvm::PatternMatch::m_ConstantInt(
+                                  matched_Addend1)),
+                          llvm::PatternMatch::m_SpecificInt(8)),
+                      llvm::PatternMatch::m_SpecificInt(8)),
+                  llvm::PatternMatch::m_Add(
+                      llvm::PatternMatch::m_PtrToInt(
+                          llvm::PatternMatch::m_Specific(SectionsTop())),
+                      llvm::PatternMatch::m_ConstantInt(matched_Addend2)))
+#else
+              llvm::PatternMatch::m_Add(
+                  llvm::PatternMatch::m_PtrToInt(
+                      llvm::PatternMatch::m_Specific(SectionsTop())),
+                  llvm::PatternMatch::m_ConstantInt(matched_Addend))
+#endif
+              ;
+          auto PtrPattern = llvm::PatternMatch::m_IntToPtr(AddrPattern);
 
-          if (llvm::isa<llvm::Constant>(SectionGEP))
-            ToReplace.push_back(
-                {(llvm::Value *)CE_1,
-                 llvm::ConstantExpr::getPtrToInt(
-                     llvm::cast<llvm::Constant>(SectionGEP), WordType())});
+          const bool Match =
+              (llvm::PatternMatch::match(&I, llvm::PatternMatch::m_Load(PtrPattern)) ||
+               llvm::PatternMatch::match(&I, llvm::PatternMatch::m_Store(llvm::PatternMatch::m_Value(matched_Value), PtrPattern))) &&
+              matched_Addend1 &&
+              matched_Addend2 &&
+              matched_Addend1->getValue() == matched_Addend2->getValue();
+
+          if (!Match)
+            continue;
+
+          llvm::errs() << llvm::formatv("found {0}\n", I);
+          const taddr_t Addr = matched_Addend1->getZExtValue() +
+                               state.for_binary(Binary).SectsStartAddr;
+
+          llvm::Value *const Ptr = I.getOperand(PointerOperandIdx);
+          llvm::Constant *const SectPtr = llvm::ConstantExpr::getIntToPtr(
+              SectionPointer(Addr), Ptr->getType());
+
+#ifdef TARGET_AARCH64
+          auto replaceAddress = [&](void) -> void {
+            if (llvm::isa<llvm::Instruction>(Ptr))
+              ToErase.push_back(llvm::cast<llvm::Instruction>(Ptr));
+
+            I.setOperand(PointerOperandIdx, SectPtr);
+            Ptr->replaceAllUsesWith(SectPtr);
+          };
+#endif
+
+          auto it = ConstantRelocations.find(Addr);
+          if (LI) {
+            auto replaceValue = [&](void) -> void {
+              assert(LI);
+              LI->replaceAllUsesWith((*it).second);
+
+              ToErase.push_back(LI);
+            };
+
+            if (it != ConstantRelocations.end() &&
+                LI->getType()->isIntegerTy(WordBits())) {
+              replaceValue();
+            } else {
+#ifdef TARGET_AARCH64
+              replaceAddress();
+#endif
+            }
+          } else if (SI) {
+#ifdef TARGET_AARCH64
+            replaceAddress();
+#endif
+          }
         }
       }
     }
-  }
+  });
 
-  for (auto &TR : ToReplace) {
-    llvm::Value *I;
-    llvm::Value *V;
-    std::tie(I, V) = TR;
+#ifdef TARGET_AARCH64
+  //
+  // hunt for address computations
+  //
+  will_erase([&](void) {
+    for (llvm::Function &F : *Module) {
+      for (llvm::BasicBlock &BB : F) {
+        for (llvm::Instruction &I : BB) {
+          auto *const BO = llvm::dyn_cast<llvm::BinaryOperator>(&I);
+          if (!BO || BO->getOpcode() != llvm::Instruction::And)
+            continue;
 
-    I->replaceAllUsesWith(V);
-  }
+          llvm::ConstantInt *matched_Addend1 = nullptr;
+          llvm::ConstantInt *matched_Addend2 = nullptr;
+          bool Match =
+              llvm::PatternMatch::match(
+                  BO,
+                  llvm::PatternMatch::m_And(
+                      llvm::PatternMatch::m_AShr(
+                          llvm::PatternMatch::m_Shl(
+                              llvm::PatternMatch::m_Add(
+                                  llvm::PatternMatch::m_PtrToInt(
+                                      llvm::PatternMatch::m_Specific(
+                                          SectionsTop())),
+                                  llvm::PatternMatch::m_ConstantInt(
+                                      matched_Addend1)),
+                              llvm::PatternMatch::m_SpecificInt(8)),
+                          llvm::PatternMatch::m_SpecificInt(8)),
+                      llvm::PatternMatch::m_Add(
+                          llvm::PatternMatch::m_PtrToInt(
+                              llvm::PatternMatch::m_Specific(SectionsTop())),
+                          llvm::PatternMatch::m_ConstantInt(
+                              matched_Addend2)))) &&
+              matched_Addend1 && matched_Addend2 &&
+              matched_Addend1->getValue() == matched_Addend2->getValue();
+
+          if (!Match)
+            continue;
+
+          llvm::errs() << llvm::formatv("found {0}\n", *BO);
+          taddr_t Addr = matched_Addend1->getZExtValue() +
+                         state.for_binary(Binary).SectsStartAddr;
+
+          BO->replaceAllUsesWith(SectionPointer(Addr));
+          aassert(BO->use_empty());
+          ToErase.push_back(BO);
+        }
+      }
+    }
+  });
+#endif
 
   return 0;
 }
@@ -6587,7 +6701,7 @@ int llvm_t<MT, MinSize>::PrepareForCBE(void) {
   JoveNoDCEFunc->setVisibility(llvm::GlobalValue::DefaultVisibility);
   JoveNoDCEFunc->deleteBody();
 
-  return ConstifyRelocationSectionPointers();
+  return 0;
 }
 
 template <bool MT, bool MinSize>
