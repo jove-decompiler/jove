@@ -4951,8 +4951,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                          llvm::PatternMatch::m_Specific(SectionsTop())),
                      llvm::PatternMatch::m_ConstantInt(matched_Addend)))) {
         assert(matched_Addend);
-        uintptr_t off = matched_Addend->getValue().getZExtValue();
-        uintptr_t FileAddr = off + SectsStartAddr;
+        taddr_t off = matched_Addend->getValue().getZExtValue();
+        taddr_t FileAddr = off + SectsStartAddr;
 
         auto &Binary = jv.Binaries.at(BinaryIndex);
         const function_t &f = function_at_address(Binary, FileAddr);
