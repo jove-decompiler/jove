@@ -144,7 +144,7 @@ asm-offsets: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platfor
 
 .PHONY: tcg-constants
 tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h) \
-               $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_TARGET)/tcgconstants.$(t).h)
+               $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_ARCH)/tcgconstants.$(t).h)
 
 .PHONY: all-helpers-mk
 all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
@@ -342,7 +342,7 @@ CARBON_EXTRACT := carbon-extract
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_build_dir = $(QEMU_DIR)/$(1)_build
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
-qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_TARGET)_carbon_build_$(1)
+qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_ARCH)_carbon_build_$(1)
 qemu_softfpu_build_dir = $(QEMU_DIR)/$(1)_softfpu_$(2)_build
 qemu_softfpu_bitcode = $(call qemu_softfpu_build_dir,$(1),$(2))/qemu-$(1).bitcode
 softfpu_bitcode = $(call qemu_softfpu_build_dir,$(1),$(2))/libfpu_soft-$(1)-$(2)-user.a.p/fpu_softfloat.c.o
@@ -464,14 +464,14 @@ $(BINDIR)/$(1)/qemu.tcg.copy.h:
 	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n --flatten ____copyme_tcg >> $$@
 
-$(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
+$(BINDIR)/$(HOST_ARCH)/qemu.tcg.copy.$(1).h:
 	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten ____copyme_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
 
-$(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
+$(BINDIR)/$(HOST_ARCH)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@
 
 .PHONY: all-helpers-$(1)-mk
@@ -496,7 +496,7 @@ check-helpers: $(foreach t,$(ALL_TARGETS),check-helpers-$(t))
 ccopy: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
        $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h) \
        $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu.tcg.copy.h) \
-       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(t).h)
+       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_ARCH)/qemu.tcg.copy.$(t).h)
 
 .PHONY: clean-qemu
 clean-qemu:

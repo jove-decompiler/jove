@@ -5,7 +5,15 @@ ALL_TARGETS := i386 x86_64 aarch64 mipsel mips64el
 ALL_LINUX_TARGETS := $(ALL_TARGETS)
 ALL_WIN_TARGETS   := i386 x86_64
 
-HOST_TARGET := x86_64
+HOST_ARCH := $(shell dpkg --print-architecture)
+
+ifeq ($(HOST_ARCH),amd64)
+  HOST_ARCH := x86_64
+else ifeq ($(HOST_ARCH),arm64)
+  HOST_ARCH := aarch64
+else
+  $(error Unsupported architecture $(HOST_ARCH) to build on)
+endif
 
 aarch64_TRIPLE  := aarch64-linux-gnu
 i386_TRIPLE     := i386-linux-gnu
@@ -35,7 +43,15 @@ i386_LIBGCC      := /usr/lib/gcc-cross/i686-linux-gnu/12/libgcc.a
 mipsel_LIBGCC    := /usr/lib/gcc-cross/mipsel-linux-gnu/12/libgcc.a
 mips_LIBGCC      := /usr/lib/gcc-cross/mips-linux-gnu/12/libgcc.a
 mips64el_LIBGCC  := /usr/lib/gcc-cross/mips64el-linux-gnuabi64/12/libgcc.a
-x86_64_LIBGCC    := /usr/lib/gcc/x86_64-linux-gnu/12/libgcc.a
+x86_64_LIBGCC    := /usr/lib/gcc-cross/x86_64-linux-gnu/12/libgcc.a
+
+ifeq ($(wildcard $(x86_64_LIBGCC)),)
+x86_64_LIBGCC := /usr/lib/gcc/x86_64-linux-gnu/12/libgcc.a
+endif
+
+ifeq ($(wildcard $(aarch64_LIBGCC)),)
+x86_64_LIBGCC := /usr/lib/gcc/aarch64-linux-gnu/12/libgcc.a
+endif
 
 # https://github.com/llvm/llvm-project/issues/58377
 mipsel_RUNTIME_SO_LDFLAGS := -z notext
