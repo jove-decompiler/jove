@@ -218,7 +218,7 @@ struct BootstrapTool
                  cl::cat(JoveCategory)),
 
           Symbolize("symbolize", cl::desc("Whether to run addr2line"),
-                    cl::init(true), cl::cat(JoveCategory)),
+                    cl::cat(JoveCategory)),
 
           Group("group", cl::desc("Run as given group"), cl::cat(JoveCategory)),
 
@@ -361,9 +361,11 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
-  trapped_t &place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
-  void place_breakpoint(pid_t, taddr_t Addr, breakpoint_t &);
-  void on_breakpoint(pid_t, ptrace::target_tracee_state_t &);
+  std::pair<trapped_t &, bool>
+  place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
+
+  // returns true if notrap_exception would be raised
+  bool on_breakpoint(pid_t, ptrace::target_tracee_state_t &);
   void on_return(pid_t child,
                  binary_index_t RetBIdx,
                  taddr_t AddrOfRet,
