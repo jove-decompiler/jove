@@ -106,6 +106,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> Symbolize;
     cl::opt<bool> VerifyBitcode;
     cl::opt<bool> ForceText;
+    cl::opt<bool> LoadRelocSectionPointers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -335,7 +336,11 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               "force-text",
               cl::desc("Force text serialization"),
               cl::init(true),
-              cl::cat(JoveCategory))
+              cl::cat(JoveCategory)),
+
+          LoadRelocSectionPointers("load-reloc-section-pointers",
+                                   cl::desc(""),
+                                   cl::cat(JoveCategory))
 
           {}
   } opts;
@@ -464,6 +469,7 @@ int LoopTool::Run(void) {
   PROPOGATE_OPTION(LayOutSections);
   PROPOGATE_OPTION(SoftfpuBitcode);
   PROPOGATE_OPTION(VerifyBitcode);
+  PROPOGATE_OPTION(LoadRelocSectionPointers);
 
   recompiler_opts.temp_dir = temporary_dir();
   recompiler_opts.Output = sysroot;
@@ -542,6 +548,9 @@ run:
 
             if (!opts.Symbolize)
               Arg("--symbolize=0");
+
+            if (opts.LoadRelocSectionPointers)
+              Arg("--load-reloc-section-pointers");
 
             if (opts.NoChroot && !opts.ForeignLibs)
               Arg("--dangerous-sleep1=" + std::to_string(opts.DangerousSleep1));

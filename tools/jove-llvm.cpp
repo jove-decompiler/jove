@@ -42,6 +42,7 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<bool> Debugify;
     cl::opt<bool> SoftfpuBitcode;
+    cl::opt<bool> LoadRelocSectionPointers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Binary("binary", cl::desc("Binary to translate"),
@@ -184,7 +185,11 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
 
           SoftfpuBitcode("softfpu-bitcode",
                          cl::desc("Link in the softfpu bitcode"),
-                         cl::cat(JoveCategory)) {}
+                         cl::cat(JoveCategory)),
+
+          LoadRelocSectionPointers("load-reloc-section-pointers",
+                                   cl::desc(""),
+                                   cl::cat(JoveCategory)) {}
   } opts;
 
   analyzer_options_t analyzer_options;
@@ -249,6 +254,7 @@ int LLVMTool::Run(void) {
   PROPOGATE_OPTION(ABICalls);
   PROPOGATE_OPTION(PrintPCRel);
   PROPOGATE_OPTION(SoftfpuBitcode);
+  PROPOGATE_OPTION(LoadRelocSectionPointers);
 
   analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
 

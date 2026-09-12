@@ -95,6 +95,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
     cl::opt<bool> Symbolize;
+    cl::opt<bool> LoadRelocSectionPointers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -197,7 +198,11 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           Symbolize("symbolize",
                  cl::desc("When recovering try to symbolize addresses"),
                  cl::init(true),
-                 cl::cat(JoveCategory))
+                 cl::cat(JoveCategory)),
+
+          LoadRelocSectionPointers("load-reloc-section-pointers",
+                                   cl::desc(""),
+                                   cl::cat(JoveCategory))
           {}
   } opts;
 
@@ -861,8 +866,12 @@ int RunTool::DoRun(void) {
   // now actually exec the given executable
   //
   fs::path prog_path = opts.Prog;
-  if (!WillChroot && fs::equivalent(opts.Prog, jv.Binaries.at(0).path_str()))
-    prog_path = fs::path(opts.sysroot) / jv.Binaries.at(0).path_str();
+  if (!WillChroot) {
+    if (fs::equivalent(opts.Prog, jv.Binaries.at(0).path_str()))
+      prog_path = fs::path(opts.sysroot).string() + "/" + jv.Binaries.at(0).path_str();
+    else
+      WithColor::warning() << "sanity check failed (" << opts.Prog << " != " << jv.Binaries.at(0).path_str() << "\n";
+  }
 
   pid_t pid = -1;
   try {

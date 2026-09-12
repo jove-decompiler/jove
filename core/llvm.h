@@ -44,6 +44,7 @@ struct llvm_options_t : public VerboseThing {
   bool ABICalls = true;
   bool PrintPCRel = false;
   bool SoftfpuBitcode = false;
+  bool LoadRelocSectionPointers = false;
 
   std::string ForAddr;
   std::string VersionScript;
@@ -287,7 +288,9 @@ class llvm_t {
   std::vector<unordered_set<std::string_view>> bin_paths_vec;
   llvm::GlobalVariable *binNamesTable;
 
-  unordered_set<uint64_t> ConstantRelocationLocs;
+  using ConstantRelocations_t = unordered_map<uint64_t, llvm::Constant *>;
+  ConstantRelocations_t ConstantRelocations;
+
   uint64_t libcEarlyInitAddr = 0;
 
   llvm::GlobalVariable *EnvGlobal = nullptr;
@@ -472,7 +475,7 @@ private:
   int TranslateFunctions(void);
   int InlineSjStubs(void);
   int PrepareToOptimize(void);
-  int ConstifyRelocationSectionPointers(void);
+  int LoadRelocationSectionPointers(void);
   int InternalizeSections(void);
   int PrepareForCBE(void);
   int ExpandMemoryIntrinsicCalls(void);

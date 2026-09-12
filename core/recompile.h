@@ -40,6 +40,7 @@ struct recompiler_options_t : public VerboseThing {
   bool DumpPreOpt1 = false;
   bool SoftfpuBitcode = false;
   bool VerifyBitcode = false;
+  bool LoadRelocSectionPointers = false;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 
@@ -87,6 +88,7 @@ struct recompiler_options_t : public VerboseThing {
     PROPOGATE(DumpPreOpt1);
     PROPOGATE(SoftfpuBitcode);
     PROPOGATE(VerifyBitcode);
+    PROPOGATE(LoadRelocSectionPointers);
 
 #undef PROPOGATE
 
