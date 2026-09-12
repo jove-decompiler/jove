@@ -332,7 +332,9 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
             std::string simple_desc =
                 (fmt("%s:0x%lX") % b.Name.c_str() % target_addr).str();
-            std::string detailed_desc = symbolizer->addr2line(b, target_addr);
+            std::string detailed_desc;
+            if (symbolizer)
+              symbolizer->addr2line(b, target_addr);
 
             if (!detailed_desc.empty())
               descv.push_back(detailed_desc);
