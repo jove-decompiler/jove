@@ -374,8 +374,12 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
 #endif
       ;
 
-  if (strcmp(helper_nm, syscall_helper_nm) == 0)
+  if (strcmp(helper_nm, syscall_helper_nm) == 0) {
+    hf.Analysis.InGlbs = SyscallArgs;
+    hf.Analysis.InGlbs.set(tcg_syscall_nr_index);
+    hf.Analysis.OutGlbs = SyscallRets;
     hf.Analysis.Simple = true; /* force */
+  }
 
   {
     std::string InGlbsStr;
