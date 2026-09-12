@@ -6583,7 +6583,7 @@ int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
         (matched_Addend1 && matched_Addend2 && (matched_Addend1->getValue() != matched_Addend2->getValue())))
       return nullptr;
 
-    llvm::errs() << llvm::formatv("found {0}\n", I);
+    //llvm::errs() << llvm::formatv("found {0}\n", I);
     const taddr_t Addr =
         (matched_Addend1 ? matched_Addend1->getZExtValue() : 0ull) +
         state.for_binary(Binary).SectsStartAddr;
