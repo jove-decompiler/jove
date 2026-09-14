@@ -1,6 +1,15 @@
 #!/bin/false
 
-for arch in $archs; do
+for arch in "${all_archs[@]}"; do
   thedir="${arch}_build"
-  cmds+=("pushd \"$llvm_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/llvm/build_${arch}.sh\" && popd")
+  target="$arch"
+  cross=""
+
+  if [ "$arch" = "$hostarch" ]; then
+    target="all"
+  else
+    cross=" -C"
+  fi
+
+  cmds+=("pushd \"$llvm_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/build_llvm.sh -a ${arch} -t ${target}${cross}\" && popd")
 done

@@ -7,17 +7,42 @@ set -x
 if (( $# >= 1 )); then MAX_RETRIES="$1";   else MAX_RETRIES=1; fi
 if (( $# >= 2 )); then PARALLEL_JOBS="$2"; else PARALLEL_JOBS=$(nproc); fi
 
-archs="x86_64 i386 mipsel mips64el aarch64"
-hostarch="x86_64"
-
 #
 # locate stuff
 #
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
-export build_scripts_path MAX_RETRIES PARALLEL_JOBS archs hostarch
+export build_scripts_path MAX_RETRIES PARALLEL_JOBS
 
 . "$build_scripts_path/paths.sh"
 . "$build_scripts_path/retry.sh"
+
+
+hostarch=$(dpkg --print-architecture)
+
+case "$hostarch" in
+  amd64)
+    hostarch=x86_64
+    ;;
+  arm64)
+    hostarch=aarch64
+    ;;
+  *)
+    echo "build architecture ($hostarch) is unsupported." >&2
+    exit 1
+    ;;
+esac
+
+export hostarch
+
+all_archs=("$hostarch")
+
+for arch in i386 x86_64 aarch64 mipsel mips64el ; do
+  if [ "$arch" != "$hostarch" ]; then
+    all_archs+=("$arch")
+  fi
+done
+
+export all_archs
 
 #
 # fresh symlinks
@@ -63,7 +88,9 @@ Y="$cmdsdir"
 . "$X/parallel.sh"
 
 # -------- Stage 4 --------
-. "$Y/wine32.sh"
+if [ "$hostarch" = "x86_64" ]; then
+  . "$Y/wine32.sh"
+fi
 . "$Y/llvm.sh"
 . "$Y/stp.sh"
 

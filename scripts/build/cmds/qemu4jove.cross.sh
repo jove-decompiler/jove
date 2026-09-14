@@ -1,6 +1,6 @@
 #!/bin/false
 
-for arch in $archs; do
+for arch in "${all_archs[@]}"; do
   thedir="${hostarch}_carbon_build_${arch}"
-  cmds+=("pushd \"$qemu_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/qemu/build_${hostarch}.sh _carbon $arch\" && popd")
+  cmds+=("pushd \"$qemu_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/build_qemu.sh -a ${hostarch} -t ${arch} -D -F -c\" && popd")
 done

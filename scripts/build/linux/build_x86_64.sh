@@ -19,10 +19,10 @@ COMMON_ARGS=\
 if test "$#" = 1 ; then
   if test "$1" = "_carbon" ; then
     if [ ! -f Makefile ]; then
-    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 x86_64_defconfig
+    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=x86_64 x86_64_defconfig
     alter_config
     fi
-    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 lib/jove.o lib/string.o
+    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=x86_64 lib/jove.o lib/string.o
 
     exit 0
   fi

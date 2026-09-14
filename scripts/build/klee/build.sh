@@ -12,6 +12,8 @@ OURCFLAGS=\
 " -g"\
 " -fuse-ld=lld"
 
+llconfig="$klee_build_scripts_path/../../../llvm-project/build/llvm/bin/llvm-config"
+
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
       -D CMAKE_C_COMPILER=$(which clang-19) \
@@ -25,11 +27,12 @@ cmake -G Ninja \
       -D ENABLE_UNIT_TESTS=OFF \
       -D ENABLE_KLEE_ASSERTS=ON \
       -D ENABLE_DOCS=OFF \
+      -D ENABLE_KLEE_ASSERTS=$(shell $llconfig --assertion-mode) \
       -D LLVM_ENABLE_EH=OFF \
       -D LLVM_ENABLE_LTO=THIN \
       -D LLVM_USE_LINKER=lld \
       -D LLVM_DIR=$klee_build_scripts_path/../../../llvm-project/build/llvm/lib/cmake/llvm \
-      -D LLVM_CONFIG_BINARY=$klee_build_scripts_path/../../../llvm-project/build/llvm/bin/llvm-config \
+      -D LLVM_CONFIG_BINARY=$llconfig \
       -D LLVMCC=$klee_build_scripts_path/../../../llvm-project/build/llvm/bin/clang \
       -D LLVMCXX=$klee_build_scripts_path/../../../llvm-project/build/llvm/bin/clang++ \
       -S $(pwd)/.. -B $(pwd)
