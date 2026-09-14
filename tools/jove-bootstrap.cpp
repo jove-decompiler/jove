@@ -1757,9 +1757,25 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   };
 
   if (unlikely(!is_binary_index_valid(Target.BIdx))) {
-    if (IsVerbose())
-      do_print_thing("breakpoint appears to be contained in some unknown binary");
-    return false;
+    auto pm_it = intvl_map_find(pmm, TargetAddr);
+    if (unlikely(pm_it == pmm.end())) {
+      ScanAddressSpace(child);
+      Target.BIdx = binary_at_program_counter(child, TargetAddr);
+      pm_it = intvl_map_find(pmm, TargetAddr);
+    }
+
+    const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+    if (!is_binary_index_valid(Target.BIdx)) {
+      if (pm.nm.empty()) {
+        //
+        // anonymous memory. should we save it?
+        //
+      } else {
+        if (IsVeryVerbose())
+          do_print_thing("unknown branch target");
+      }
+      return false;
+    }
   }
 
   auto &TargetBinary = jv.Binaries.at(Target.BIdx);
