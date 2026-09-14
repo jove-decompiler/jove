@@ -126,12 +126,10 @@ struct section_t {
 };
 
 // returns whether the block was actually analyzed
-bool AnalyzeBasicBlock(tiny_code_generator_t &,
-                       helpers_context_t &,
-                       llvm::Module &,
-                       B::ref,
+bool AnalyzeBasicBlock(B::ref Bin,
                        bbprop_t &,
-                       const analyzer_options_t &);
+                       analyzer_context_t &,
+                       analyzer_options_t &);
 
 template <bool MT, bool MinSize>
 class llvm_t {
@@ -142,8 +140,10 @@ class llvm_t {
 
   const jv_t &jv;
 
-  const llvm_options_t &opts;
-  const analyzer_options_t &analyzer_options;
+  llvm_options_t &options;
+
+  analyzer_options_t &analyzer_options;
+  analyzer_context_t &analyzer_context;
 
   locator_t &locator_;
 
@@ -269,8 +269,11 @@ class llvm_t {
   std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
   helpers_context_t helpers;
 
+  void *const p_helper_lookup_tb_ptr;
+  void *const p_helper_memset;
+  void *const p_syscall_helper;
+
   disas_t &disas;
-  tiny_code_generator_t &TCG;
 
   llvm::DataLayout DL;
 
@@ -436,15 +439,13 @@ class llvm_t {
   uint64_t lstaddr = 0;    /* FIXME? !MT-safe */
 
 public:
-  llvm_t(const jv_t &jv, const llvm_options_t &llvm_options,
-         const analyzer_options_t &analyzer_options,
-         disas_t &disas,
-         tiny_code_generator_t &TCG,
-         llvm::LLVMContext &Context,
-         locator_t &locator_)
-      : jv(jv), opts(llvm_options), analyzer_options(analyzer_options),
-        locator_(locator_), Context(Context),
-        state(jv), disas(disas), TCG(TCG), DL("") {}
+  llvm_t(const jv_t &,
+         llvm_options_t &,
+         analyzer_options_t &,
+         analyzer_context_t &,
+         disas_t &,
+         llvm::LLVMContext &,
+         locator_t &);
 
   int go(void);
 
@@ -497,7 +498,7 @@ private:
   int DoOptimize(void);
   int Debugify(void);
 
-  const std::string &temporary_dir(void) const { return opts.temp_dir; }
+  const std::string &temporary_dir(void) const { return options.temp_dir; }
   locator_t &locator(void) { return locator_; }
 
   void CURIOSITY(const std::string &message);
@@ -589,7 +590,7 @@ private:
     binary_index_t BIdx = DynTarget.first;
     const auto &binary = jv.Binaries.at(BIdx);
 
-    if (opts.ForeignLibs)
+    if (options.ForeignLibs)
       return !binary.IsExecutable;
 
     return binary.IsDynamicLinker || binary.IsVDSO;

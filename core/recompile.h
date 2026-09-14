@@ -105,14 +105,15 @@ class recompiler_t {
 
   const jv_t &jv;
 
-  const recompiler_options_t &opts;
-  const llvm_options_t llvm_options; /* created from opts */
-  const analyzer_options_t analyzer_options;
+  recompiler_options_t &options;
+  llvm_options_t       llvm_options; /* created from options */
+  analyzer_options_t   analyzer_options;
 
   const boost::filesystem::path path_to_output;
 
   disas_t &disas;
-  tiny_code_generator_t &TCG;
+
+  analyzer_context_t &analyzer_context;
 
   locator_t &locator_;
 
@@ -157,23 +158,27 @@ class recompiler_t {
   std::vector<dso_t> Q;
   std::atomic<bool> worker_failed = false;
 
-  const std::string &temporary_dir(void) const { return opts.temp_dir; }
+  const std::string &temporary_dir(void) const { return options.temp_dir; }
   locator_t &locator(void) { return locator_; }
 
 public:
-  recompiler_t(const jv_t &jv, const recompiler_options_t &opts,
+  recompiler_t(const jv_t &jv,
+               recompiler_options_t &options,
+               analyzer_context_t &analyzer_context,
                disas_t &disas,
-               tiny_code_generator_t &TCG,
                locator_t &locator_)
-      : jv(jv), opts(opts), llvm_options(opts.to_llvm_options()),
-        analyzer_options(opts.to_analyzer_options()),
-        path_to_output(opts.Output),
+      : jv(jv),
+        options(options),
+        llvm_options(options.to_llvm_options()),
+        analyzer_options(options.to_analyzer_options()),
+        path_to_output(options.Output),
         disas(disas),
-        TCG(TCG),
-        locator_(locator_), state(jv),
+        analyzer_context(analyzer_context),
+        locator_(locator_),
+        state(jv),
         IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {
     if (IsCOFF) {
-      if (!opts.ForeignLibs)
+      if (!options.ForeignLibs)
         throw std::runtime_error("COFF is only supported in executable-only mode");
     }
   }

@@ -29,7 +29,7 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> SkipLLVM;
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
-    cl::list<std::string> PinnedGlobals;
+    cl::list<std::string> PinnedEnvGlbs;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
     cl::opt<bool> RuntimeMT;
@@ -96,7 +96,7 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
           ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
                            cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
 
-          PinnedGlobals(
+          PinnedEnvGlbs(
               "pinned-globals", cl::CommaSeparated,
               cl::value_desc("glb_1,glb_2,...,glb_n"),
               cl::desc(
@@ -168,8 +168,11 @@ JOVE_REGISTER_TOOL("recompile", RecompileTool);
 int RecompileTool::Run(void) {
   disas_t disas;
   tiny_code_generator_t TCG;
+  helpers_context_t helpers;
 
-  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
+  analyzer_context_t analyzer_context(TCG, helpers);
+
+  for (const std::string &PinnedGlobalName : opts.PinnedEnvGlbs) {
     int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
@@ -205,7 +208,7 @@ int RecompileTool::Run(void) {
 
   options.temp_dir = temporary_dir();
 
-  recompiler_t recompiler(jv, options, disas, TCG, locator());
+  recompiler_t recompiler(jv, options, analyzer_context, disas, locator());
   return recompiler.go();
 }
 

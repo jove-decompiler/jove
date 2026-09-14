@@ -104,8 +104,31 @@ typedef boost::format fmt;
 TCGContext *get_tcg_context(void); /* FIXME */
 
 template <bool MT, bool MinSize>
+llvm_t<MT, MinSize>::llvm_t(
+               const jv_t &jv,
+               llvm_options_t &options,
+               analyzer_options_t &analyzer_options,
+               analyzer_context_t &analyzer_context,
+               disas_t &disas,
+               llvm::LLVMContext &Context,
+               locator_t &locator_)
+    : jv(jv),
+      options(options),
+      analyzer_options(analyzer_options),
+      analyzer_context(analyzer_context),
+      locator_(locator_),
+      Context(Context),
+      state(jv),
+      disas(disas),
+      DL(""),
+      p_helper_lookup_tb_ptr(jv_special_helpers()[0]),
+      p_helper_memset       (jv_special_helpers()[1]),
+      p_syscall_helper      (jv_special_helpers()[2])
+{}
+
+template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {
-  if (!opts.IsVerbose())
+  if (!options.IsVerbose())
     return;
 
   WithColor::note() << llvm::formatv("CURIOSITY: {0}\n", message);
@@ -113,7 +136,7 @@ void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {
 
 template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::warning(const char *file, int line) {
-  if (!opts.IsVerbose())
+  if (!options.IsVerbose())
     return;
 
   WithColor::warning() << llvm::formatv("WARNING @ {0}:{1}\n", file, line);
@@ -231,22 +254,20 @@ static bool AnalyzeHelper(helper_function_t &hf,
   return res;
 }
 
-static const helper_function_t &LookupHelper(llvm::Module &M,
-                                             bool IsCOFF,
-                                             helpers_context_t &helpers,
-                                             tiny_code_generator_t &TCG,
+static const helper_function_t &LookupHelper(bool IsCOFF,
                                              TCGOp *op,
-                                             const analyzer_options_t &options) {
-  std::unique_lock<std::mutex> lck(helpers.mtx);
+                                             analyzer_options_t &options,
+                                             analyzer_context_t &context) {
+  std::unique_lock<std::mutex> lck(context.helpers.mtx);
 
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
 
-  TCGArg helper_addr = op->args[nb_oargs + nb_iargs];
+  void *const helper_fn = jv_tcg_helper_func(op);
 
   {
-    auto it = helpers.map.find(helper_addr);
-    if (it != helpers.map.end())
+    auto it = context.helpers.map.find(helper_fn);
+    if (it != context.helpers.map.end())
       return (*it).second;
   }
 
@@ -254,12 +275,13 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   assert(helper_nm);
   const std::string helper_fn_nm = std::string("helper_") + helper_nm;
 
-  if (llvm::Function *F = M.getFunction(helper_fn_nm)) {
+  assert(context.M);
+  if (llvm::Function *F = context.M->getFunction(helper_fn_nm)) {
     static unsigned j = 0;
     F->setName(helper_fn_nm + "_" + std::to_string(j++));
   }
 
-  assert(!M.getFunction(helper_fn_nm));
+  assert(!context.M->getFunction(helper_fn_nm));
 
   constexpr bool DFSan = false;
 
@@ -275,7 +297,8 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   }
 
   llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
-      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), M.getContext());
+      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(),
+                             context.M->getContext());
   if (!helperModuleOr) {
     llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
                                 "could not parse helper bitcode: ");
@@ -319,10 +342,10 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
           F.setLinkage(llvm::GlobalValue::InternalLinkage);
       });
 
-  llvm::Linker::linkModules(M, std::move(helperModule));
+  llvm::Linker::linkModules(*context.M, std::move(helperModule));
 
-  helper_function_t &hf = helpers.map[helper_addr];
-  hf.F = M.getFunction(helper_fn_nm);
+  helper_function_t &hf = context.helpers.map[helper_fn];
+  hf.F = context.M->getFunction(helper_fn_nm);
   if (unlikely(!hf.F)) {
     WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
                                         helper_nm);
@@ -360,21 +383,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   //
   // is this a system call?
   //
-  const char *const syscall_helper_nm =
-#if defined(TARGET_X86_64)
-      "syscall"
-#elif defined(TARGET_I386)
-      "raise_interrupt"
-#elif defined(TARGET_AARCH64)
-      "exception_with_syndrome"
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-      "raise_exception_err"
-#else
-#error
-#endif
-      ;
-
-  if (strcmp(helper_nm, syscall_helper_nm) == 0) {
+  if (helper_fn == context.p_syscall_helper) {
     hf.Analysis.InGlbs = SyscallArgs;
     hf.Analysis.InGlbs.set(tcg_syscall_nr_index);
     hf.Analysis.OutGlbs = SyscallRets;
@@ -434,12 +443,10 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   return hf;
 }
 
-bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
-                       helpers_context_t &helpers,
-                       llvm::Module &M,
-                       B::ref Bin,
+bool AnalyzeBasicBlock(B::ref Bin,
                        bbprop_t &bbprop,
-                       const analyzer_options_t &options) {
+                       analyzer_context_t &context,
+                       analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
     return false;
 
@@ -452,7 +459,7 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
 
-  TCG.set_binary(Bin);
+  context.TCG.set_binary(Bin);
 
   bbprop.Analysis.live.use.reset();
   bbprop.Analysis.live.def.reset();
@@ -463,7 +470,7 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   do {
     unsigned len;
     try {
-      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
+      std::tie(len, T) = context.TCG.translate(Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       break;
     }
@@ -484,8 +491,7 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         if (strcmp(jv_tcg_find_helper(op), "memset") == 0) /* FIXME */
           continue;
 
-        const helper_function_t &hf =
-            LookupHelper(M, IsCOFF, helpers, TCG, op, options);
+        const helper_function_t &hf = LookupHelper(IsCOFF, op, options, context);
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
@@ -528,7 +534,7 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   } while (size < Size);
 
 #if 0
-  if (false /* opts::PrintDefAndUse */) {
+  if (false /* options::PrintDefAndUse */) {
     llvm::outs() << (fmt("%#lx") % Addr).str() << '\n';
 
     uint64_t InstLen;
@@ -649,16 +655,16 @@ static bool is_builtin_sym(const std::string &);
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::go(void) {
   //jove::cmdline.argv = argv;
-  //opts.CheckEmulatedStackReturnAddress = opts.DFSan;
+  //options.CheckEmulatedStackReturnAddress = options.DFSan;
 
   //
   // binary index (cmdline)
   //
-  if (!opts.Binary.empty()) {
+  if (!options.Binary.empty()) {
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       auto &b = jv.Binaries.at(BIdx);
 
-      if (fs::path(b.path_str()).filename().string() == opts.Binary) {
+      if (fs::path(b.path_str()).filename().string() == options.Binary) {
         if (b.IsDynamicLinker) {
           WithColor::error() << "given binary is dynamic linker\n";
           return 1;
@@ -676,8 +682,8 @@ int llvm_t<MT, MinSize>::go(void) {
     WithColor::error() << "no binary associated with given path\n";
     return 1;
   }
-  if (!opts.BinaryIndex.empty()) {
-    int idx = atoi(opts.BinaryIndex.c_str());
+  if (!options.BinaryIndex.empty()) {
+    int idx = atoi(options.BinaryIndex.c_str());
 
     if (idx < 0 || idx >= jv.Binaries.size()) {
       WithColor::error() << "invalid binary index supplied\n";
@@ -696,7 +702,7 @@ int llvm_t<MT, MinSize>::go(void) {
 
   IsCOFF = B::is_coff(state.for_binary(Binary).Bin.get());
   if (IsCOFF) {
-    if (!opts.ForeignLibs)
+    if (!options.ForeignLibs)
       throw std::runtime_error("COFF is only supported in exe-only mode");
   }
 
@@ -705,16 +711,16 @@ int llvm_t<MT, MinSize>::go(void) {
   ConstSectsGlobalName =
       (fmt("__jove_sections_const_%u") % static_cast<unsigned>(BinaryIndex)).str();
 
-  if (opts.DumpTCG) {
-    if (opts.ForAddr.empty()) {
+  if (options.DumpTCG) {
+    if (options.ForAddr.empty()) {
       WithColor::error() << "if --dump-tcg is passed, --for-addr must also be passed\n";
       return 1;
     } else {
-      ForAddr = std::stoi(opts.ForAddr.c_str(), nullptr, 16);
+      ForAddr = std::stoi(options.ForAddr.c_str(), nullptr, 16);
     }
   }
 
-  if (opts.ForeignLibs) {
+  if (options.ForeignLibs) {
     if (!jv.Binaries.at(BinaryIndex).IsExecutable) {
       WithColor::error() << "--foreign-libs specified but given binary is not "
                             "the executable\n";
@@ -728,7 +734,7 @@ int llvm_t<MT, MinSize>::go(void) {
       (rc = PrepareToTranslateCode()))
     return rc;
 
-  if (unlikely(opts.DFSan)) {
+  if (unlikely(options.DFSan)) {
     //
     // examine function symbols in every binary (ExportedFunctions)
     //
@@ -804,7 +810,7 @@ int llvm_t<MT, MinSize>::go(void) {
                 GlobalSymbolDefinedSizeMap.emplace(SymName, Sym.st_size);
               } else {
                 if ((*it).second != Sym.st_size) {
-                  if (opts.IsVeryVerbose())
+                  if (options.IsVeryVerbose())
                     WithColor::warning()
                         << llvm::formatv("global symbol {0} is defined with "
                                          "multiple distinct sizes: {1}, {2}\n",
@@ -962,7 +968,7 @@ int llvm_t<MT, MinSize>::go(void) {
       (rc = CreateFunctions()) ||
       (rc = CreateFunctionTables()) ||
       (rc = ProcessBinaryTLSSymbols()) ||
-      (rc = (opts.DFSan ? LocateHooks() : 0)) ||
+      (rc = (options.DFSan ? LocateHooks() : 0)) ||
       (rc = CreateTLSModGlobal()) ||
       (rc = CreateSectionGlobalVariables()) ||
       (rc = CreatePossibleTramps()))
@@ -1142,22 +1148,22 @@ int llvm_t<MT, MinSize>::go(void) {
       || TranslateFunctions()
       || InlineSjStubs()
       || InternalizeSections()
-      || (opts.InlineHelpers ? InlineHelpers() : 0)
-      || (opts.ForCBE ? PrepareForCBE() : 0)
-      || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
-      || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : DoDeadArgElim())
-      || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
-      || (opts.SoftfpuBitcode ? LinkInSoftFPU() : 0)
+      || (options.InlineHelpers ? InlineHelpers() : 0)
+      || (options.ForCBE ? PrepareForCBE() : 0)
+      || (options.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
+      || ((options.Optimize || options.ForCBE) ? DoOptimize() : DoDeadArgElim())
+      || (options.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
+      || (options.SoftfpuBitcode ? LinkInSoftFPU() : 0)
       || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
-      || ((opts.ForCBE || opts.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
-      || (opts.DFSan ? DFSanInstrument() : 0)
+      || ((options.ForCBE || options.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
+      || (options.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
-      || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
-      || (!opts.LinkerScript.empty() ? WriteLinkerScript() : 0)
-      || (opts.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
-      || (opts.Debugify ? Debugify() : 0)
+      || (!options.VersionScript.empty() ? WriteVersionScript() : 0)
+      || (!options.LinkerScript.empty() ? WriteLinkerScript() : 0)
+      || (options.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
+      || (options.Debugify ? Debugify() : 0)
       || WriteModule();
 }
 
@@ -1175,7 +1181,7 @@ void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
 
   {
     fs::path dumpOutputPath =
-        fs::path(opts.Output).replace_extension(std::string(suffix) + ".ll");
+        fs::path(options.Output).replace_extension(std::string(suffix) + ".ll");
 
     WithColor::note() << llvm::formatv("dumping module to {0} ({1})\n",
                                        dumpOutputPath.c_str(), suffix);
@@ -1186,7 +1192,7 @@ void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
 
   {
     fs::path dumpOutputPath =
-        fs::path(opts.Output).replace_extension(std::string(suffix) + ".bc");
+        fs::path(options.Output).replace_extension(std::string(suffix) + ".bc");
 
     WithColor::note() << llvm::formatv("dumping module to {0} ({1})\n",
                                        dumpOutputPath.c_str(), suffix);
@@ -1207,7 +1213,7 @@ void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
-  if (opts.IsVeryVerbose())
+  if (options.IsVeryVerbose())
     for_each_binary(jv, [&](auto &b) {
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          b.Name.c_str(),
@@ -1258,7 +1264,7 @@ void llvm_t<MT, MinSize>::fillInFunctionBody(llvm::Function *F,
   assert(F->empty() && "function is already defined!");
 
   llvm::DISubprogram *DbgSubprogram = nullptr;
-  if (!opts.Debugify) {
+  if (!options.Debugify) {
   //
   // if we don't create debug information, llvm::verifyModule() will fail
   //
@@ -1291,7 +1297,7 @@ void llvm_t<MT, MinSize>::fillInFunctionBody(llvm::Function *F,
   {
     IRBuilderTy IRB(BB);
 
-    if (!opts.Debugify)
+    if (!options.Debugify)
     IRB.SetCurrentDebugLocation(llvm::DILocation::get(
         Context, 0 /* Line */, 0 /* Column */, DbgSubprogram));
 
@@ -1312,14 +1318,14 @@ void llvm_t<MT, MinSize>::fillInFunctionBody(llvm::Function *F,
     F->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
 
-  if (!opts.Debugify)
+  if (!options.Debugify)
   DIBuilder->finalizeSubprogram(DbgSubprogram);
 }
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreateModule(void) {
   std::string path_to_bitcode =
-      locator().starter_bitcode(opts.RuntimeMT, IsCOFF);
+      locator().starter_bitcode(options.RuntimeMT, IsCOFF);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
       llvm::MemoryBuffer::getFile(path_to_bitcode);
@@ -1340,6 +1346,8 @@ int llvm_t<MT, MinSize>::CreateModule(void) {
 
   std::unique_ptr<llvm::Module> &ModuleRef = moduleOr.get();
   Module = std::move(ModuleRef);
+
+  analyzer_context.M = Module.get();
 
   Module->setSemanticInterposition(false);
 
@@ -1425,7 +1433,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   assert(JoveForeignFunctionTablesGlobal);
   JoveForeignFunctionTablesGlobal->setInitializer(llvm::Constant::getNullValue(
       JoveForeignFunctionTablesGlobal->getValueType()));
-  if (opts.ForCBE)
+  if (options.ForCBE)
     JoveForeignFunctionTablesGlobal->setVisibility(
         llvm::GlobalValue::HiddenVisibility);
   else
@@ -1482,7 +1490,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   JoveCallFunc = Module->getFunction("_jove_call");
   assert(JoveCallFunc);
 
-  if (opts.ForCBE) {
+  if (options.ForCBE) {
     assert(JoveCallFunc->getLinkage() == llvm::GlobalValue::ExternalLinkage);
   } else {
     JoveCallFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
@@ -1495,12 +1503,12 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   assert(JoveMakeSectionsNotExeFunc);
 
   JoveCheckReturnAddrFunc = Module->getFunction("_jove_check_return_address");
-  if (opts.CheckEmulatedStackReturnAddress) {
+  if (options.CheckEmulatedStackReturnAddress) {
     assert(JoveCheckReturnAddrFunc);
     JoveCheckReturnAddrFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
-  if (opts.DFSan) {
+  if (options.DFSan) {
     {
       assert(!Module->getFunction("dfsan_log_jove_fn_start"));
 
@@ -1548,7 +1556,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   JoveNoDCEFunc = Module->getFunction("__nodce");
   assert(JoveNoDCEFunc);
 
-  if (opts.ForCBE) {
+  if (options.ForCBE) {
     std::for_each(Module->begin(),
                   Module->end(), [&](llvm::Function &F) {
       if (F.isIntrinsic())
@@ -1838,9 +1846,9 @@ llvm_t<MT, MinSize>::declareHook(const hook_t &h, bool IsPreOrPost) {
 //
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::LocateHooks(void) {
-  assert(opts.DFSan);
+  assert(options.DFSan);
 
-  const bool ForeignLibs = opts.ForeignLibs;
+  const bool ForeignLibs = options.ForeignLibs;
 
   for (const hook_t &h : HookArray) {
     if (!ForeignLibs && h.Syscall) {
@@ -1907,7 +1915,7 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   if (!tlsPhdr) {
     ThreadLocalStorage.Present = false;
 
-    if (opts.IsVeryVerbose())
+    if (options.IsVeryVerbose())
       WithColor::note() << llvm::formatv("{0}: No thread local storage\n",
                                          __func__);
     return;
@@ -1918,7 +1926,7 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
   ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
 
-  if (opts.IsVeryVerbose())
+  if (options.IsVeryVerbose())
   WithColor::note() << llvm::formatv("Thread-local storage: [{0:x}, {1:x})\n",
                                      ThreadLocalStorage.Beg,
                                      ThreadLocalStorage.End);
@@ -2099,7 +2107,7 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
       }
 
       llvm::Value *SavedTraceP = nullptr;
-      if (opts.Trace) {
+      if (options.Trace) {
         SavedTraceP = IRB.CreateLoad(IRB.getPtrTy(), TraceGlobal);
         SavedTraceP->setName("saved_tracep");
 
@@ -2128,7 +2136,7 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
 
       IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
 
-      if (opts.Trace)
+      if (options.Trace)
         IRB.CreateStore(SavedTraceP, TraceGlobal);
 
       if (state.for_function(f).F->getFunctionType()->getReturnType()->isVoidTy()) {
@@ -2214,7 +2222,7 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
           }
         }
 
-        if (opts.IsVeryVerbose())
+        if (options.IsVeryVerbose())
         llvm::errs() << llvm::formatv("COPY relocation: {0} {1}\n", RelSym.Name, RelSym.Vers);
 
         //
@@ -2252,7 +2260,7 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
           abort();
         }
 
-        if (opts.IsVeryVerbose())
+        if (options.IsVeryVerbose())
         WithColor::note() << llvm::formatv(
             "copy relocation @ {0:x} specifies symbol {1} with size {2}\n",
             R.Offset, RelSym.Name, RelSym.Sym->st_size);
@@ -2290,12 +2298,12 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::PrepareToTranslateCode(void) {
-  assert(analyzer_options.ForCBE == opts.ForCBE);
-  assert(analyzer_options.PinnedEnvGlbs == opts.PinnedEnvGlbs);
+  assert(analyzer_options.ForCBE == options.ForCBE);
+  assert(analyzer_options.PinnedEnvGlbs == options.PinnedEnvGlbs);
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
-  if (!opts.Debugify) {
+  if (!options.Debugify) {
   DIBuilder.reset(new llvm::DIBuilder(*Module));
 
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -2557,7 +2565,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
 
       unsigned i = 0;
       for (llvm::Argument &A : x.F->args()) {
-        std::string name = opts.ForCBE ? "_" : "";
+        std::string name = options.ForCBE ? "_" : "";
         name.append(get_tcg_context()->temps[glbv.at(i)].name);
         A.setName(name);
         ++i;
@@ -2607,7 +2615,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
       //
       unsigned i = 0;
       for (llvm::Argument &A : x.adapterF->args()) {
-        std::string name = opts.ForCBE ? "_" : "";
+        std::string name = options.ForCBE ? "_" : "";
         name.append(get_tcg_context()->temps[CallConvArgArray.at(i)].name);
         A.setName(name);
         ++i;
@@ -2628,7 +2636,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTables(void) {
       continue;
     if (binary.IsDynamicallyLoaded)
       continue;
-    if (opts.ForeignLibs && !binary.IsExecutable)
+    if (options.ForeignLibs && !binary.IsExecutable)
       continue;
 
     state.for_binary(binary).SectsF = llvm::Function::Create(
@@ -2728,12 +2736,12 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
             ConstantTableInternalGV->getValueType(),
             ConstantTableInternalGV, 0, 0));
       },
-      !opts.ForCBE);
+      !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_function_count"), [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(Binary.Analysis.Functions.size()));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_functions_count"), [&](auto &IRB) {
@@ -2752,7 +2760,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
                               return res + b.Analysis.Functions.size();
                             });
 
-        unsigned M = N_1 + (opts.ForeignLibs ? N_2 : 0);
+        unsigned M = N_1 + (options.ForeignLibs ? N_2 : 0);
 
         IRB.CreateRet(IRB.getInt32(M));
 #else
@@ -2764,7 +2772,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
                             });
         IRB.CreateRet(IRB.getInt32(N));
 #endif
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   return 0;
 }
@@ -2926,7 +2934,7 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
 
       auto it = GlobalSymbolDefinedSizeMap.find(RelSym.Name);
       if (it == GlobalSymbolDefinedSizeMap.end()) {
-        if (opts.IsVeryVerbose())
+        if (options.IsVeryVerbose())
           WithColor::warning() << llvm::formatv("{0}: unknown size for {1}\n",
                                                 __func__, RelSym.Name);
 
@@ -2982,7 +2990,7 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportFunctionByOrdinal(llvm::StringRef DLL
                                                   uint32_t Ordinal) {
   std::string nm(coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal));
 
-  if (opts.IsVeryVerbose())
+  if (options.IsVeryVerbose())
     llvm::errs() << "creating " << nm << '\n';
 
   llvm::FunctionType *FTy =
@@ -3035,7 +3043,7 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
       //   Name: DeleteCriticalSection
       //   ForwardedTo: NTDLL.RtlDeleteCriticalSection
       // }
-      if (opts.IsVeryVerbose())
+      if (options.IsVeryVerbose())
         WithColor::error() << "Name2RVA failed on " << Name << " in " << DLL
                            << '\n';
     } else {
@@ -3236,7 +3244,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
     PatchContents(llvm_t &tool, const binary_t &Binary)
         : tool(tool), Binary(Binary) {
-      if (!tool.opts.PlaceSectionBreakpoints)
+      if (!tool.options.PlaceSectionBreakpoints)
         return;
 
       Saved.resize(Binary.Analysis.Functions.size());
@@ -3271,7 +3279,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           });
     }
     ~PatchContents() {
-      if (!tool.opts.PlaceSectionBreakpoints)
+      if (!tool.options.PlaceSectionBreakpoints)
         return;
 
       auto &Bin = tool.state.for_binary(Binary).Bin;
@@ -3505,7 +3513,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         } else {
           assert(contents.size() <= Sect.SizeOfRawData);
 
-          if (opts.IsVeryVerbose())
+          if (options.IsVeryVerbose())
             llvm::errs() << llvm::formatv(
                 "section {0} is {1} bytes (have {2}) (should have {3})\n",
                 Sect.Name,
@@ -3719,7 +3727,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
 
-      if (opts.IsVeryVerbose())
+      if (options.IsVeryVerbose())
         llvm::errs() << llvm::formatv(
             "Section: \"{0}\" Size={1} Sect.Contents.size()={2}\n", Sect.Name,
             Sect.Size, Sect.Contents.size());
@@ -3741,7 +3749,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       std::vector<llvm::Constant *> SectFieldInits;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
-        if (opts.IsVeryVerbose())
+        if (options.IsVeryVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x})\n",
                                         intvl.lower(),
                                         intvl.upper());
@@ -3796,7 +3804,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       // XXX the following assumes .rsrc is just pure bytes, and it assumes the
       // section can basically just be anywhere relative to the other sections
       // XXX wasteful, consider --lay-out-sections
-      if (!opts.LayOutSections && IsCOFF && Sect.Name == ".rsrc" &&
+      if (!options.LayOutSections && IsCOFF && Sect.Name == ".rsrc" &&
           !Module->getGlobalVariable("__jove_rsrc", true)) {
         llvm::GlobalVariable *rsrcSectGV = new llvm::GlobalVariable(
             *Module, SectTable[i].T, false, llvm::GlobalValue::InternalLinkage,
@@ -3979,7 +3987,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       // C might be NULL if the global variable needs to be initialized with the
       // address of itself
       if (!T) {
-        if (opts.IsVerbose())
+        if (options.IsVerbose())
           llvm::errs() << llvm::formatv(
               "!create_global_variable for {0} @ {1:x}\n", SymName,
               Sect.Addr + lower);
@@ -4047,7 +4055,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
   };
 
-  if (opts.IsVeryVerbose()) {
+  if (options.IsVeryVerbose()) {
 
   B::_elf(Bin.get(), [&](ELFO &O) {
 
@@ -4711,7 +4719,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     TLSSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
-  if (opts.LayOutSections) {
+  if (options.LayOutSections) {
     std::string CurrSectName = ".jove";
 
     unsigned trailingBytes = 0; /* cuts into space between sections */
@@ -4764,7 +4772,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         assert(trailingBytes == 0);
       }
 
-      if (opts.IsVeryVerbose())
+      if (options.IsVeryVerbose())
         llvm::errs() << llvm::formatv("Laying out section {0}\n", Sect.Name);
 
       if (IsCOFF && _coff.rsrcSectIdx >= 0) {
@@ -4799,7 +4807,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       assert(actualSize >= Sect.Size);
       trailingBytes = actualSize - Sect.Size;
 
-      if (opts.IsVerbose() && trailingBytes > 0)
+      if (options.IsVerbose() && trailingBytes > 0)
         llvm::errs() << llvm::formatv("{0} trailing bytes for {1}\n",
                                       trailingBytes, Sect.Name);
 
@@ -5004,7 +5012,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreatePossibleTramps(void) {
-  if (opts.IsVeryVerbose())
+  if (options.IsVeryVerbose())
     llvm::errs() << llvm::formatv("# of possible tramps: {0}\n",
                                   possible_tramps_vec.size());
 
@@ -5031,14 +5039,14 @@ int llvm_t<MT, MinSize>::CreatePossibleTramps(void) {
         IRB.CreateRet(
             IRB.CreateConstInBoundsGEP2_64(GV->getValueType(), GV, 0, 0));
       },
-      !opts.ForCBE);
+      !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_possible_tramps_count"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(possible_tramps_vec.size()));
       },
-      !opts.ForCBE);
+      !options.ForCBE);
 
   return 0;
 }
@@ -5197,7 +5205,7 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
               uintptr_t off = pair.first - state.for_binary(Binary).SectsStartAddr;
 
               llvm::Value *Ptr = nullptr;
-              if (!opts.LayOutSections) {
+              if (!options.LayOutSections) {
                 llvm::SmallVector<llvm::Value *, 4> Indices;
                 Ptr = llvm::getNaturalGEPWithOffset(
                     IRB, DL,
@@ -5216,7 +5224,7 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
             });
 
         IRB.CreateRetVoid();
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   return 0;
 }
@@ -5252,7 +5260,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
                 llvm::MaybeAlign(),
                 IRB.getInt32(pair.first.second), true /* Volatile */);
           } else {
-            assert(opts.ForeignLibs);
+            assert(options.ForeignLibs);
 
             auto &ICFG = BinaryFrom.Analysis.ICFG;
 
@@ -5291,7 +5299,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
                 IRB.getInt32(pair.first.second), true /* Volatile */);
           }
 
-          if (opts.IsVeryVerbose())
+          if (options.IsVeryVerbose())
             WithColor::note() << llvm::formatv(
                 "COPY RELOC HACK {0} {1} {2} {3}\n", pair.first.first,
                 pair.first.second, pair.second.second.first,
@@ -5299,7 +5307,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
         }
 
         IRB.CreateRetVoid();
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   return 0;
 }
@@ -5358,13 +5366,13 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         IRB.CreateRet(llvm::ConstantInt::get(
             WordType(), state.for_binary(Binary).SectsStartAddr));
       },
-      !opts.ForCBE);
+      !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_sections_begin"),
       [&](auto &IRB) {
         IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_sections_end"),
@@ -5375,13 +5383,13 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
             llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
             llvm::ConstantInt::get(WordType(), SectsGlobalSize)));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_binary_index"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(BinaryIndex));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_dynl_path"),
@@ -5396,25 +5404,25 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         assert(!dynl_path.empty());
 
         IRB.CreateRet(IRB.CreateGlobalStringPtr(dynl_path));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_trace_enabled"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.getInt1(opts.Trace));
-      }, !opts.ForCBE);
+        IRB.CreateRet(IRB.getInt1(options.Trace));
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_callstack_enabled"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.getInt1(opts.CallStack));
-      }, !opts.ForCBE);
+        IRB.CreateRet(IRB.getInt1(options.CallStack));
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_dfsan_enabled"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.getInt1(opts.DFSan));
-      }, !opts.ForCBE);
+        IRB.CreateRet(IRB.getInt1(options.DFSan));
+      }, !options.ForCBE);
 
   if (Binary.IsExecutable)
     assert(is_function_index_valid(Binary.Analysis.EntryFunction));
@@ -5448,7 +5456,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         IRB.CreateCall(
             llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
         IRB.CreateUnreachable();
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_dynl_function_table"),
@@ -5483,7 +5491,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
 
         IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
             ConstantTableGV->getValueType(), ConstantTableGV, 0, 0));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_vdso_function_table"),
@@ -5516,19 +5524,19 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
             "__jove_vdso_function_table");
         IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
             ConstantTableGV->getValueType(), ConstantTableGV, 0, 0));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_count"),
       [&](auto &IRB) {
         uint32_t res =
-            opts.ForeignLibs ? (jv.Binaries.size()
+            options.ForeignLibs ? (jv.Binaries.size()
                                  - 1 /* rtld */
                                  - 1 /* vdso */
                                  - 1 /* exe  */) : 0;
 
         IRB.CreateRet(IRB.getInt32(res));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_binary_paths"),
@@ -5540,7 +5548,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         IRB.CreateRet(IRB.CreateLoad(
             IRB.getPtrTy(), IRB.CreateInBoundsGEP(binNamesTable->getValueType(),
                                                   binNamesTable, Idxs)));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_function_table"),
@@ -5551,7 +5559,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         {
           IRBuilderTy defaultIRB(DefaultBB);
 
-          if (!opts.Debugify)
+          if (!options.Debugify)
           defaultIRB.SetCurrentDebugLocation(llvm::DILocation::get(
               Context, 7 /* Line */, 7 /* Column */, F->getSubprogram()));
 
@@ -5563,7 +5571,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
           assert(F->arg_begin() != F->arg_end());
           llvm::SwitchInst *SI = IRB.CreateSwitch(F->arg_begin(), DefaultBB,
                                                   jv.Binaries.size() - 3);
-          if (opts.ForeignLibs) {
+          if (options.ForeignLibs) {
             for (binary_index_t BIdx = 3; BIdx < jv.Binaries.size(); ++BIdx) {
               auto &binary = jv.Binaries.at(BIdx);
               auto &ICFG = binary.Analysis.ICFG;
@@ -5596,7 +5604,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
               {
                 IRBuilderTy CaseIRB(CaseBB);
 
-                if (!opts.Debugify)
+                if (!options.Debugify)
                 CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
                     Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
 
@@ -5608,7 +5616,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
             }
           }
         }
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_laid_out_sections"),
@@ -5646,13 +5654,13 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
             "__jove_laid_out_sections");
 
         IRB.CreateRet(ConstantTableGV);
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_laid_out_sections_count"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(LaidOut.GVVec.size()));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_is_fixed_base_address"),
@@ -5660,7 +5668,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         auto &Binary = jv.Binaries.at(BinaryIndex);
 
         IRB.CreateRet(IRB.getInt1(Binary.IsExecutable && !Binary.IsPIC));
-      }, !opts.ForCBE);
+      }, !options.ForCBE);
 
   return 0;
 }
@@ -5810,7 +5818,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
   llvm::DISubroutineType *SubProgType = nullptr;
-  if (!opts.Debugify) {
+  if (!options.Debugify) {
   llvm::DIBuilder &DIB = *DIBuilder;
 
   SubProgType =
@@ -5835,7 +5843,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   {
     IRBuilderTy IRB(EntryB);
 
-    if (!opts.Debugify)
+    if (!options.Debugify)
     IRB.SetCurrentDebugLocation(
         llvm::DILocation::get(Context, ICFG[entry_bb].Addr, 0 /* Column */,
                               TC.DebugInformation.Subprogram));
@@ -5846,7 +5854,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     assert(!CachedEnv);
     CachedEnv = GetEnv(IRB);
 
-    if (opts.CallStack) {
+    if (options.CallStack) {
       //
       // Get pointer to __jove_callstack
       //
@@ -5854,7 +5862,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
       CachedCallStack = GetCallStack(IRB);
     }
 
-    if (opts.Trace) {
+    if (options.Trace) {
       //
       // Get pointer to __jove_trace
       //
@@ -5900,7 +5908,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     }
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-    if (opts.ForCBE && f.IsABI) {
+    if (options.ForCBE && f.IsABI) {
       unsigned glb = tcg_t9_index;
 
       llvm::AllocaInst *AI = GlobalAllocaArr[glb] =
@@ -5911,7 +5919,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     }
 #endif
 
-    if (opts.DFSan) {
+    if (options.DFSan) {
       llvm::AllocaInst *&SPAlloca = GlobalAllocaArr[tcg_stack_pointer_index];
 
       if (!SPAlloca)
@@ -5943,7 +5951,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   CachedCallStack = nullptr;
   CachedTrace = nullptr;
 
-  if (!opts.Debugify) {
+  if (!options.Debugify) {
   DIBuilder->finalizeSubprogram(TC.DebugInformation.Subprogram);
   }
 
@@ -5957,7 +5965,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     llvm::FunctionType *FTy = F->getFunctionType();
 
     llvm::DISubprogram *Subprogram = nullptr;
-    if (!opts.Debugify) {
+    if (!options.Debugify) {
     Subprogram = DIBuilder->createFunction(
         /* Scope       */ DebugInformation.CompileUnit,
         /* Name        */ F->getName(),
@@ -5975,7 +5983,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     {
       IRBuilderTy IRB(llvm::BasicBlock::Create(Context, "", F));
 
-      if (!opts.Debugify)
+      if (!options.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           Context, ICFG[entry_bb].Addr, 0 /* Column */, Subprogram));
 
@@ -6092,7 +6100,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     }
     CachedEnv = nullptr;
 
-    if (!opts.Debugify) {
+    if (!options.Debugify) {
     DIBuilder->finalizeSubprogram(Subprogram);
     }
 
@@ -6109,7 +6117,7 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
   FPM.add(llvm::createScopedNoAliasAAWrapperPass());
   FPM.add(llvm::createBasicAAWrapperPass());
   FPM.add(llvm::createPromoteMemoryToRegisterPass());
-  if (!opts.DumpPreOpt1) {
+  if (!options.DumpPreOpt1) {
   FPM.add(llvm::createInstructionCombiningPass());
 #if 0
   // Reassociate expressions.
@@ -6134,7 +6142,7 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
       FPM.run(*state.for_function(f).F);
   }
 
-  if (!opts.Debugify) {
+  if (!options.Debugify) {
   DIBuilder->finalize();
 
   // Claim that this synthetic debug info is valid. Without this the debug info
@@ -6400,7 +6408,7 @@ int llvm_t<MT, MinSize>::DoOptimize(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::Debugify(void) {
-  assert(opts.Debugify);
+  assert(options.Debugify);
 
   if (Module->getModuleFlag(DIVersionKey)) {
     WithColor::error() << "Debugify: there appears to already be debug info\n";
@@ -6484,7 +6492,7 @@ int llvm_t<MT, MinSize>::Debugify(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
-  if (opts.LayOutSections)
+  if (options.LayOutSections)
     return 0; /* FIXME */
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
@@ -6651,7 +6659,7 @@ int llvm_t<MT, MinSize>::InternalizeSections(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::PrepareForCBE(void) {
-  assert(opts.ForCBE);
+  assert(options.ForCBE);
 
   //
   // delete function bodies for TCG helpers
@@ -6684,9 +6692,9 @@ bool llvm_t<MT, MinSize>::shouldExpandOperationWithSize(llvm::Value *Size) {
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ExpandMemoryIntrinsicCalls(void) {
 #if 0
-  if (!opts.ForCBE) { /* FIXME */
+  if (!options.ForCBE) { /* FIXME */
 #if 0
-  if (!(opts.DFSan && IsTarget32))
+  if (!(options.DFSan && IsTarget32))
 #endif
     return 0; /* erase all notions of contiguous memory */
   }
@@ -6766,7 +6774,7 @@ int llvm_t<MT, MinSize>::ReplaceAllRemainingUsesOfConstSections(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::RenameFunctionLocals(void) {
-  if (opts.ForCBE) {
+  if (options.ForCBE) {
     for (llvm::Function &Func : *Module) {
       for (llvm::BasicBlock &Block : Func) {
         for (llvm::Instruction &Inst : Block) {
@@ -6836,7 +6844,7 @@ int llvm_t<MT, MinSize>::RenameFunctionLocals(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::DFSanInstrument(void) {
-  assert(opts.DFSan);
+  assert(options.DFSan);
 
 #if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
@@ -6931,7 +6939,7 @@ int llvm_t<MT, MinSize>::DFSanInstrument(void) {
     WithColor::note() << llvm::formatv("ModuleID is {0}\n", ModuleID);
 
     {
-      std::ofstream ofs(opts.DFSanOutputModuleID);
+      std::ofstream ofs(options.DFSanOutputModuleID);
 
       ofs << ModuleID;
     }
@@ -6942,9 +6950,9 @@ int llvm_t<MT, MinSize>::DFSanInstrument(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::WriteVersionScript(void) {
-  assert(!opts.VersionScript.empty());
+  assert(!options.VersionScript.empty());
 
-  std::ofstream ofs(opts.VersionScript);
+  std::ofstream ofs(options.VersionScript);
 
   for (const auto &entry : VersionScript.Table) {
     const std::string &VersionNode = entry.first;
@@ -6965,17 +6973,17 @@ int llvm_t<MT, MinSize>::WriteVersionScript(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::WriteLinkerScript(void) {
-  assert(!opts.LinkerScript.empty());
+  assert(!options.LinkerScript.empty());
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   assert(Binary.IsExecutable);
 
   binary_state_t &x = state.for_binary(Binary);
 
-  std::ofstream ofs(opts.LinkerScript);
+  std::ofstream ofs(options.LinkerScript);
 
   if (IsCOFF) {
-    if (!opts.LayOutSections)
+    if (!options.LayOutSections)
       return 0;
 
 #if 0
@@ -7012,7 +7020,7 @@ int llvm_t<MT, MinSize>::WriteLinkerScript(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::BreakBeforeUnreachables(void) {
-  assert(opts.BreakBeforeUnreachables);
+  assert(options.BreakBeforeUnreachables);
 
   //
   // Why would we go to the trouble of doing this? Because LLVM optimizers
@@ -7035,7 +7043,7 @@ int llvm_t<MT, MinSize>::BreakBeforeUnreachables(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::InlineHelpers(void) {
-  if (!opts.Optimize)
+  if (!options.Optimize)
     return 0;
 
   for (const auto &pair : helpers.map) {
@@ -7068,7 +7076,7 @@ int llvm_t<MT, MinSize>::InlineHelpers(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
-  assert(opts.SoftfpuBitcode);
+  assert(options.SoftfpuBitcode);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
       llvm::MemoryBuffer::getFile(locator_t::softfloat_bitcode(IsCOFF));
@@ -7169,7 +7177,7 @@ int llvm_t<MT, MinSize>::ForceCallConv(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::WriteModule(void) {
-  if (opts.VerifyBitcode) {
+  if (options.VerifyBitcode) {
     if (llvm::verifyModule(*Module, &llvm::errs())) {
       WithColor::error() << "WriteModule: failed to verify module\n";
 
@@ -7179,7 +7187,7 @@ int llvm_t<MT, MinSize>::WriteModule(void) {
   }
 
   std::error_code EC;
-  llvm::ToolOutputFile Out(opts.Output, EC, llvm::sys::fs::OF_None);
+  llvm::ToolOutputFile Out(options.Output, EC, llvm::sys::fs::OF_None);
   if (EC) {
     WithColor::error() << EC.message() << '\n';
     return 1;
@@ -7363,7 +7371,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
   IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
 
-  if (!opts.Debugify)
+  if (!options.Debugify)
   IRB.SetCurrentDebugLocation(llvm::DILocation::get(
       Context, Addr, 0 /* Column */, TC.DebugInformation.Subprogram));
 
@@ -7421,7 +7429,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     return LI;
   };
 
-  if (opts.Trace) {
+  if (options.Trace) {
     binary_index_t BIdx = BinaryIndex;
     basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
@@ -7462,7 +7470,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
   }
 
-  TCG.set_binary(state.for_binary(Binary).Bin.get());
+  analyzer_context.TCG.set_binary(state.for_binary(Binary).Bin.get());
 
   llvm::BasicBlock *ExitBB = nullptr;
 
@@ -7474,7 +7482,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
         Context, (fmt("l%lx_%u_exit") % Addr % j).str(), state.for_function(f).F);
     ++j;
 
-    bool ForAddrMatch = opts.DumpTCG && Addr == ForAddr;
+    bool ForAddrMatch = options.DumpTCG && Addr == ForAddr;
 
     if (unlikely(ForAddrMatch))
       TCGLLVMUserBreakPoint();
@@ -7482,7 +7490,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     unsigned len;
 
     try {
-      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
+      std::tie(len, T) = analyzer_context.TCG.translate(Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
                                           Addr);
@@ -7490,7 +7498,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(ForAddrMatch))
-      TCG.dump_ops(stderr);
+      analyzer_context.TCG.dump_ops(stderr);
 
     TCGContext *s = get_tcg_context();
 
@@ -7611,7 +7619,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     int ret = TranslateTCGOps(ExitBB, IRB, TC);
     if (unlikely(ret)) {
       WithColor::warning() << "!TranslateTCGOp\n";
-      TCG.dump_ops(stderr);
+      analyzer_context.TCG.dump_ops(stderr);
       return ret;
     }
 
@@ -7701,7 +7709,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     _indirect_jump.IsTailCall = ICFG.out_degree(bb) == 0;
 
   auto push_onto_callstack = [&](void) -> void {
-    if (!opts.CallStack)
+    if (!options.CallStack)
       return;
 
     binary_index_t      BIdx  = BinaryIndex;
@@ -7721,7 +7729,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   };
 
   auto pop_off_callstack = [&](void) -> void {
-    if (!opts.CallStack)
+    if (!options.CallStack)
       return;
 
     llvm::Value *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetCallStack(IRB));
@@ -7736,7 +7744,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   llvm::LoadInst *SavedCallStackP = nullptr;
 
   auto save_callstack = [&](void) -> void {
-    if (!opts.CallStack)
+    if (!options.CallStack)
       return;
 
     assert(!SavedCallStackP);
@@ -7748,7 +7756,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   };
 
   auto restore_callstack = [&](void) -> void {
-    if (!opts.CallStack)
+    if (!options.CallStack)
       return;
 
     assert(SavedCallStackP);
@@ -7777,7 +7785,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       std::string DynTargetDesc = dyn_target_desc({BinaryIndex, FIdx});
 
-      if (opts.IsVeryVerbose())
+      if (options.IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
@@ -7821,7 +7829,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       llvm::Value *SjLjAddr =
           SectionPointer(entry_address_of_function(callee, Binary));
 
-      if (opts.DebugSjlj) {
+      if (options.DebugSjlj) {
         std::string message =
             (fmt("doing %s (call) to %s @ %s+0x%x")
              % (Lj ? "longjmp" : "setjmp")
@@ -7873,7 +7881,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
     push_onto_callstack();
 
-    if (opts.DFSan) {
+    if (options.DFSan) {
       if (state.for_function(callee).PreHook) {
         assert(state.for_function(callee).hook);
         assert(state.for_function(callee).PreHookClunk);
@@ -7923,7 +7931,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       std::vector<llvm::Value *> SavedArgs;
     } _dfsan_hook;
 
-    if (opts.DFSan) {
+    if (options.DFSan) {
       if (state.for_function(callee).PreHook ||
           state.for_function(callee).PostHook) {
         _dfsan_hook.SavedArgs.resize(CallConvArgArray.size());
@@ -8262,7 +8270,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       const function_t &callee = function_of_target(X, jv);
 
-      if (opts.IsVeryVerbose())
+      if (options.IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2}) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[bb].Term.Addr,
@@ -8310,7 +8318,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       llvm::Value *SjLjAddr = GetDynTargetAddress<false>(IRB, X);
 
-      if (opts.DebugSjlj) {
+      if (options.DebugSjlj) {
         std::string message =
             (fmt("doing %s (%s) to %s @ %s+0x%x")
              % (Lj ? "longjmp" : "setjmp")
@@ -8382,7 +8390,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       return function_of_target(X, jv).IsABI;
     });
 
-    if (opts.ABICalls && IsABICall)
+    if (options.ABICalls && IsABICall)
     {
       llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
@@ -8595,7 +8603,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             std::vector<llvm::Value *> SavedArgs;
           } _dfsan_hook;
 
-          if (opts.DFSan) {
+          if (options.DFSan) {
             if (state.for_function(callee).PreHook ||
                 state.for_function(callee).PostHook) {
               assert(state.for_function(callee).hook);
@@ -8614,7 +8622,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             }
           }
 
-          if (opts.DFSan) {
+          if (options.DFSan) {
             if (state.for_function(callee).PreHook) {
               assert(state.for_function(callee).hook);
               assert(state.for_function(callee).PreHookClunk);
@@ -9066,7 +9074,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
     break;
   }
 
-  if (T.Type == TERMINATOR::RETURN && opts.CheckEmulatedStackReturnAddress) {
+  if (T.Type == TERMINATOR::RETURN && options.CheckEmulatedStackReturnAddress) {
     assert(JoveCheckReturnAddrFunc);
 
     llvm::Value *NativeRetAddr =
@@ -9137,7 +9145,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
       break;
 
   case TERMINATOR::RETURN: {
-    if (opts.DFSan && false /* opts.Paranoid */)
+    if (options.DFSan && false /* options.Paranoid */)
       IRB.CreateCall(
           DFSanFiniFunc->getFunctionType(),
           IRB.CreateIntToPtr(IRB.CreateLoad(IRB.getPtrTy(), DFSanFiniClunk),
@@ -9193,7 +9201,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
 template <bool MT, bool MinSize>
 llvm::Value *llvm_t<MT, MinSize>::insertThreadPointerInlineAsm(IRBuilderTy &IRB) {
-  const bool UseTPIntrinsic = /* IsELF || */ opts.ForCBE;
+  const bool UseTPIntrinsic = /* IsELF || */ options.ForCBE;
   if (UseTPIntrinsic) {
     llvm::Function *TPIntrinsic = llvm::Intrinsic::getDeclaration(
         Module.get(), llvm::Intrinsic::thread_pointer);
@@ -9565,7 +9573,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     bool IsEnv = temp_idx(ptr_tmp) == tcg_env_index;
     if (IsEnv) {
       if (off < 0) {
-        if (opts.IsVeryVerbose())
+        if (options.IsVeryVerbose())
           CURIOSITY("negative access into env (" + std::to_string(off) + ")");
         return;
       }
@@ -9608,7 +9616,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif
 
         default:
-          if (opts.IsVeryVerbose())
+          if (options.IsVeryVerbose())
             CURIOSITY("load(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
@@ -9645,7 +9653,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif
 
         default:
-          if (opts.IsVeryVerbose())
+          if (options.IsVeryVerbose())
             CURIOSITY("store(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
@@ -9894,7 +9902,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     if (const_arg(0) == JOVE_PCREL_MAGIC) {
       pcrel_flag = true;
 
-      if (opts.PrintPCRel)
+      if (options.PrintPCRel)
         WithColor::note() << "PC-relative expression @ "
                           << (fmt("%#lx") % lstaddr).str() << '\n';
     } else {
@@ -9919,7 +9927,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         Column = static_cast<uint32_t>(Addr >> 32);
       }
 
-      if (!opts.Debugify)
+      if (!options.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           Context, Line, Column, TC.DebugInformation.Subprogram));
     }
@@ -9949,15 +9957,16 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
 
   CASE(call): {
+    void *const helper_fn = jv_tcg_helper_func(op);
     const char *helper_nm = jv_tcg_find_helper(op);
 
     //
     // some helper functions are special-cased
     //
-    if (strcmp(helper_nm, "lookup_tb_ptr") == 0) /* FIXME */
+    if (helper_fn == p_helper_lookup_tb_ptr)
       BREAK();
 
-    if (strcmp(helper_nm, "memset") == 0) /* FIXME */ {
+    if (helper_fn == p_helper_memset) {
       llvm::Value *dest = get(input_arg(0));
       llvm::Value *val = get(input_arg(1));
       llvm::Value *len = get(input_arg(2));
@@ -9969,7 +9978,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
 
     const helper_function_t &hf =
-        LookupHelper(*Module, IsCOFF, helpers, TCG, op, analyzer_options);
+        LookupHelper(IsCOFF, op, analyzer_options, analyzer_context);
 
     llvm::Function *const hfF = hf.F;
     if (unlikely(!hfF))
@@ -9991,7 +10000,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       if (temp_idx(ts) == tcg_env_index) {
         assert(hf.EnvArgNo == iarg_idx);
 
-        if (hf.Analysis.Simple && opts.Optimize && opts.InlineHelpers)
+        if (hf.Analysis.Simple && options.Optimize && options.InlineHelpers)
           ArgVec.push_back(IRB.CreatePointerCast(IRB.CreateAlloca(CPUStateType), ParamTy));
         else
           ArgVec.push_back(IRB.CreatePointerCast(GetEnv(IRB), ParamTy));

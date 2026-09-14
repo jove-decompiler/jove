@@ -246,7 +246,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
 
   jv_ti = {};
 
-  int max_insns = 64;
+  int max_insns = 40;
   TranslationBlock tb;
 
 #ifndef NDEBUG

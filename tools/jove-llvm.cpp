@@ -192,11 +192,17 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
                                    cl::cat(JoveCategory)) {}
   } opts;
 
+  tiny_code_generator_t TCG;
+
   analyzer_options_t analyzer_options;
+
+  helpers_context_t helpers;
+  analyzer_context_t analyzer_context;
+
   llvm_options_t llvm_options;
 
 public:
-  LLVMTool() : opts(JoveCategory) {}
+  LLVMTool() : opts(JoveCategory), analyzer_context(TCG, helpers) {}
 
   int Run(void) override;
 };
@@ -205,7 +211,6 @@ JOVE_REGISTER_TOOL("llvm", LLVMTool);
 
 int LLVMTool::Run(void) {
   disas_t disas;
-  tiny_code_generator_t TCG;
 
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
     int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
@@ -259,7 +264,11 @@ int LLVMTool::Run(void) {
   analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
 
   llvm::LLVMContext Context;
-  llvm_t llvm(jv, llvm_options, analyzer_options, disas, TCG, Context, locator());
+  llvm_t llvm(jv,
+              llvm_options,
+              analyzer_options,
+              analyzer_context,
+              disas, Context, locator());
   return llvm.go();
 }
 

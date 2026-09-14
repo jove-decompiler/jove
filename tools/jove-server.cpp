@@ -386,18 +386,18 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
 
-  analyzer_options_t analyzer_opts;
-  recompiler_options_t recompiler_opts;
+  analyzer_options_t   analyzer_options;
+  recompiler_options_t recompiler_options;
 
-  ConfigureVerbosity(analyzer_opts);
-  ConfigureVerbosity(recompiler_opts);
+  ConfigureVerbosity(analyzer_options);
+  ConfigureVerbosity(recompiler_options);
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \
-    recompiler_opts.name = options.name;                                       \
+    recompiler_options.name = options.name;                                       \
   } while (false)
 
-  //analyzer_opts.Conservative = opts.Conservative;
+  //analyzer_options.Conservative = opts.Conservative;
 
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);
@@ -412,10 +412,17 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   PROPOGATE_OPTION(SoftfpuBitcode);
   PROPOGATE_OPTION(VerifyBitcode);
 
-  recompiler_opts.temp_dir = temporary_dir();
+  recompiler_options.temp_dir = temporary_dir();
 
   const std::string sysroot_dir = (TemporaryDir / "sysroot").string();
-  recompiler_opts.Output = sysroot_dir;
+  recompiler_options.Output = sysroot_dir;
+
+  disas_t disas;
+  tiny_code_generator_t TCG;
+  llvm::LLVMContext Context;
+
+  helpers_context_t helpers;
+  analyzer_context_t analyzer_context(TCG, helpers);
 
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
     bool IsCOFF = false;
@@ -439,12 +446,10 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
       B::is_coff(Bin.get());
     });
 
-    disas_t disas;
-    tiny_code_generator_t TCG;
-    llvm::LLVMContext Context;
-
     int rc = ({
-    analyzer_t analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done);
+    analyzer_t analyzer(analyzer_options,
+                        analyzer_context,
+                        Context, jv_file, jv, inflight, done);
 
     analyzer.examine_blocks();
     oneapi::tbb::parallel_invoke(
@@ -461,7 +466,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     fs::create_directory(sysroot_dir);
 
     rc = ({
-    recompiler_t recompiler(jv, recompiler_opts, disas, TCG, locator());
+    recompiler_t recompiler(jv, recompiler_options, analyzer_context, disas, locator());
     recompiler.go();
     });
 

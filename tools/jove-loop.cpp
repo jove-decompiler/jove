@@ -6,18 +6,18 @@
 #include "mmap.h"
 #include "redirect.h"
 #include "jove.constants.h"
-#if 1
 #include "recompile.h"
 #include "analyze.h"
-#endif
 #include "robust.h"
 #include "eintr.h"
+#include "tcg.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/Bitcode/BitcodeReader.h>
 
 #include <string>
 #include <cinttypes>
@@ -440,22 +440,30 @@ int LoopTool::Run(void) {
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&LoopTool::get_child_pid, this));
 
+  tiny_code_generator_t TCG;
+
 #ifndef JOVE_NO_BACKEND
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
 
-  analyzer_options_t analyzer_opts;
-  recompiler_options_t recompiler_opts;
+  recompiler_options_t recompiler_options;
 
-  ConfigureVerbosity(analyzer_opts);
-  ConfigureVerbosity(recompiler_opts);
+  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
+    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0)
+      die("unknown global to pin: " + PinnedGlobalName);
+
+    recompiler_options.PinnedEnvGlbs.set(idx);
+  }
+
+  ConfigureVerbosity(recompiler_options);
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \
-    recompiler_opts.name = opts.name;                                          \
+    recompiler_options.name = opts.name;                                          \
   } while (false)
 
-  //analyzer_opts.Conservative = opts.Conservative;
+  //analyzer_options.Conservative = opts.Conservative;
 
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);
@@ -471,12 +479,16 @@ int LoopTool::Run(void) {
   PROPOGATE_OPTION(VerifyBitcode);
   PROPOGATE_OPTION(LoadRelocSectionPointers);
 
-  recompiler_opts.temp_dir = temporary_dir();
-  recompiler_opts.Output = sysroot;
+  recompiler_options.temp_dir = temporary_dir();
+  recompiler_options.Output = sysroot;
+
+  analyzer_options_t analyzer_options = recompiler_options.to_analyzer_options();
 
   disas_t disas;
-  tiny_code_generator_t TCG;
   llvm::LLVMContext Context;
+
+  helpers_context_t helpers;
+  analyzer_context_t analyzer_context(TCG, helpers);
 #endif
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
@@ -614,10 +626,7 @@ run:
             if (opts.Gdb) {
               Arg("/usr/bin/gdb");
               Arg("--args");
-              if (WillChroot)
-                Arg(opts.Prog);
-              else
-                Arg(sysroot + "/" + opts.Prog);
+              Arg(sysroot + "/" + opts.Prog);
             } else if (opts.Gdbs) {
               Arg("/usr/bin/gdbserver");
               Arg("--multi");
@@ -1233,7 +1242,7 @@ skip_run:
         });
 #else
       int rc = ({
-      analyzer_t analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done);
+      analyzer_t analyzer(analyzer_options, analyzer_context, Context, jv_file, jv, inflight, done);
 
       analyzer.examine_blocks();
       oneapi::tbb::parallel_invoke(
@@ -1328,7 +1337,11 @@ skip_run:
         });
 #else
       rc = ({
-      recompiler_t recompiler(jv, recompiler_opts, disas, TCG, locator());
+      recompiler_t recompiler(jv,
+                              recompiler_options,
+                              analyzer_context,
+                              disas,
+                              locator());
       recompiler.go();
       });
 #endif

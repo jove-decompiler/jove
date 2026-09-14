@@ -90,9 +90,11 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
   llvm::LLVMContext Context;
   tiny_code_generator_t TCG;
-  analyzer_t<IsToolMT, IsToolMinSize> analyzer;
 
-  analyzer_options_t analyzer_opts;
+  helpers_context_t helpers;
+  analyzer_options_t analyzer_options;
+  analyzer_context_t analyzer_context;
+  analyzer_t<IsToolMT, IsToolMinSize> analyzer;
 
   int AnalyzeBlocks(void);
   int AnalyzeFunctions(void);
@@ -101,7 +103,10 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 public:
   AnalyzeTool()
       : opts(JoveCategory),
-        analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done) {}
+        analyzer_context(TCG, helpers),
+        analyzer(analyzer_options,
+                 analyzer_context,
+                 Context, jv_file, jv, inflight, done) {}
 
   int Run(void) override;
 };
@@ -116,12 +121,12 @@ int AnalyzeTool::Run(void) {
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
-    analyzer_opts.PinnedEnvGlbs.set(idx);
+    analyzer_options.PinnedEnvGlbs.set(idx);
   }
 
-  analyzer_opts.VerbosityLevel = GetVerbosityLevel();
-  analyzer_opts.Conservative = opts.Conservative;
-  analyzer_opts.DynTargetInlineThreshold = opts.DynTargetInlineThreshold;
+  analyzer_options.VerbosityLevel = GetVerbosityLevel();
+  analyzer_options.Conservative = opts.Conservative;
+  analyzer_options.DynTargetInlineThreshold = opts.DynTargetInlineThreshold;
 
   analyzer.examine_blocks();
   analyzer.examine_callers();

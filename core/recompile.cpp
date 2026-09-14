@@ -189,13 +189,13 @@ int recompiler_t<MT, MinSize>::go(void) {
   // sanity checks for output path
   //
   if (fs::exists(path_to_output)) {
-    if (opts.IsVerbose())
+    if (options.IsVerbose())
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
-                                         opts.Output);
+                                         options.Output);
   } else {
     if (!fs::create_directories(path_to_output)) {
       WithColor::error() << llvm::formatv(
-          "failed to create directory at \"{0}\"", opts.Output);
+          "failed to create directory at \"{0}\"", options.Output);
       return 1;
     }
   }
@@ -358,7 +358,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         state.for_binary(jv.Binaries.at(0)).chrooted_path.parent_path() /
         "libjove_rt.dll";
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(locator().runtime_dll(opts.RuntimeMT), chrooted_path,
+    fs::copy_file(locator().runtime_dll(options.RuntimeMT), chrooted_path,
                   fs::copy_options::overwrite_existing);
   }
   else
@@ -367,7 +367,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         path_to_output / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(locator().runtime_so(opts.RuntimeMT), chrooted_path,
+    fs::copy_file(locator().runtime_so(options.RuntimeMT), chrooted_path,
                   fs::copy_options::overwrite_existing);
 
     //
@@ -380,7 +380,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
       try {
         // XXX some dynamic linkers only look in /lib
-        fs::copy_file(locator().runtime_so(opts.RuntimeMT),
+        fs::copy_file(locator().runtime_so(options.RuntimeMT),
                       path_to_output / "lib" / "libjove_rt.so",
                       fs::copy_options::overwrite_existing);
       } catch (...) {
@@ -392,7 +392,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // copy jove dfsan runtime
   //
-  if (opts.DFSan) {
+  if (options.DFSan) {
     const char *dfsan_rt_filename = "libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so";
 
     {
@@ -417,7 +417,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // additional stuff for DFSan
   //
-  if (opts.DFSan) {
+  if (options.DFSan) {
     fs::create_directories(path_to_output / "jove");
     fs::create_directories(path_to_output / "dfsan");
 
@@ -498,7 +498,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
 
       if (!is_binary_index_valid(ChosenBIdx)) {
-        if (opts.IsVeryVerbose())
+        if (options.IsVeryVerbose())
         WithColor::warning() << llvm::formatv("unknown \"{0}\" needed by {1}\n",
                                               needed, b.path_str());
         return;
@@ -511,7 +511,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     }
   });
 
-  if (opts.IsVeryVerbose() && fs::exists(locator().graph_easy())) {
+  if (options.IsVeryVerbose() && fs::exists(locator().graph_easy())) {
     //
     // graphviz
     //
@@ -592,7 +592,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       boost::filtered_graph<dso_graph_t, all_edges_t, vert_exists_in_set_t> fg(
           dso_graph, edge_filter, vertex_filter);
 
-      if (opts.IsVerbose()) {
+      if (options.IsVerbose()) {
         //
         // write graphviz file
         //
@@ -647,17 +647,17 @@ int recompiler_t<MT, MinSize>::go(void) {
   Q.reserve(top_sorted.size());
   for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
-    if (opts.ForeignLibs && !jv.Binaries.at(BIdx).IsExecutable)
+    if (options.ForeignLibs && !jv.Binaries.at(BIdx).IsExecutable)
       continue;
 
     Q.push_back(dso);
   }
 
-  if (opts.IsVerbose())
+  if (options.IsVerbose())
     WithColor::note() << llvm::formatv(
         "Recompiling {0} {1}...",
-        (opts.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
-        opts.ForeignLibs ? "binary" : "binaries");
+        (options.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
+        options.ForeignLibs ? "binary" : "binaries");
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -673,7 +673,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
   std::chrono::duration<double> s_double = t2 - t1;
 
-  if (opts.IsVerbose())
+  if (options.IsVerbose())
     llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
@@ -779,7 +779,7 @@ int recompiler_t<MT, MinSize>::go(void) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVeryVerbose()) {
+            if (options.IsVeryVerbose()) {
               print_command(argv);
             }
           }));
@@ -815,7 +815,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     std::string mapfp(chrooted_path.string() + ".map");
     std::string ldfp(chrooted_path.string() + ".ld");
 
-    if (opts.ForeignLibs && !b.IsExecutable)
+    if (options.ForeignLibs && !b.IsExecutable)
       continue;
 
     if (!fs::exists(objfp)) {
@@ -828,7 +828,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
 #if 1
     boost::unordered::unordered_flat_set<std::string> lib_dirs(
-        {opts.Output + "/usr/lib"});
+        {options.Output + "/usr/lib"});
 #else
     boost::unordered::unordered_flat_set<std::string> lib_dirs(
         {jove_bin_path, "/usr/lib"});
@@ -845,7 +845,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       auto &needed_b = jv.Binaries.at(ChosenBIdx);
 
 #if 1
-      const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
+      const fs::path needed_chrooted_path(options.Output + needed_b.path_str());
       lib_dirs.insert(needed_chrooted_path.parent_path().string());
 #else
       const fs::path needed_path(needed_b.path_str());
@@ -877,7 +877,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       }
       Arg("--as-needed");
       Arg(locator().builtins(IsCOFF));
-      if (!opts.SoftfpuBitcode)
+      if (!options.SoftfpuBitcode)
         Arg(locator().softfloat_obj(IsCOFF));
       Arg(locator().atomics(IsCOFF));
       Arg("--pop-state");
@@ -936,9 +936,9 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg(lib_dir);
       }
 
-      //Arg("-ljove_rt" + std::string(opts.RuntimeMT ? ".m" : ".s") + "t");
+      //Arg("-ljove_rt" + std::string(options.RuntimeMT ? ".m" : ".s") + "t");
       Arg("-ljove_rt");
-      if (opts.DFSan)
+      if (options.DFSan)
         Arg("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
 
       const char *rtld_path = nullptr;
@@ -987,7 +987,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       if (rtld_path && fs::exists(rtld_path)) /* XXX */
         Arg(rtld_path);
 
-      if (opts.SkipCopyRelocHack)
+      if (options.SkipCopyRelocHack)
         Arg("--skip-copy-reloc-hack");
     };
 
@@ -1008,7 +1008,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg("-lldmingw");
         Arg("/out:" + chrooted_path.string());
 
-        if (opts.IsVeryVerbose()) {
+        if (options.IsVeryVerbose()) {
           Arg("/verbose");
 
           Arg("/map:" + chrooted_path.string() + ".link.map");
@@ -1068,10 +1068,10 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg(objfp);
 
         Arg(locator().builtins(IsCOFF));
-        if (!opts.SoftfpuBitcode)
+        if (!options.SoftfpuBitcode)
           Arg(locator().softfloat_obj(IsCOFF));
         Arg(locator().atomics(IsCOFF));
-        Arg(locator().runtime_implib(opts.RuntimeMT));
+        Arg(locator().runtime_implib(options.RuntimeMT));
 
         for (const std::string &needed_delay : x._coff.needed_delay_vec)
           Arg("/delayload:" + needed_delay);
@@ -1096,14 +1096,14 @@ int recompiler_t<MT, MinSize>::go(void) {
 
           auto &needed_b = jv.Binaries.at(ChosenBIdx);
 
-          fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
+          fs::path needed_chrooted_path(options.Output + needed_b.path_str());
           Arg(needed_chrooted_path.replace_extension("lib").string());
         }
         },
         std::string(),
         std::string(),
         [&](const char **argv, const char **envp) {
-          if (opts.IsVerbose()) {
+          if (options.IsVerbose()) {
             print_command(argv);
           }
         });
@@ -1116,7 +1116,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       std::string(),
       std::string(),
       [&](const char **argv, const char **envp) {
-        if (opts.IsVerbose()) {
+        if (options.IsVerbose()) {
           print_command(argv);
         }
       });
@@ -1204,49 +1204,49 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
         Arg("--binary-index");
         Arg(std::to_string(BIdx));
 
-        if (opts.Optimize)
+        if (options.Optimize)
           Arg("--optimize");
 
-        if (opts.DFSan) {
+        if (options.DFSan) {
           Arg("--dfsan");
           Arg("--dfsan-output-module-id=" + dfsan_modid_fp);
           Arg("--dfsan-bytecode-loc=" + bytecode_loc);
           Arg("--dfsan-no-loop-starts");
         }
-        if (opts.CallStack) {
+        if (options.CallStack) {
           Arg("--call-stack");
         }
 
-        if (opts.CheckEmulatedStackReturnAddress)
+        if (options.CheckEmulatedStackReturnAddress)
           Arg("--check-emulated-stack-return-address");
-        if (opts.Trace)
+        if (options.Trace)
           Arg("--trace");
-        if (!opts.ForeignLibs)
+        if (!options.ForeignLibs)
           Arg("--x=0");
-        if (opts.DebugSjlj)
+        if (options.DebugSjlj)
           Arg("--debug-sjlj");
-        if (!opts.ABICalls)
+        if (!options.ABICalls)
           Arg("--abi-calls=0");
-        if (opts.InlineHelpers)
+        if (options.InlineHelpers)
           Arg("--inline-helpers");
-        if (!opts.RuntimeMT)
+        if (!options.RuntimeMT)
           Arg("--rtmt=0");
-        if (opts.BreakBeforeUnreachables)
+        if (options.BreakBeforeUnreachables)
           Arg("--break-before-unreachables");
-        if (opts.LayOutSections)
+        if (options.LayOutSections)
           Arg("--lay-out-sections");
-        if (opts.PlaceSectionBreakpoints)
+        if (options.PlaceSectionBreakpoints)
           Arg("--place-section-breakpoints");
-        if (opts.SoftfpuBitcode)
+        if (options.SoftfpuBitcode)
           Arg("--softfpu-bitcode");
-        if (opts.VerifyBitcode)
+        if (options.VerifyBitcode)
           Arg("--verify-bitcode");
 
 #if 0
-        if (!opts.PinnedGlobals.empty()) {
+        if (!options.PinnedGlobals.empty()) {
           std::string pinned_globals_arg = "--pinned-globals=";
 
-          for (const std::string &PinnedGlbStr : opts.PinnedGlobals) {
+          for (const std::string &PinnedGlbStr : options.PinnedGlobals) {
             pinned_globals_arg.append(PinnedGlbStr);
             pinned_globals_arg.push_back(',');
           }
@@ -1264,7 +1264,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
       },
       path_to_stdout, path_to_stderr,
       [&](const char **argv, const char **envp) {
-        if (opts.IsVerbose()) {
+        if (options.IsVerbose()) {
           print_command(argv);
         }
       });
@@ -1274,19 +1274,26 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
 #endif
     llvm::LLVMContext Context;
 
-    llvm_options_t llvm_opts(llvm_options);
+    llvm_options_t our_llvm_options(llvm_options);
 
     if (B::is_coff(state.for_binary(b).Bin.get())) {
       if (b.IsExecutable)
-        llvm_opts.LinkerScript = ldfp;
+        our_llvm_options.LinkerScript = ldfp;
     } else {
-      llvm_opts.VersionScript = mapfp;
+      our_llvm_options.VersionScript = mapfp;
     }
 
-    llvm_opts.Output = bcfp;
-    llvm_opts.BinaryIndex = std::to_string(BIdx);
+    our_llvm_options.Output = bcfp;
+    our_llvm_options.BinaryIndex = std::to_string(BIdx);
 
-    llvm_t llvm(jv, llvm_opts, analyzer_options, disas, TCG, Context, locator());
+    helpers_context_t helpers;
+    analyzer_context_t our_analyzer_context(analyzer_context.TCG, helpers);
+
+    llvm_t llvm(jv,
+                our_llvm_options,
+                analyzer_options,
+                our_analyzer_context,
+                disas, Context, locator());
     rc = llvm.go();
   }
 
@@ -1295,7 +1302,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
   //
   if (rc) {
     worker_failed.store(true, std::memory_order_relaxed);
-    if (opts.IsVerbose()) {
+    if (options.IsVerbose()) {
       WithColor::error() << llvm::formatv("jove llvm failed on {0}!\n",
                                           binary_filename);
       std::string stderr_contents;
@@ -1308,7 +1315,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
     return;
   }
 
-  if (opts.DFSan) {
+  if (options.DFSan) {
     std::ifstream ifs(dfsan_modid_fp);
     std::string dfsan_modid((std::istreambuf_iterator<char>(ifs)),
                             std::istreambuf_iterator<char>());
@@ -1316,7 +1323,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
     WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
                                        dfsan_modid);
 
-    fs::copy_file(bcfp, opts.Output + "/dfsan/" + dfsan_modid,
+    fs::copy_file(bcfp, options.Output + "/dfsan/" + dfsan_modid,
                   fs::copy_options::overwrite_existing);
   }
 
@@ -1335,7 +1342,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVerbose())
+            if (options.IsVerbose())
               print_command(argv);
 
             nice(10);
@@ -1355,7 +1362,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVerbose())
+            if (options.IsVerbose())
               print_command(argv);
 
             nice(10);
@@ -1375,12 +1382,12 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
 
             Arg("--disable-simplify-libcalls");
 
-            if (!opts.Optimize || opts.DFSan) {
+            if (!options.Optimize || options.DFSan) {
               Arg("--fast-isel");
               Arg("-O0");
             }
 
-            if (!opts.Optimize) {
+            if (!options.Optimize) {
               Arg("--frame-pointer=all");
 
               if (IsMIPSTarget)
@@ -1418,7 +1425,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
-            if (opts.IsVerbose())
+            if (options.IsVerbose())
               print_command(argv);
           });
 

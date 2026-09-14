@@ -33,11 +33,22 @@ struct helper_function_t {
 };
 
 using helper_func_map_t =
-    boost::unordered::unordered_flat_map<uintptr_t, helper_function_t>;
+    boost::unordered::unordered_flat_map<void *, helper_function_t>;
 
 struct helpers_context_t {
   std::mutex mtx;
   helper_func_map_t map;
+};
+
+struct analyzer_context_t {
+  tiny_code_generator_t &TCG;
+  helpers_context_t &helpers;
+
+  llvm::Module *M = nullptr;
+  void *const p_syscall_helper = nullptr;
+
+  analyzer_context_t(tiny_code_generator_t &,
+                     helpers_context_t &);
 };
 
 template <bool MT, bool MinSize>
@@ -64,9 +75,9 @@ struct analyzer_t {
     }
   };
 
-  const analyzer_options_t &options;
+  analyzer_options_t &options;
+  analyzer_context_t &context;
  
-  tiny_code_generator_t &TCG;
   jv_file_t &jv_file;
   jv_t &jv;
 
@@ -84,13 +95,12 @@ struct analyzer_t {
 
   llvm::LLVMContext &Context;
   std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
-  helpers_context_t helpers;
 
   boost::concurrent_flat_set<dynamic_target_t> &inflight;
   std::atomic<uint64_t> &done;
 
-  analyzer_t(const analyzer_options_t &,
-             tiny_code_generator_t &,
+  analyzer_t(analyzer_options_t &,
+             analyzer_context_t &,
              llvm::LLVMContext &,
              jv_file_t &,
              jv_t &,

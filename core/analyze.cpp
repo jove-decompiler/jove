@@ -5,6 +5,8 @@
 
 #ifndef JOVE_NO_BACKEND
 
+#include "../qemu/include/jove.h"
+
 #include <boost/graph/copy.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/graph/strong_components.hpp>
@@ -31,16 +33,22 @@ static constexpr bool ReentrancyCheckDisabled =
 #endif
     ;
 
+analyzer_context_t::analyzer_context_t(tiny_code_generator_t &TCG,
+                                       helpers_context_t &helpers)
+    : TCG(TCG), helpers(helpers),
+      p_syscall_helper(jv_special_helpers()[2])
+{}
+
 template <bool MT, bool MinSize>
 analyzer_t<MT, MinSize>::analyzer_t(
-    const analyzer_options_t &options,
-    tiny_code_generator_t &TCG,
+    analyzer_options_t &options,
+    analyzer_context_t &context,
     llvm::LLVMContext &Context,
     jv_file_t &jv_file,
     jv_t &jv,
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
-    : options(options), TCG(TCG), jv_file(jv_file), jv(jv), state(jv), cg(jv),
+    : options(options), context(context), jv_file(jv_file), jv(jv), state(jv), cg(jv),
       IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
       Context(Context),
       inflight(inflight), done(done) {
@@ -62,6 +70,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
                              llvm::toString(moduleOr.takeError()));
 
   Module = std::move(moduleOr.get());
+  context.M = Module.get();
 }
 
 template <bool MT, bool MinSize>
@@ -211,8 +220,9 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
       std::execution::seq, /* FIXME */
       jv, [&](binary_t &b, bb_t bb) {
           auto &ICFG = b.Analysis.ICFG;
-          if (AnalyzeBasicBlock(TCG, helpers, *Module,
-                                state.for_binary(b).Bin.get(), ICFG[bb],
+          if (AnalyzeBasicBlock(state.for_binary(b).Bin.get(),
+                                ICFG[bb],
+                                context,
                                 options))
             count.fetch_add(1u, std::memory_order_relaxed);
       });
