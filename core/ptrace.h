@@ -172,12 +172,11 @@ constexpr bool is_target_compat = false;
 using compat_tracee_state_t = void;
 
 #ifdef TARGET_AARCH64
-
 using target_tracee_state_t = tracee_state_t;
 constexpr bool is_target_compat = false;
-
-#else
-#error "TODO (compat)"
+#else /* not applicable */
+using target_tracee_state_t = void;
+constexpr bool is_target_compat = false;
 #endif
 
 #else
