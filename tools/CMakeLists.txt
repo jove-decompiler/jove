@@ -34,7 +34,11 @@ llvm_map_components_to_libnames(llvm_libs
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-  set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
+  if(EXISTS "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
+    set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
+  else()
+    set(BACKTRACE_HEADER "/usr/lib/gcc-cross/x86_64-linux-gnu/12/include/backtrace.h")
+  endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
   set(BACKTRACE_HEADER "/usr/lib/gcc-cross/aarch64-linux-gnu/12/include/backtrace.h")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86")
