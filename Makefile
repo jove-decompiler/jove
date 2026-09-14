@@ -477,7 +477,7 @@ $(BINDIR)/$(HOST_ARCH)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 .PHONY: all-helpers-$(1)-mk
 all-helpers-$(1)-mk: | $(call qemu_softfpu_bitcode,$(1),linux)
 	printf '%s_HELPERS := ' '$(1)' > $(BINDIR)/$(1)/all_helpers.mk
-	$(OUR_LLKNIFE) -v -o $(BINDIR)/$(1)/all_helpers.txt -i $(call qemu_softfpu_bitcode,$(1),linux) --print-only 'helper_.*'
+	env JOVE_PRINT_HELPERS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $(BINDIR)/$(1)/all_helpers.txt
 	sed 's/^helper_//' < $(BINDIR)/$(1)/all_helpers.txt | tr '\n' ' ' >> $(BINDIR)/$(1)/all_helpers.mk
 	rm $(BINDIR)/$(1)/all_helpers.txt
 
