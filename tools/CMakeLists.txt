@@ -1,4 +1,4 @@
-option(JOVE_STATIC_BUILD "Building with -static" ON)
+option(JOVE_STATIC_BUILD "Building with -static" OFF)
 option(JOVE_SANITIZE_THREAD "Building with -fsanitize=thread" OFF)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$") # FIXME
