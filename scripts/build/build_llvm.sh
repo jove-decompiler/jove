@@ -155,7 +155,6 @@ case "$arch" in
 
   i386)
     triple="i686-linux-gnu"
-    frame_pointer=1
     system_processor="i386"
     llvm_target_arch="i386"
     threads="ON"
@@ -176,7 +175,6 @@ case "$arch" in
   mipsel)
     triple="mipsel-linux-gnu"
     optimization="-Oz"
-    frame_pointer=1
     system_processor="mips"
     llvm_target_arch="mipsel"
     threads="OFF"
@@ -186,7 +184,6 @@ case "$arch" in
 
   x86_64)
     triple="x86_64-linux-gnu"
-    frame_pointer=1
     system_processor="x86_64"
     llvm_target_arch="x86_64"
     threads="ON"
@@ -267,10 +264,6 @@ if [ -n "$cross" ]; then
     -D "LLVM_NATIVE_TOOL_DIR=$(pwd)/../build/llvm/bin"
 #   -D "LLVM_TABLEGEN=$(pwd)/../tblgen_build/llvm/bin/llvm-tblgen"
   )
-else
-  cmake_args+=(
-    -D LLVM_ENABLE_Z3_SOLVER=ON
-  )
 fi
 
 ourcflags=(
@@ -336,4 +329,5 @@ for the_target in "${the_targets[@]}"; do
   ninja_targets+=("llvm/bin/jove-$the_target")
 done
 
+ninja llvm/include/llvm/IR/Attributes.inc
 ninja "${ninja_targets[@]}"
