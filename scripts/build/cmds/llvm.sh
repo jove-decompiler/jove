@@ -11,5 +11,5 @@ for arch in "${all_archs[@]}"; do
     cross=" -C"
   fi
 
-  cmds+=("pushd \"$llvm_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/build_llvm.sh -a ${arch} -t ${target}${cross}\" && popd")
+  cmds+=("pushd \"$llvm_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/build_llvm.sh -a ${arch} -t ${target} -A -F${cross}\" && popd")
 done

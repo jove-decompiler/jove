@@ -11,5 +11,5 @@ for arch in "${all_archs[@]}"; do
     cross=" -C"
   fi
 
-  cmds+=("pushd \"$qemu_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/build_qemu.sh -a ${arch} -t ${target} -D -F${cross}\" && popd")
+  cmds+=("pushd \"$qemu_path\" && mkdir -p $thedir && cd $thedir && retry \"$build_scripts_path/build_qemu.sh -a ${arch} -t ${target} -F${cross}\" && popd")
 done
