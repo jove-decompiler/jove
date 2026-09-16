@@ -75,19 +75,23 @@ Y="$cmdsdir"
 . "$Y/wine64.sh"
 . "$Y/linux.sh"
 . "$Y/qemu.helpers.sh"
+
+. "$X/parallel.sh"
+
+# -------- Stage 3 --------
 . "$Y/qemu4jove.sh"
 . "$Y/qemu4jove.cross.sh"
 
 . "$X/parallel.sh"
 
-# -------- Stage 3 --------
+# -------- Stage 4 --------
 . "$Y/03_make.sh"
 . "$Y/llvm.tblgen.sh"
 . "$Y/minisat.sh"
 
 . "$X/parallel.sh"
 
-# -------- Stage 4 --------
+# -------- Stage 5 --------
 if [ "$hostarch" = "x86_64" ]; then
   . "$Y/wine32.sh"
 fi
@@ -96,17 +100,17 @@ fi
 
 . "$X/parallel.sh"
 
-# -------- Stage 5 --------
+# -------- Stage 6 --------
 . "$Y/llknife.sh"
 . "$Y/qemu.softfpu.sh"
 . "$Y/klee.sh"
 
 . "$X/parallel.sh"
 
-# -------- Stage 6 --------
+# -------- Stage 7 --------
 . "$Y/06_make.sh"
 . "$X/parallel.sh"
 
-# -------- Stage 7 --------
+# -------- Stage 8 --------
 . "$Y/07_make.sh"
 . "$X/parallel.sh"

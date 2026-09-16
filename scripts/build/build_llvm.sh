@@ -322,6 +322,7 @@ if [ -z "$cross" ]; then
     llvm/bin/llvm-link
     llvm/bin/llvm-tblgen
     llvm/bin/opt
+    llvm/lib/libLLVMMCJIT.a # for KLEE
   )
 fi
 
