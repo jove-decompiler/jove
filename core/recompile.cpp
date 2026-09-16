@@ -1272,8 +1272,6 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
 #else
   {
 #endif
-    llvm::LLVMContext Context;
-
     llvm_options_t our_llvm_options(llvm_options);
 
     if (B::is_coff(state.for_binary(b).Bin.get())) {
@@ -1286,14 +1284,13 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
     our_llvm_options.Output = bcfp;
     our_llvm_options.BinaryIndex = std::to_string(BIdx);
 
-    helpers_context_t helpers;
-    analyzer_context_t our_analyzer_context(analyzer_context.TCG, helpers);
 
     llvm_t llvm(jv,
                 our_llvm_options,
                 analyzer_options,
-                our_analyzer_context,
-                disas, Context, locator());
+                tcg,
+                helpers,
+                disas, locator());
     rc = llvm.go();
   }
 

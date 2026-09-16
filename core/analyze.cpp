@@ -3,6 +3,8 @@
 #include "locator.h"
 #include "llvm.h"
 
+#include <llvm/IR/Module.h>
+
 #ifndef JOVE_NO_BACKEND
 
 #include "../qemu/include/jove.h"
@@ -33,45 +35,20 @@ static constexpr bool ReentrancyCheckDisabled =
 #endif
     ;
 
-analyzer_context_t::analyzer_context_t(tiny_code_generator_t &TCG,
-                                       helpers_context_t &helpers)
-    : TCG(TCG), helpers(helpers),
-      p_syscall_helper(jv_special_helpers()[2])
-{}
-
 template <bool MT, bool MinSize>
 analyzer_t<MT, MinSize>::analyzer_t(
     analyzer_options_t &options,
-    analyzer_context_t &context,
-    llvm::LLVMContext &Context,
+    tiny_code_generator_t &tcg,
+    SafeLLVMContext &SafeContext,
+    tcg_helpers_t &helpers,
     jv_file_t &jv_file,
     jv_t &jv,
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
-    : options(options), context(context), jv_file(jv_file), jv(jv), state(jv), cg(jv),
+    : options(options), tcg(tcg), SafeContext(SafeContext), helpers(helpers),
+      jv_file(jv_file), jv(jv), state(jv), cg(jv),
       IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
-      Context(Context),
-      inflight(inflight), done(done) {
-  //
-  // create LLVM module (necessary to analyze helpers)
-  //
-  std::string path_to_bitcode = locator_t::starter_bitcode(false, IsCOFF);
-
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(path_to_bitcode);
-  if (!BufferOr)
-    throw std::runtime_error(std::string("failed to open ") + path_to_bitcode +
-                             BufferOr.getError().message());
-
-  llvm::Expected<std::unique_ptr<llvm::Module>> moduleOr =
-      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), Context);
-  if (!moduleOr)
-    throw std::runtime_error(std::string("could not parse helper bitcode: ") +
-                             llvm::toString(moduleOr.takeError()));
-
-  Module = std::move(moduleOr.get());
-  context.M = Module.get();
-}
+      inflight(inflight), done(done) {}
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::examine_callers(void) {
@@ -222,7 +199,8 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
           auto &ICFG = b.Analysis.ICFG;
           if (AnalyzeBasicBlock(state.for_binary(b).Bin.get(),
                                 ICFG[bb],
-                                context,
+                                tcg,
+                                helpers,
                                 options))
             count.fetch_add(1u, std::memory_order_relaxed);
       });

@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "recompile.h"
 #include "tcg.h"
+#include "safe.h"
 
 #include <llvm/Support/WithColor.h>
 
@@ -155,7 +156,12 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
 
   } opts;
 
+#if 1
   recompiler_options_t options;
+#else
+  analyzer_options analyzer_options;
+  llvm_options llvm_options;
+#endif
 
 public:
   RecompileTool() : opts(JoveCategory) {}
@@ -168,9 +174,6 @@ JOVE_REGISTER_TOOL("recompile", RecompileTool);
 int RecompileTool::Run(void) {
   disas_t disas;
   tiny_code_generator_t TCG;
-  helpers_context_t helpers;
-
-  analyzer_context_t analyzer_context(TCG, helpers);
 
   for (const std::string &PinnedGlobalName : opts.PinnedEnvGlbs) {
     int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
@@ -208,7 +211,12 @@ int RecompileTool::Run(void) {
 
   options.temp_dir = temporary_dir();
 
-  recompiler_t recompiler(jv, options, analyzer_context, disas, locator());
+  SafeLLVMContext SafeContext;
+
+  analyzer_options_t analyzer_options = options.to_analyzer_options();
+  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+
+  recompiler_t recompiler(jv, options, TCG, helpers, disas, locator());
   return recompiler.go();
 }
 

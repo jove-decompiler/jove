@@ -34,6 +34,8 @@ struct tiny_code_generator_t {
 
   int tcg_index_of_named_global(const char *name);
   const char *tcg_name_of_global(unsigned glb);
+
+  const void *const *special_helpers(void);
 };
 
 }

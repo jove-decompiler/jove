@@ -11,10 +11,12 @@
 #include "robust.h"
 #include "eintr.h"
 #include "tcg.h"
+#include "safe.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <llvm/IR/Module.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Bitcode/BitcodeReader.h>
@@ -485,10 +487,9 @@ int LoopTool::Run(void) {
   analyzer_options_t analyzer_options = recompiler_options.to_analyzer_options();
 
   disas_t disas;
-  llvm::LLVMContext Context;
+  SafeLLVMContext SafeContext;
 
-  helpers_context_t helpers;
-  analyzer_context_t analyzer_context(TCG, helpers);
+  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
 #endif
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
@@ -1242,7 +1243,7 @@ skip_run:
         });
 #else
       int rc = ({
-      analyzer_t analyzer(analyzer_options, analyzer_context, Context, jv_file, jv, inflight, done);
+      analyzer_t analyzer(analyzer_options, TCG, SafeContext, helpers, jv_file, jv, inflight, done);
 
       analyzer.examine_blocks();
       oneapi::tbb::parallel_invoke(
@@ -1339,7 +1340,8 @@ skip_run:
       rc = ({
       recompiler_t recompiler(jv,
                               recompiler_options,
-                              analyzer_context,
+                              TCG,
+                              helpers,
                               disas,
                               locator());
       recompiler.go();

@@ -7,6 +7,9 @@
 #include "fork.h"
 #include "robust.h"
 #include "autoreap.h"
+#include "safe.h"
+
+#include <llvm/IR/Module.h>
 
 #ifndef JOVE_NO_BACKEND
 
@@ -16,6 +19,7 @@
 #include <boost/interprocess/anonymous_shared_memory.hpp>
 #include <boost/interprocess/managed_external_buffer.hpp>
 
+#include <llvm/IR/Module.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 
@@ -418,11 +422,11 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   recompiler_options.Output = sysroot_dir;
 
   disas_t disas;
-  tiny_code_generator_t TCG;
-  llvm::LLVMContext Context;
+  SafeLLVMContext SafeContext;
 
-  helpers_context_t helpers;
-  analyzer_context_t analyzer_context(TCG, helpers);
+  tiny_code_generator_t TCG;
+
+  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
 
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
     bool IsCOFF = false;
@@ -448,8 +452,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
 
     int rc = ({
     analyzer_t analyzer(analyzer_options,
-                        analyzer_context,
-                        Context, jv_file, jv, inflight, done);
+                        TCG, SafeContext, helpers, jv_file, jv, inflight, done);
 
     analyzer.examine_blocks();
     oneapi::tbb::parallel_invoke(
@@ -466,7 +469,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     fs::create_directory(sysroot_dir);
 
     rc = ({
-    recompiler_t recompiler(jv, recompiler_options, analyzer_context, disas, locator());
+    recompiler_t recompiler(jv, recompiler_options, TCG, helpers, disas, locator());
     recompiler.go();
     });
 

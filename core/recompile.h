@@ -109,11 +109,12 @@ class recompiler_t {
   llvm_options_t       llvm_options; /* created from options */
   analyzer_options_t   analyzer_options;
 
+  tiny_code_generator_t &tcg;
+  tcg_helpers_t &helpers;
+
   const boost::filesystem::path path_to_output;
 
   disas_t &disas;
-
-  analyzer_context_t &analyzer_context;
 
   locator_t &locator_;
 
@@ -164,16 +165,18 @@ class recompiler_t {
 public:
   recompiler_t(const jv_t &jv,
                recompiler_options_t &options,
-               analyzer_context_t &analyzer_context,
+               tiny_code_generator_t &tcg,
+               tcg_helpers_t &helpers,
                disas_t &disas,
                locator_t &locator_)
       : jv(jv),
         options(options),
         llvm_options(options.to_llvm_options()),
         analyzer_options(options.to_analyzer_options()),
+        tcg(tcg),
+        helpers(helpers),
         path_to_output(options.Output),
         disas(disas),
-        analyzer_context(analyzer_context),
         locator_(locator_),
         state(jv),
         IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {

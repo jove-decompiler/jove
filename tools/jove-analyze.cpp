@@ -3,6 +3,10 @@
 #include "tcg.h"
 #include "calls.h"
 #include "analyze.h"
+#include "helper.h"
+#include "safe.h"
+
+#include <llvm/IR/Module.h>
 
 #ifndef JOVE_NO_BACKEND
 
@@ -12,7 +16,6 @@
 #include <boost/format.hpp>
 
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -88,12 +91,13 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
 
-  llvm::LLVMContext Context;
-  tiny_code_generator_t TCG;
+  SafeLLVMContext SafeContext;
 
-  helpers_context_t helpers;
   analyzer_options_t analyzer_options;
-  analyzer_context_t analyzer_context;
+
+  tiny_code_generator_t TCG;
+  tcg_helpers_t helpers;
+
   analyzer_t<IsToolMT, IsToolMinSize> analyzer;
 
   int AnalyzeBlocks(void);
@@ -103,10 +107,14 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 public:
   AnalyzeTool()
       : opts(JoveCategory),
-        analyzer_context(TCG, helpers),
+        helpers(TCG,
+                SafeContext,
+                analyzer_options),
         analyzer(analyzer_options,
-                 analyzer_context,
-                 Context, jv_file, jv, inflight, done) {}
+                 TCG,
+                 SafeContext,
+                 helpers,
+                 jv_file, jv, inflight, done) {}
 
   int Run(void) override;
 };

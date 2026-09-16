@@ -3,11 +3,7 @@
 #include "flow.h"
 #include "calls.h"
 #include "B.h"
-
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-
-#include <memory>
+#include "helper.h"
 
 namespace jove {
 
@@ -20,35 +16,6 @@ struct analyzer_options_t : public VerboseThing {
   unsigned DynTargetInlineThreshold = 8;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
-};
-
-struct helper_function_t {
-  llvm::Function *F = nullptr;
-  int EnvArgNo = -1;
-
-  struct {
-    bool Simple = false;
-    tcg_global_set_t InGlbs, OutGlbs;
-  } Analysis;
-};
-
-using helper_func_map_t =
-    boost::unordered::unordered_flat_map<void *, helper_function_t>;
-
-struct helpers_context_t {
-  std::mutex mtx;
-  helper_func_map_t map;
-};
-
-struct analyzer_context_t {
-  tiny_code_generator_t &TCG;
-  helpers_context_t &helpers;
-
-  llvm::Module *M = nullptr;
-  void *const p_syscall_helper = nullptr;
-
-  analyzer_context_t(tiny_code_generator_t &,
-                     helpers_context_t &);
 };
 
 template <bool MT, bool MinSize>
@@ -76,8 +43,12 @@ struct analyzer_t {
   };
 
   analyzer_options_t &options;
-  analyzer_context_t &context;
- 
+
+  SafeLLVMContext &SafeContext;
+
+  tiny_code_generator_t &tcg;
+  tcg_helpers_t &helpers;
+
   jv_file_t &jv_file;
   jv_t &jv;
 
@@ -93,15 +64,13 @@ struct analyzer_t {
 
   const bool IsCOFF;
 
-  llvm::LLVMContext &Context;
-  std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
-
   boost::concurrent_flat_set<dynamic_target_t> &inflight;
   std::atomic<uint64_t> &done;
 
   analyzer_t(analyzer_options_t &,
-             analyzer_context_t &,
-             llvm::LLVMContext &,
+             tiny_code_generator_t &,
+             SafeLLVMContext &,
+             tcg_helpers_t &,
              jv_file_t &,
              jv_t &,
              boost::concurrent_flat_set<dynamic_target_t> &inflight,

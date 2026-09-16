@@ -5,6 +5,7 @@
 #include "analyze.h"
 #include "B.h"
 #include "tcg.h"
+#include "helper.h"
 #include "disas.h"
 #include "locator.h"
 
@@ -128,7 +129,8 @@ struct section_t {
 // returns whether the block was actually analyzed
 bool AnalyzeBasicBlock(B::ref Bin,
                        bbprop_t &,
-                       analyzer_context_t &,
+                       tiny_code_generator_t &,
+                       tcg_helpers_t &,
                        analyzer_options_t &);
 
 template <bool MT, bool MinSize>
@@ -141,9 +143,17 @@ class llvm_t {
   const jv_t &jv;
 
   llvm_options_t &options;
-
   analyzer_options_t &analyzer_options;
-  analyzer_context_t &analyzer_context;
+
+  tiny_code_generator_t &TCG;
+
+  SafeLLVMContext &SafeContext;
+  llvm::LLVMContext &Context;
+
+  tcg_helpers_t &helpers;
+  std::array<llvm::Function *, tcg_helper_count> our_helper_table;
+
+  std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
 
   locator_t &locator_;
 
@@ -264,14 +274,6 @@ class llvm_t {
   bool IsCOFF = false;
 
   uint64_t ForAddr = 0;
-
-  llvm::LLVMContext &Context;
-  std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
-  helpers_context_t helpers;
-
-  void *const p_helper_lookup_tb_ptr;
-  void *const p_helper_memset;
-  void *const p_syscall_helper;
 
   disas_t &disas;
 
@@ -442,9 +444,9 @@ public:
   llvm_t(const jv_t &,
          llvm_options_t &,
          analyzer_options_t &,
-         analyzer_context_t &,
+         tiny_code_generator_t &,
+         tcg_helpers_t &,
          disas_t &,
-         llvm::LLVMContext &,
          locator_t &);
 
   int go(void);

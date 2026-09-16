@@ -192,6 +192,10 @@ const char *tiny_code_generator_t::tcg_name_of_global(unsigned glb) {
   return s->temps[glb].name;
 }
 
+const void *const *tiny_code_generator_t::special_helpers(void) {
+  return jv_special_helpers();
+}
+
 static const uint8_t starter_bin_bytes[] = {
 #include "qemu-starter.inc"
 };

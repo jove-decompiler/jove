@@ -2,6 +2,7 @@
 
 #ifndef JOVE_NO_BACKEND
 #include "llvm.h"
+#include "safe.h"
 
 namespace jove {
 
@@ -192,17 +193,17 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
                                    cl::cat(JoveCategory)) {}
   } opts;
 
-  tiny_code_generator_t TCG;
 
   analyzer_options_t analyzer_options;
-
-  helpers_context_t helpers;
-  analyzer_context_t analyzer_context;
-
   llvm_options_t llvm_options;
 
+  tiny_code_generator_t TCG;
+  SafeLLVMContext SafeContext;
+
+  tcg_helpers_t helpers;
+
 public:
-  LLVMTool() : opts(JoveCategory), analyzer_context(TCG, helpers) {}
+  LLVMTool() : opts(JoveCategory), helpers(TCG, SafeContext, analyzer_options) {}
 
   int Run(void) override;
 };
@@ -263,12 +264,13 @@ int LLVMTool::Run(void) {
 
   analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
 
-  llvm::LLVMContext Context;
   llvm_t llvm(jv,
               llvm_options,
               analyzer_options,
-              analyzer_context,
-              disas, Context, locator());
+              TCG,
+              helpers,
+              disas,
+              locator());
   return llvm.go();
 }
 

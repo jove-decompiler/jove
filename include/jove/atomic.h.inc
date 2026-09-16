@@ -88,6 +88,50 @@ public:
 
 // this is a dangerous class.
 template <typename T>
+class std_atomic_unique_ptr {
+  std::atomic<T *> ptr = nullptr;
+
+  void takeFrom(std_atomic_unique_ptr &other) noexcept {
+    T *const newp = other.ptr.exchange(nullptr, std::memory_order_acquire);
+    T *const oldp = ptr.exchange(newp, std::memory_order_release);
+    delete oldp;
+  }
+
+public:
+  std_atomic_unique_ptr() noexcept = default;
+  explicit std_atomic_unique_ptr(T *p) noexcept : ptr(p) {}
+  explicit std_atomic_unique_ptr(std_atomic_unique_ptr &&other) noexcept {
+    takeFrom(other);
+  }
+
+  std_atomic_unique_ptr &operator=(std_atomic_unique_ptr &&other) noexcept {
+    if (this != &other)
+      takeFrom(other);
+
+    return *this;
+  }
+
+  std_atomic_unique_ptr(const std_atomic_unique_ptr &) = delete;
+  std_atomic_unique_ptr &operator=(const std_atomic_unique_ptr &) = delete;
+
+  ~std_atomic_unique_ptr() {
+    delete ptr.load(std::memory_order_relaxed);
+  }
+
+  T *load(std::memory_order order = std::memory_order_acquire) noexcept {
+    return ptr.load(order);
+  }
+
+  bool compare_exchange_strong(T *&expected,
+                               T *desired,
+                               std::memory_order success,
+                               std::memory_order failure) noexcept {
+    return ptr.compare_exchange_strong(expected, desired, success, failure);
+  }
+};
+
+// boost version XXX
+template <typename T>
 class atomic_unique_ptr {
   ip_atomic<T *> ptr = nullptr;
 

@@ -11,6 +11,7 @@
 #include "warn.h"
 #include "sret.h"
 #include "byval.h"
+#include "safe.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
@@ -108,22 +109,22 @@ llvm_t<MT, MinSize>::llvm_t(
                const jv_t &jv,
                llvm_options_t &options,
                analyzer_options_t &analyzer_options,
-               analyzer_context_t &analyzer_context,
+               tiny_code_generator_t &TCG,
+               tcg_helpers_t &helpers_,
                disas_t &disas,
-               llvm::LLVMContext &Context,
                locator_t &locator_)
     : jv(jv),
       options(options),
       analyzer_options(analyzer_options),
-      analyzer_context(analyzer_context),
+      TCG(TCG),
+      SafeContext(helpers_.SafeContext),
+      Context(SafeContext.Context),
+      helpers(helpers_),
+      our_helper_table{},
       locator_(locator_),
-      Context(Context),
       state(jv),
       disas(disas),
-      DL(""),
-      p_helper_lookup_tb_ptr(jv_special_helpers()[0]),
-      p_helper_memset       (jv_special_helpers()[1]),
-      p_syscall_helper      (jv_special_helpers()[2])
+      DL("")
 {}
 
 template <bool MT, bool MinSize>
@@ -176,14 +177,15 @@ llvm::IntegerType *llvm_t<MT, MinSize>::TypeOfTCGGlobal(unsigned glb) {
   return TypeOfTCGType(Context, s->temps[glb].type);
 }
 
-static bool AnalyzeHelper(helper_function_t &hf,
+static bool AnalyzeHelper(const llvm::Function &F,
+                          tcg_helper_analysis_t &Analysis,
                           const analyzer_options_t &options) {
-  if (hf.EnvArgNo < 0)
+  if (Analysis.EnvArgNo < 0)
     return true; /* doesn't take CPUState* parameter */
 
   bool res = true;
 
-  auto NotSimple = [&](llvm::Value *V = nullptr) -> void {
+  auto NotSimple = [&](const llvm::Value *V = nullptr) -> void {
     res = false;
 
     if (!V)
@@ -194,8 +196,8 @@ static bool AnalyzeHelper(helper_function_t &hf,
   };
 
   auto EnvMemAccess = [&](unsigned off, bool store) -> void {
-    tcg_global_set_t &bits = store ? hf.Analysis.OutGlbs :
-                                     hf.Analysis.InGlbs;
+    tcg_global_set_t &bits = store ? Analysis.OutGlbs :
+                                     Analysis.InGlbs;
 
     if (off >= sizeof(tcg_global_by_offset_lookup_table) ||
         tcg_global_by_offset_lookup_table[off] == 0xff) {
@@ -206,11 +208,11 @@ static bool AnalyzeHelper(helper_function_t &hf,
     bits.set(tcg_global_by_offset_lookup_table[off]);
   };
 
-  llvm::Function::arg_iterator arg_it = hf.F->arg_begin();
-  std::advance(arg_it, hf.EnvArgNo);
-  llvm::Argument &A = *arg_it;
+  llvm::Function::const_arg_iterator arg_it = F.arg_begin();
+  std::advance(arg_it, Analysis.EnvArgNo);
+  const llvm::Argument &A = *arg_it;
 
-  for (llvm::User *EnvU : A.users()) {
+  for (const llvm::User *EnvU : A.users()) {
     if (auto *EnvGEP = llvm::dyn_cast<llvm::GetElementPtrInst>(EnvU)) {
       if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
         NotSimple(EnvGEP);
@@ -220,12 +222,11 @@ static bool AnalyzeHelper(helper_function_t &hf,
       //
       // get byte offset of GEP
       //
-      assert(hf.F);
-      llvm::DataLayout DL = hf.F->getParent()->getDataLayout();
+      llvm::DataLayout DL = F.getParent()->getDataLayout();
       llvm::APInt Off(DL.getIndexSizeInBits(EnvGEP->getPointerAddressSpace()), 0);
       llvm::cast<llvm::GEPOperator>(EnvGEP)->accumulateConstantOffset(DL, Off);
 
-      for (llvm::User *GEPU : EnvGEP->users()) {
+      for (const llvm::User *GEPU : EnvGEP->users()) {
         if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(GEPU)) {
           assert(LI->getPointerOperand() == EnvGEP);
 
@@ -254,140 +255,147 @@ static bool AnalyzeHelper(helper_function_t &hf,
   return res;
 }
 
-static const helper_function_t &LookupHelper(bool IsCOFF,
-                                             TCGOp *op,
-                                             analyzer_options_t &options,
-                                             analyzer_context_t &context) {
-  std::unique_lock<std::mutex> lck(context.helpers.mtx);
+tcg_helpers_t::tcg_helpers_t(tiny_code_generator_t & tcg,
+                             SafeLLVMContext &SafeContext,
+                             analyzer_options_t &options)
+  : table{},
+    SafeContext(SafeContext),
+    options(options)
+{
+  const void *const *const special_helpers = tcg.special_helpers();
 
-  int nb_oargs = TCGOP_CALLO(op);
-  int nb_iargs = TCGOP_CALLI(op);
+  Funcs.lookup_tb_ptr = special_helpers[0];
+  Funcs.memset        = special_helpers[1];
 
-  void *const helper_fn = jv_tcg_helper_func(op);
+  Funcs.syscall_helper = special_helpers[2];
+}
 
-  {
-    auto it = context.helpers.map.find(helper_fn);
-    if (it != context.helpers.map.end())
-      return (*it).second;
-  }
+llvm::Function &tcg_helper_t::CloneInto(llvm::Module &Module) const {
+  const llvm::Module *pFrom = this->llvm_upModule.get();
+  assert(pFrom);
+  const llvm::Module &From = *pFrom;
 
-  const char *helper_nm = jv_tcg_find_helper(op);
-  assert(helper_nm);
-  const std::string helper_fn_nm = std::string("helper_") + helper_nm;
+  const std::string helper_fn_nm = std::string("helper_") + this->Info.name;
+  assert(From.getFunction(helper_fn_nm));
 
-  assert(context.M);
-  if (llvm::Function *F = context.M->getFunction(helper_fn_nm)) {
-    static unsigned j = 0;
-    F->setName(helper_fn_nm + "_" + std::to_string(j++));
-  }
+  auto ClonedModule = llvm::CloneModule(From);
+  if (llvm::Linker::linkModules(
+          Module, std::move(ClonedModule),
+          llvm::Linker::Flags::None,
+          [&](llvm::Module &M, const llvm::StringSet<> &GVS) {
+            llvm::internalizeModule(M, [&](const llvm::GlobalValue &GV) {
+              // Don't touch anything that wasn't brought in by this link.
+              if (!GV.hasName() || !GVS.contains(GV.getName()))
+                return true;
 
-  assert(!context.M->getFunction(helper_fn_nm));
+              if (const auto *F = llvm::dyn_cast<llvm::Function>(&GV)) {
+                if (F->isIntrinsic() || F->empty())
+                  return true;
 
-  constexpr bool DFSan = false;
-
-  std::string suffix = DFSan ? ".dfsan.bc" : ".bc";
-
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator_t::helper_bitcode(IsCOFF, helper_nm));
-  if (!BufferOr) {
-    WithColor::error() << "could not open bitcode for helper_" << helper_nm
-                       << " at " << locator_t::helper_bitcode(IsCOFF, helper_nm)
-                       << " (" << BufferOr.getError().message() << ")\n";
-    exit(1);
-  }
-
-  llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
-      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(),
-                             context.M->getContext());
-  if (!helperModuleOr) {
-    llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
-                                "could not parse helper bitcode: ");
-    exit(1);
-  }
-
-  std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
-
-  //
-  // process global variables
-  //
-  std::for_each(helperModule->global_begin(),
-                helperModule->global_end(),
-                [&](llvm::GlobalVariable &GV) {
-                  if (!GV.hasInitializer())
-                    return;
-
-                  GV.setLinkage(llvm::GlobalValue::InternalLinkage);
-                });
-
-  //
-  // process functions
-  //
-  std::for_each(
-      helperModule->begin(),
-      helperModule->end(), [&](llvm::Function &F) {
-        if (F.isIntrinsic())
-          return;
-
-        if (F.empty())
-          return;
-
-        if (F.getName() == helper_fn_nm) {
-          assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
-          return;
-        }
-
-        if (options.ForCBE)
-          F.deleteBody();
-        else
-          F.setLinkage(llvm::GlobalValue::InternalLinkage);
-      });
-
-  llvm::Linker::linkModules(*context.M, std::move(helperModule));
-
-  helper_function_t &hf = context.helpers.map[helper_fn];
-  hf.F = context.M->getFunction(helper_fn_nm);
-  if (unlikely(!hf.F)) {
-    WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
-                                        helper_nm);
-    exit(1);
-  }
-
-  //hf.F->addFnAttr(llvm::Attribute::NoInline);
-
+#if 0
   if (!options.ForCBE) {
-    //hf.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
-    hf.F->setLinkage(llvm::GlobalValue::InternalLinkage);
+    //Func.setVisibility(llvm::GlobalValue::HiddenVisibility);
+    Func.setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+#endif
+
+                if (F->getName() == helper_fn_nm)
+                  return true;
+
+                return false; /* => Internalize this function. */
+              }
+
+              if (const auto *Var = llvm::dyn_cast<llvm::GlobalVariable>(&GV)) {
+                if (Var->hasInitializer())
+                  return false; /* => Internalize this global variable. */
+
+                return true;
+              }
+
+              return true;
+            });
+          })) {
+    abort();
   }
 
-  assert(nb_iargs >= hf.F->arg_size());
+  llvm::Function *const pFunc = Module.getFunction(helper_fn_nm);
+  assert(pFunc);
+  return *pFunc;
+}
+
+const tcg_helper_t &tcg_helpers_t::lookup(TCGHelperInfo &Info,
+                                          void *op,
+                                          bool IsCOFF) {
+  const unsigned Number = Info.number;
+
+  std_atomic_unique_ptr<tcg_helper_t> &up = this->table.at(Number);
+  if (const auto *const pHelper = up.load(std::memory_order_acquire))
+    return *pHelper;
+
+  std::unique_ptr<tcg_helper_t> pHelper = std::make_unique<tcg_helper_t>(Info);
+
+  tcg_helper_t &Helper = *pHelper;
+
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOrErr =
+      llvm::MemoryBuffer::getFile(locator_t::helper_bitcode(IsCOFF, Info.name));
+  if (!BufferOrErr)
+    abort();//die("could not open bitcode file for helper_" + std::string(Info.name));
+
+  llvm::Expected<std::unique_ptr<llvm::Module>> HelperModuleOrErr = ({
+    std::lock_guard lck(this->SafeContext.Mtx);
+
+    llvm::parseBitcodeFile(BufferOrErr.get()->getMemBufferRef(),
+                           this->SafeContext.Context);
+  });
+
+  if (!HelperModuleOrErr)
+    abort();//die("failed to parse helper bitcode");
+
+  Helper.llvm_upModule = std::move(HelperModuleOrErr.get());
+  const llvm::Module &M = *Helper.llvm_upModule;
+
+  const std::string helper_fn_nm = std::string("helper_") + Info.name;
+  const llvm::Function *const pFunc = M.getFunction(helper_fn_nm);
+  aassert(pFunc && "tcg helper function not found in bitcode");
+
+  const llvm::Function &Func = *pFunc;
+
+  const int nb_oargs = Info.nr_out;
+  const int nb_iargs = Info.nr_in;
+
+  assert(nb_iargs >= Func.arg_size());
 
   //
   // analyze helper
   //
   int EnvArgNo = -1;
   {
-    TCGArg *const inputs_beg = &op->args[nb_oargs + 0];
-    TCGArg *const inputs_end = &op->args[nb_oargs + nb_iargs];
+    TCGArg *const inputs_beg = &((TCGOp *)op)->args[nb_oargs + 0];
+    TCGArg *const inputs_end = &((TCGOp *)op)->args[nb_oargs + nb_iargs];
+
     TCGArg *it = std::find_if(inputs_beg, inputs_end, [](TCGArg arg) -> bool {
-      char buf[256];
-      return strcmp(jv_tcg_get_arg_str(buf, sizeof(buf), arg), "env") == 0;
+      TCGTemp *const ts = arg_temp(arg);
+      assert(ts);
+      return temp_idx(ts) == tcg_env_index;
     });
 
     if (it != inputs_end)
       EnvArgNo = std::distance(inputs_beg, it);
   }
 
-  hf.EnvArgNo = EnvArgNo;
-  hf.Analysis.Simple = AnalyzeHelper(hf, options);
+  Helper.Analysis.EnvArgNo = EnvArgNo;
 
-  //
-  // is this a system call?
-  //
-  if (helper_fn == context.p_syscall_helper) {
-    hf.Analysis.InGlbs = SyscallArgs;
-    hf.Analysis.InGlbs.set(tcg_syscall_nr_index);
-    hf.Analysis.OutGlbs = SyscallRets;
-    hf.Analysis.Simple = true; /* force */
+  void *const helper_fn = jv_tcg_helper_func(op);
+  if (helper_fn == this->Funcs.syscall_helper) {
+    //
+    // special-case syscall function (FIXME?)
+    //
+    Helper.Analysis.InGlbs = SyscallArgs;
+    Helper.Analysis.InGlbs.set(tcg_syscall_nr_index);
+    Helper.Analysis.OutGlbs = SyscallRets;
+    Helper.Analysis.Simple = true; /* force */
+  } else {
+    Helper.Analysis.Simple = AnalyzeHelper(Func, Helper.Analysis, options);
   }
 
   {
@@ -395,7 +403,7 @@ static const helper_function_t &LookupHelper(bool IsCOFF,
 
     {
       std::vector<unsigned> iglbv;
-      explode_tcg_global_set(iglbv, hf.Analysis.InGlbs);
+      explode_tcg_global_set(iglbv, Helper.Analysis.InGlbs);
 
       //InGlbsStr.push_back('{');
       for (auto it = iglbv.begin(); it != iglbv.end(); ++it) {
@@ -412,7 +420,7 @@ static const helper_function_t &LookupHelper(bool IsCOFF,
 
     {
       std::vector<unsigned> oglbv;
-      explode_tcg_global_set(oglbv, hf.Analysis.OutGlbs);
+      explode_tcg_global_set(oglbv, Helper.Analysis.OutGlbs);
 
       //OutGlbsStr.push_back('{');
       for (auto it = oglbv.begin(); it != oglbv.end(); ++it) {
@@ -425,14 +433,14 @@ static const helper_function_t &LookupHelper(bool IsCOFF,
       //OutGlbsStr.push_back('}');
     }
 
-    const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
+    const char *IsSimpleStr = Helper.Analysis.Simple ? "-" : "+";
 
     if (options.IsVerbose()) {
     if (InGlbsStr.empty() && OutGlbsStr.empty()) {
-      WithColor::note() << llvm::formatv("helper_{0} ({1})\n", helper_nm, IsSimpleStr);
+      WithColor::note() << llvm::formatv("helper_{0} ({1})\n", Info.name, IsSimpleStr);
     } else {
       WithColor::note() << llvm::formatv("helper_{0} : {1} -> {2} ({3})\n",
-                                         helper_nm,
+                                         Info.name,
                                          InGlbsStr,
                                          OutGlbsStr,
                                          IsSimpleStr);
@@ -440,12 +448,24 @@ static const helper_function_t &LookupHelper(bool IsCOFF,
     }
   }
 
-  return hf;
+  tcg_helper_t *Expected = nullptr;
+  tcg_helper_t *Desired = &Helper;
+  if (up.compare_exchange_strong(Expected, Desired,
+                                 std::memory_order_release,
+                                 std::memory_order_acquire)) {
+    pHelper.release();
+
+    return Helper;
+  }
+
+  assert(Expected);
+  return *Expected;
 }
 
 bool AnalyzeBasicBlock(B::ref Bin,
                        bbprop_t &bbprop,
-                       analyzer_context_t &context,
+                       tiny_code_generator_t &TCG,
+                       tcg_helpers_t &helpers,
                        analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
     return false;
@@ -459,7 +479,7 @@ bool AnalyzeBasicBlock(B::ref Bin,
   const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
 
-  context.TCG.set_binary(Bin);
+  TCG.set_binary(Bin);
 
   bbprop.Analysis.live.use.reset();
   bbprop.Analysis.live.def.reset();
@@ -470,7 +490,7 @@ bool AnalyzeBasicBlock(B::ref Bin,
   do {
     unsigned len;
     try {
-      std::tie(len, T) = context.TCG.translate(Addr + size, Addr + Size);
+      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       break;
     }
@@ -488,10 +508,15 @@ bool AnalyzeBasicBlock(B::ref Bin,
         nb_oargs = TCGOP_CALLO(op);
         nb_iargs = TCGOP_CALLI(op);
 
-        if (strcmp(jv_tcg_find_helper(op), "memset") == 0) /* FIXME */
+        void *const helper_fn = jv_tcg_helper_func(op);
+        if (helper_fn == helpers.Funcs.memset)
           continue;
 
-        const helper_function_t &hf = LookupHelper(IsCOFF, op, options, context);
+        auto *const pHelperInfo = (TCGHelperInfo *)jv_tcg_helper_info(op);
+        assert(pHelperInfo);
+        TCGHelperInfo &HelperInfo = *pHelperInfo;
+
+        const tcg_helper_t &hf = helpers.lookup(HelperInfo, op, IsCOFF);
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
@@ -1346,8 +1371,6 @@ int llvm_t<MT, MinSize>::CreateModule(void) {
 
   std::unique_ptr<llvm::Module> &ModuleRef = moduleOr.get();
   Module = std::move(ModuleRef);
-
-  analyzer_context.M = Module.get();
 
   Module->setSemanticInterposition(false);
 
@@ -6664,11 +6687,14 @@ int llvm_t<MT, MinSize>::PrepareForCBE(void) {
   //
   // delete function bodies for TCG helpers
   //
-  for (auto &pair : helpers.map) {
-    helper_function_t &hf = pair.second;
+  for (llvm::Function *pF : our_helper_table) {
+    if (!pF)
+      continue;
 
-    hf.F->setVisibility(llvm::GlobalValue::DefaultVisibility);
-    hf.F->deleteBody();
+    llvm::Function &F = *pF;
+
+    F.setVisibility(llvm::GlobalValue::DefaultVisibility);
+    F.deleteBody();
   }
 
   JoveNoDCEFunc->setVisibility(llvm::GlobalValue::DefaultVisibility);
@@ -7046,29 +7072,26 @@ int llvm_t<MT, MinSize>::InlineHelpers(void) {
   if (!options.Optimize)
     return 0;
 
-  for (const auto &pair : helpers.map) {
-    const helper_function_t &hf = pair.second;
-#if 0
-    if (hf.EnvArgNo < 0 || !hf.Analysis.Simple)
+  for (llvm::Function *pF : our_helper_table) {
+    if (!pF)
       continue;
-#endif
 
-    llvm::Function *F = pair.second.F;
+    llvm::Function &F = *pF;
 
-    for (llvm::User *HelperFU : llvm::make_early_inc_range(F->users())) {
+    for (llvm::User *HelperFU : llvm::make_early_inc_range(F.users())) {
       if (!llvm::isa<llvm::CallInst>(HelperFU))
         continue;
 
       llvm::CallInst *CI = llvm::cast<llvm::CallInst>(HelperFU);
-      if (CI->getCalledFunction() != F)
+      if (CI->getCalledFunction() != &F)
         continue;
 
       llvm::InlineFunctionInfo IFI;
       llvm::InlineFunction(*CI, IFI);
     }
 
-    if (F->use_empty())
-      F->eraseFromParent();
+    if (F.use_empty())
+      F.eraseFromParent();
   }
 
   return 0;
@@ -7470,7 +7493,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
   }
 
-  analyzer_context.TCG.set_binary(state.for_binary(Binary).Bin.get());
+  TCG.set_binary(state.for_binary(Binary).Bin.get());
 
   llvm::BasicBlock *ExitBB = nullptr;
 
@@ -7490,7 +7513,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     unsigned len;
 
     try {
-      std::tie(len, T) = analyzer_context.TCG.translate(Addr + size, Addr + Size);
+      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
                                           Addr);
@@ -7498,7 +7521,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(ForAddrMatch))
-      analyzer_context.TCG.dump_ops(stderr);
+      TCG.dump_ops(stderr);
 
     TCGContext *s = get_tcg_context();
 
@@ -7619,7 +7642,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     int ret = TranslateTCGOps(ExitBB, IRB, TC);
     if (unlikely(ret)) {
       WithColor::warning() << "!TranslateTCGOp\n";
-      analyzer_context.TCG.dump_ops(stderr);
+      TCG.dump_ops(stderr);
       return ret;
     }
 
@@ -9958,15 +9981,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   CASE(call): {
     void *const helper_fn = jv_tcg_helper_func(op);
-    const char *helper_nm = jv_tcg_find_helper(op);
 
     //
     // some helper functions are special-cased
     //
-    if (helper_fn == p_helper_lookup_tb_ptr)
+    if (helper_fn == helpers.Funcs.lookup_tb_ptr)
       BREAK();
 
-    if (helper_fn == p_helper_memset) {
+    if (helper_fn == helpers.Funcs.memset) {
       llvm::Value *dest = get(input_arg(0));
       llvm::Value *val = get(input_arg(1));
       llvm::Value *len = get(input_arg(2));
@@ -9977,14 +9999,34 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       BREAK();
     }
 
-    const helper_function_t &hf =
-        LookupHelper(IsCOFF, op, analyzer_options, analyzer_context);
+    auto *const pHelperInfo = (TCGHelperInfo *)jv_tcg_helper_info(op);
+    assert(pHelperInfo);
+    TCGHelperInfo &HelperInfo = *pHelperInfo;
 
-    llvm::Function *const hfF = hf.F;
-    if (unlikely(!hfF))
-      die("failed to find helper " + std::string(helper_nm));
-    llvm::FunctionType *const FTy = hfF->getFunctionType();
-    assert(FTy);
+    assert(HelperInfo.nr_out == TCGOP_CALLO(op));
+    assert(HelperInfo.nr_in  == TCGOP_CALLI(op));
+
+    const unsigned Number = HelperInfo.number;
+
+    llvm::Function *pFunc = this->our_helper_table.at(Number);
+
+    const tcg_helper_t &Helper = helpers.lookup(HelperInfo, op, IsCOFF);
+
+    if (!pFunc) {
+      llvm::Function &Func = Helper.CloneInto(*Module);
+
+      this->our_helper_table.at(Number) = &Func;
+
+      if (options.ForCBE)
+        Func.deleteBody();
+
+      pFunc = &Func;
+    }
+
+    llvm::Function &Func = *pFunc;
+
+    llvm::FunctionType *const FuncTy = Func.getFunctionType();
+    assert(FuncTy);
 
     //
     // build the vector of arguments to pass
@@ -9993,14 +10035,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     ArgVec.reserve(nb_iargs);
 
     int iarg_idx = 0;
-    for (llvm::Type *ParamTy : FTy->params()) {
+    for (llvm::Type *ParamTy : FuncTy->params()) {
       assert(iarg_idx < nb_iargs);
       TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
 
       if (temp_idx(ts) == tcg_env_index) {
-        assert(hf.EnvArgNo == iarg_idx);
+        assert(Helper.Analysis.EnvArgNo == iarg_idx);
 
-        if (hf.Analysis.Simple && options.Optimize && options.InlineHelpers)
+        if (Helper.Analysis.Simple && options.Optimize && options.InlineHelpers)
           ArgVec.push_back(IRB.CreatePointerCast(IRB.CreateAlloca(CPUStateType), ParamTy));
         else
           ArgVec.push_back(IRB.CreatePointerCast(GetEnv(IRB), ParamTy));
@@ -10047,23 +10089,23 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       }
     }
 
-    if (unlikely(ArgVec.size() != hf.F->arg_size()) ||
+    if (unlikely(ArgVec.size() != Func.arg_size()) ||
         iarg_idx != nb_iargs) { /* confirm we consumed all inputs */
       die("(1) unhandled number of inputs (" + std::to_string(nb_iargs) +
-          ") for helper " + hf.F->getName().str());
+          ") for helper " + Func.getName().str());
     }
 
     //
     // does the helper function take a CPUState* parameter?
     //
-    if (hf.EnvArgNo >= 0) {
-      llvm::Value *Env = ArgVec[hf.EnvArgNo];
+    if (Helper.Analysis.EnvArgNo >= 0) {
+      llvm::Value *Env = ArgVec[Helper.Analysis.EnvArgNo];
 
       //
       // store our globals to the (maybe local) env
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & ~PinnedEnvGlbs);
+      explode_tcg_global_set(glbv, (Helper.Analysis.InGlbs | Helper.Analysis.OutGlbs) & ~PinnedEnvGlbs);
       for (unsigned glb : glbv) {
         llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), BuildCPUStatePointer(IRB, Env, glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
@@ -10071,27 +10113,27 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
 
 #if 0
-    llvm::errs() << "calling " << hf.F->getName() << " with ";
+    llvm::errs() << "calling " << Func.getName() << " with ";
     for (llvm::Value *Arg : ArgVec)
       llvm::errs() << *Arg << ' ';
     llvm::errs() << '\n';
 #endif
 
-    llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
-    if (!hf.Analysis.Simple)
+    llvm::CallInst *Ret = IRB.CreateCall(&Func, ArgVec);
+    if (!Helper.Analysis.Simple)
       Ret->setIsNoInline();
 
     //
     // does the helper function take a CPUState* parameter?
     //
-    if (hf.EnvArgNo >= 0) {
-      llvm::Value *Env = ArgVec[hf.EnvArgNo];
+    if (Helper.Analysis.EnvArgNo >= 0) {
+      llvm::Value *Env = ArgVec[Helper.Analysis.EnvArgNo];
 
       //
       // load the altered globals
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~PinnedEnvGlbs);
+      explode_tcg_global_set(glbv, Helper.Analysis.OutGlbs & ~PinnedEnvGlbs);
       for (unsigned glb : glbv) {
         llvm::LoadInst *LI = IRB.CreateLoad(
             TypeOfTCGGlobal(glb), BuildCPUStatePointer(IRB, Env, glb));
@@ -10118,7 +10160,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
       if (dst1->type == TCG_TYPE_I32 &&
           dst2->type == TCG_TYPE_I32 &&
-          FTy->getReturnType()->isIntegerTy(64)) {
+          FuncTy->getReturnType()->isIntegerTy(64)) {
         set(IRB.CreateTrunc(Ret, IRB.getInt32Ty()), dst1);
         set(IRB.CreateTrunc(IRB.CreateLShr(Ret, llvm::APInt(64, 32)),
                             IRB.getInt32Ty()),
@@ -10126,7 +10168,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         BREAK();
       } else if (dst1->type == TCG_TYPE_I64 &&
                  dst2->type == TCG_TYPE_I64 &&
-          FTy->getReturnType()->isStructTy()) {
+          FuncTy->getReturnType()->isStructTy()) {
         set(IRB.CreateExtractValue(Ret, 0), dst1);
         set(IRB.CreateExtractValue(Ret, 1), dst2);
         BREAK();
@@ -10139,7 +10181,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
 
     die("(2) unhandled number of outputs (" + std::to_string(nb_oargs) +
-        ") for helper " + hf.F->getName().str());
+        ") for helper " + Func.getName().str());
   }
 
   CASE(br): {
