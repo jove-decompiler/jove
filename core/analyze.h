@@ -55,12 +55,12 @@ struct analyzer_t {
   jv_state_t<binary_state_t, function_state_t, void,
     AreWeMT, /* MultiThreaded */
     true,    /* LazyInitialization */
-    true,    /* Eager */
+    false,    /* Eager */
     true,    /* BoundsChecking */
     true,    /* SubjectToChange */
     MT, MinSize> state;
 
-  call_graph_builder_t<MT, MinSize> cg;
+  using cg_t = call_graph_builder_t<MT, MinSize>;
 
   const bool IsCOFF;
 
