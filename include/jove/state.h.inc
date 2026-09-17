@@ -33,7 +33,8 @@ private:
   // initialization means that references to state contents will never be
   // invalidated.
   //
-  static constexpr bool IsContainerVec = Eager || LazyInitialization;
+  static constexpr bool IsContainerVec =
+      (Eager && !SubjectToChange) || !MultiThreaded;
   static constexpr bool CanReserve = IsContainerVec;
 
   template <typename T>
@@ -95,6 +96,12 @@ public:
       update();
   }
 
+  void clear(void) {
+    auto e_lck = exclusive_access();
+
+    x.clear();
+  }
+
   void update(void) /* accomodate everything */
     requires(Eager)
   {
@@ -133,7 +140,9 @@ public:
           if constexpr (CanReserve)
             state_vec.reserve(N_F);
 
-          for (function_index_t FIdx = state_vec.size(); FIdx < N_F; ++FIdx) {
+          const unsigned N = state_vec.size();
+          assert(N_F >= N);
+          for (function_index_t FIdx = N; FIdx < N_F; ++FIdx) {
             const function_t &f = b.Analysis.Functions.at(FIdx);
 
             state_vec.emplace_back(f, b);
@@ -152,7 +161,9 @@ public:
           if constexpr (CanReserve)
             state_vec.reserve(N_BB);
 
-          for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
+          const unsigned N = state_vec.size();
+          assert(N_BB >= N);
+          for (basic_block_index_t BBIdx = N; BBIdx < N_BB; ++BBIdx) {
             bb_t bb = basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG);
 
             state_vec.emplace_back(b, bb);
@@ -173,7 +184,10 @@ public:
 
     const unsigned N_B = BIdx + 1;
     if constexpr (LazyInitialization) {
-      x.resize(std::max<unsigned>(N_B, N));
+      const unsigned N_2 = std::max<unsigned>(N_B, N);
+
+      assert(N_2 >= N);
+      x.resize(N_2);
     } else {
       if constexpr (CanReserve)
         x.reserve(N_B);
@@ -207,11 +221,15 @@ public:
 
     const unsigned N_F = FIdx + 1;
     if constexpr (LazyInitialization) {
-      y.resize(std::max<unsigned>(N_F, N));
+      const unsigned N_2 = std::max<unsigned>(N_F, N);
+
+      assert(N_2 >= N);
+      y.resize(N_2);
     } else {
       if constexpr (CanReserve)
         y.reserve(N_F);
 
+      assert(FIdx >= N);
       for (function_index_t TheFIdx = N; TheFIdx < FIdx; ++TheFIdx)
         y.emplace_back(b.Analysis.Functions.at(TheFIdx), b);
 
@@ -232,7 +250,10 @@ public:
 
     const unsigned N_BB = BBIdx + 1;
     if constexpr (LazyInitialization) {
-      y.resize(std::max<unsigned>(N_BB, N));
+      const unsigned N_2 = std::max<unsigned>(N_BB, N);
+
+      assert(N_2 >= N);
+      y.resize(N_2);
     } else {
       if constexpr (CanReserve)
         y.reserve(N_BB);
