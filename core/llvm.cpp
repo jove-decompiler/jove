@@ -341,17 +341,19 @@ const tcg_helper_t &tcg_helpers_t::lookup(TCGHelperInfo &Info,
   if (!BufferOrErr)
     abort();//die("could not open bitcode file for helper_" + std::string(Info.name));
 
-  llvm::Expected<std::unique_ptr<llvm::Module>> HelperModuleOrErr = ({
+  {
     std::lock_guard lck(this->SafeContext.Mtx);
 
-    llvm::parseBitcodeFile(BufferOrErr.get()->getMemBufferRef(),
-                           this->SafeContext.Context);
-  });
+    llvm::Expected<std::unique_ptr<llvm::Module>> HelperModuleOrErr =
+        llvm::parseBitcodeFile(BufferOrErr.get()->getMemBufferRef(),
+                               this->SafeContext.Context);
 
-  if (!HelperModuleOrErr)
-    abort();//die("failed to parse helper bitcode");
+    if (!HelperModuleOrErr)
+      abort(); // die("failed to parse helper bitcode");
 
-  Helper.llvm_upModule = std::move(HelperModuleOrErr.get());
+    Helper.llvm_upModule = std::move(HelperModuleOrErr.get());
+  }
+
   const llvm::Module &M = *Helper.llvm_upModule;
 
   const std::string helper_fn_nm = std::string("helper_") + Info.name;
@@ -1361,16 +1363,20 @@ int llvm_t<MT, MinSize>::CreateModule(void) {
     return 1;
   }
 
-  llvm::Expected<std::unique_ptr<llvm::Module>> moduleOr =
-      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), Context);
-  if (!moduleOr) {
-    llvm::logAllUnhandledErrors(moduleOr.takeError(), llvm::errs(),
-                                "could not parse helper bitcode: ");
-    return 1;
-  }
+  {
+    std::lock_guard lck(this->SafeContext.Mtx);
 
-  std::unique_ptr<llvm::Module> &ModuleRef = moduleOr.get();
-  Module = std::move(ModuleRef);
+    llvm::Expected<std::unique_ptr<llvm::Module>> MaybeModule =
+      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), Context);
+
+    if (!MaybeModule) {
+      llvm::logAllUnhandledErrors(MaybeModule.takeError(), llvm::errs(),
+                                  "could not parse helper bitcode: ");
+      return 1;
+    }
+
+    Module = std::move(MaybeModule.get());
+  }
 
   Module->setSemanticInterposition(false);
 
