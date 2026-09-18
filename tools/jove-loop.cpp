@@ -490,6 +490,19 @@ int LoopTool::Run(void) {
   SafeLLVMContext SafeContext;
 
   tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+
+  analyzer_t analyzer(analyzer_options,
+                      TCG,
+                      SafeContext,
+                      helpers,
+                      jv_file, jv, inflight, done);
+
+  recompiler_t recompiler(jv,
+                          recompiler_options,
+                          TCG,
+                          helpers,
+                          disas,
+                          locator());
 #endif
 
   while (!this->interrupted.load(std::memory_order_relaxed)) {
@@ -1242,8 +1255,11 @@ skip_run:
           Env("JOVEDIR=" + jove_dir());
         });
 #else
+      analyzer.state.clear();
+
       int rc = ({
-      analyzer_t analyzer(analyzer_options, TCG, SafeContext, helpers, jv_file, jv, inflight, done);
+      inflight.clear();
+      done.store(0, std::memory_order_relaxed);
 
       analyzer.examine_blocks();
       oneapi::tbb::parallel_invoke(
@@ -1337,15 +1353,7 @@ skip_run:
           Env("JOVEDIR=" + jove_dir());
         });
 #else
-      rc = ({
-      recompiler_t recompiler(jv,
-                              recompiler_options,
-                              TCG,
-                              helpers,
-                              disas,
-                              locator());
-      recompiler.go();
-      });
+      rc = recompiler.go();
 #endif
 
       if (rc) {

@@ -453,6 +453,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // create mapping from "soname" to binary
   //
+  soname_map.clear();
   for_each_binary(jv, [&](auto &b) {
     binary_state_t &x = state.for_binary(b);
 
@@ -477,6 +478,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // initialize dynamic linking graph
   //
+  dso_graph.clear();
   for_each_binary(jv, [&](auto &b) {
     binary_state_t &x = state.for_binary(b);
     binary_index_t BIdx = index_of_binary(b, jv);
@@ -644,6 +646,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     }
   }
 
+  Q.clear();
   Q.reserve(top_sorted.size());
   for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -656,7 +659,7 @@ int recompiler_t<MT, MinSize>::go(void) {
   if (options.IsVerbose())
     WithColor::note() << llvm::formatv(
         "Recompiling {0} {1}...",
-        (options.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
+        Q.size(),
         options.ForeignLibs ? "binary" : "binaries");
 
   auto t1 = std::chrono::high_resolution_clock::now();
@@ -664,7 +667,14 @@ int recompiler_t<MT, MinSize>::go(void) {
   //
   // run jove-llvm and llc on all DSOs
   //
-  mt::for_n(std::bind(&recompiler_t::worker, this, std::placeholders::_1), Q.size());
+  if (Q.empty()) {
+    WithColor::error() << "no binaries?\n";
+    return 1;
+  } if (Q.size() == 1) {
+    worker(0);
+  } else {
+    mt::for_n(std::bind(&recompiler_t::worker, this, std::placeholders::_1), Q.size());
+  }
 
   auto t2 = std::chrono::high_resolution_clock::now();
 

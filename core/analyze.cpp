@@ -46,7 +46,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
     : options(options), tcg(tcg), SafeContext(SafeContext), helpers(helpers),
-      jv_file(jv_file), jv(jv), state(jv), cg(jv),
+      jv_file(jv_file), jv(jv), state(jv),
       IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
       inflight(inflight), done(done) {}
 
@@ -225,22 +225,25 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
 template <bool MT, bool MinSize>
 template <bool BottomUp>
 int analyzer_t<MT, MinSize>::analyze_functions(void) {
-  const unsigned N = boost::num_vertices(cg.G);
+  cg_t cg(jv);
+  auto &CG = cg.G;
+
+  const unsigned N = boost::num_vertices(CG);
 
   // which component each vertex in the graph belongs to
   std::vector<call_graph_t::vertices_size_type> CompMap(N);
 
   auto CompPropMap = boost::make_iterator_property_map(
-      CompMap.begin(), boost::get(boost::vertex_index, cg.G));
+      CompMap.begin(), boost::get(boost::vertex_index, CG));
 
-  const auto sc_num = boost::strong_components(cg.G, CompPropMap);
+  const auto sc_num = boost::strong_components(CG, CompPropMap);
 
   std::vector<std::vector<call_node_t>> components;
-  boost::build_component_lists(cg.G, sc_num, CompPropMap, components);
+  boost::build_component_lists(CG, sc_num, CompPropMap, components);
 
   // create the DAG of the SCCs
   call_graph_t CGCondensed;
-  boost::create_condensation_graph(cg.G, components, CompPropMap, CGCondensed);
+  boost::create_condensation_graph(CG, components, CompPropMap, CGCondensed);
 
   tbb::flow::graph flow_graph;
 
@@ -254,12 +257,12 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
   tbb::flow::function_node<call_node_t> analyze_node(
       flow_graph, tbb::flow::unlimited,
       [this, &counts, &analyze_node, &CGCondensed,
-       &components](call_node_t v) -> void {
+       &components, &CG](call_node_t v) -> void {
         auto &scc_verts =
             components.at(boost::get(boost::vertex_index, CGCondensed, v));
         tbb::parallel_for_each(
             scc_verts.begin(), scc_verts.end(), [&](call_node_t V) {
-              analyze_function(function_of_target(cg.G[V], jv));
+              analyze_function(function_of_target(CG[V], jv));
             });
 
 if constexpr (BottomUp) {
