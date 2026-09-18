@@ -165,7 +165,7 @@ bool explorer_t<MT, MinSize>::split(
 
 on_insn:
   //
-  // "Split" the block, i.e.
+  // "Split" the block, e.g.
   //
   // ____________________
   // |                  |
