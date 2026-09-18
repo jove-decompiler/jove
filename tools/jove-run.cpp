@@ -436,6 +436,8 @@ static void touch(const fs::path &);
 
 template <bool WillChroot, bool LivingDangerously>
 int RunTool::DoRun(void) {
+  int ret_val = 1;
+
   //
   // code recovery fifo. why don't we use an anonymous pipe? because the
   // program being recompiled may decide to close all the open file descriptors
@@ -609,6 +611,8 @@ int RunTool::DoRun(void) {
     return true;
   };
 
+  {
+
   BOOST_SCOPE_DEFER [&] {
     //
     // tell FifoChild to stop running
@@ -637,8 +641,6 @@ int RunTool::DoRun(void) {
       }
     }
   };
-
-  int ret_val = 1;
 
 #if 0 /* is this necessary? */
   if (::mount(opts.sysroot, opts.sysroot, "", MS_BIND, nullptr) < 0)
@@ -1194,6 +1196,8 @@ int RunTool::DoRun(void) {
                        __ATOMIC_RELAXED); /* reset */
   }
 
+  }
+
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);
 
@@ -1224,14 +1228,14 @@ int RunTool::DoRun(void) {
     }
   }
 
-  }
-
 #if 0 /* is this necessary? */
   if (::umount2(opts.sysroot, 0) < 0)
     fprintf(stderr, "unmounting %s failed : %s\n", opts.sysroot, strerror(errno));
 #endif
 
   __END_MOUNTS__
+
+  } /* FifoChild has terminated */
 
   DropPrivileges();
 
