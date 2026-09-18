@@ -241,6 +241,9 @@ int recompiler_t<MT, MinSize>::go(void) {
       return;
 
     binary_state_t &x = state.for_binary(b);
+    if (x.ExaminedOnce)
+      return; /* already processed (could have been earlier run) */
+    x.ExaminedOnce = true;
 
     x.Bin = B::Create(b.data());
     std::tie(x.Base, x.End) = B::bounds_of_binary(x.Bin.get());

@@ -119,6 +119,8 @@ class recompiler_t {
   locator_t &locator_;
 
   struct binary_state_t {
+    bool ExaminedOnce = false;
+
     B::unique_ptr Bin;
 
     boost::filesystem::path chrooted_path;
