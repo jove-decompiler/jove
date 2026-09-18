@@ -179,7 +179,7 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   bool res = doInsertDynTarget<MT, MinSize>(X);
   if (res) {
-    callee.InvalidateAnalysis();
+    callee.Analysis.Invalidate();
     callee.Analysis.AddCaller<MT, MinSize>(caller_t(ThisBIdx, Term.Addr));
 
     auto &RCG = jv.Analysis.ReverseCallGraph;
@@ -191,7 +191,7 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
                   ParentsVec.cbegin(),
                   ParentsVec.cend(), [&](function_index_t FIdx) {
                     function_t &caller = caller_b.Analysis.Functions.at(FIdx);
-                    caller.InvalidateAnalysis();
+                    caller.Analysis.Invalidate();
 
                     RCG.template add_edge<MT>(
                         callee.Analysis.ReverseCGVert(jv),
@@ -203,9 +203,9 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 }
 
 template <bool MT, bool MinSize>
-void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
+void bbprop_t::InvalidateAnalyses(jv_base_t<MT, MinSize> &jv,
                                   binary_base_t<MT, MinSize> &b) {
-  this->Analysis.Stale.test_and_set(boost::memory_order_relaxed);
+  this->Analysis.Invalidate();
 
   struct function_invalidator_t : public boost::default_dfs_visitor {
     jv_base_t<MT, MinSize> &jv;
@@ -218,7 +218,7 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
 
       assert(is_dynamic_target_valid(X));
 
-      function_of_target(X, jv).InvalidateAnalysis();
+      function_of_target(X, jv).Analysis.Invalidate();
     }
   };
 
@@ -256,7 +256,7 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
       binary_index_t ThisBIdx, const dynamic_target_t &,                       \
       jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
                 GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);                  \
-  template void bbprop_t::InvalidateAnalysis(                                  \
+  template void bbprop_t::InvalidateAnalyses(                                  \
       jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
                 GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,                   \
       binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \

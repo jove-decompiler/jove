@@ -100,8 +100,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
     CallerBinary.FixAmbiguousIndirectJump(
         TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
 
-  callee.InvalidateAnalysis();
-  ICFG[bb].InvalidateAnalysis(jv, CallerBinary);
+  callee.Analysis.Invalidate();
+  ICFG[bb].InvalidateAnalyses(jv, CallerBinary);
 
 #if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
@@ -159,7 +159,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
     ICFG.add_edge(bb, basic_block_of_index(TargetBBIdx, ICFG)).second;
   });
 
-  ICFG[bb].InvalidateAnalysis(jv, b);
+  ICFG[bb].InvalidateAnalyses(jv, b);
 
   if (!isNewTarget)
     return std::string();
@@ -312,7 +312,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
     ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG)).second;
   });
 
-  ICFG[bb].InvalidateAnalysis(jv, b);
+  ICFG[bb].InvalidateAnalyses(jv, b);
 
   (void)isNewTarget; /* FIXME */
 

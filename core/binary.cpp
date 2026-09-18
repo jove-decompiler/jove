@@ -108,7 +108,7 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
 template <bool MT, bool MinSize>
 void binary_base_t<MT, MinSize>::InvalidateBasicBlockAnalyses(void) {
   for_each_function_in_binary(maybe_par_unseq, *this,
-                              [&](function_t &f) { f.InvalidateAnalysis(); });
+                              [&](function_t &f) { f.Analysis.Invalidate(); });
 }
 
 template <bool MT, bool MinSize>
@@ -166,7 +166,7 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
                   });
   }
 
-  ICFG[bb].InvalidateAnalysis(jv, *this);
+  ICFG[bb].InvalidateAnalyses(jv, *this);
 
   return true;
 }

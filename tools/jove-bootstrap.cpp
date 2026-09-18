@@ -1821,7 +1821,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
 
-        TargetICFG[basic_block_of_index(BBIdx, TargetICFG)].InvalidateAnalysis(
+        TargetICFG[basic_block_of_index(BBIdx, TargetICFG)].InvalidateAnalyses(
             jv, TargetBinary);
       } else {
         // on an indirect jump, we must determine one of two possibilities.
@@ -1872,7 +1872,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
                                .second;
 
                 if (res)
-                  bbprop.InvalidateAnalysis(jv, binary);
+                  bbprop.InvalidateAnalyses(jv, binary);
 
                 return res;
               });
@@ -2582,7 +2582,7 @@ void BootstrapTool::on_return(pid_t child,
 
     // connect
     if (ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)).second)
-      ICFG[before_bb].InvalidateAnalysis(jv, b);
+      ICFG[before_bb].InvalidateAnalyses(jv, b);
   }
 }
 

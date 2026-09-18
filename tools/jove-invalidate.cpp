@@ -45,12 +45,12 @@ int InvalidateTool::Run(void) {
     if (opts.Functions)
       for_each_function_in_binary(
           maybe_par_unseq, b,
-          [&](function_t &f) { f.InvalidateAnalysis(); });
+          [&](function_t &f) { f.Analysis.Invalidate(); });
 
     if (opts.Blocks)
       for_each_basic_block_in_binary(
           maybe_par_unseq, b, [&](bb_t bb) {
-            b.Analysis.ICFG[bb].InvalidateAnalysis(jv, b);
+            b.Analysis.ICFG[bb].Analysis.Invalidate();
           });
   });
 

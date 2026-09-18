@@ -314,6 +314,10 @@ struct bb_analysis_t {
     return *this;
   }
 
+  void Invalidate(void) {
+    Stale.test_and_set(boost::memory_order_relaxed);
+  }
+
   struct straight_line_t {
     std::atomic_flag Stale = ATOMIC_FLAG_INIT;
 
@@ -509,7 +513,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
   template <bool MT, bool MinSize>
-  void InvalidateAnalysis(jv_base_t<MT, MinSize> &,
+  void InvalidateAnalyses(jv_base_t<MT, MinSize> &,
                           binary_base_t<MT, MinSize> &);
 
   explicit bbprop_t() = delete;
@@ -815,10 +819,6 @@ struct function_t {
 
   segment_manager_t &get_segment_manager(void) const {
     return Analysis.get_segment_manager();
-  }
-
-  void InvalidateAnalysis(void) {
-    this->Analysis.Invalidate();
   }
 
   template <bool MT, bool MinSize>
