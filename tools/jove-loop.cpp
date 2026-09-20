@@ -12,6 +12,8 @@
 #include "eintr.h"
 #include "tcg.h"
 #include "safe.h"
+#include "autoreap.h"
+#include "loop.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -62,6 +64,8 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> ArgsFromFile;
     cl::list<std::string> BindMountDirs;
     cl::opt<std::string> Sysroot;
+    cl::opt<bool> Daemonize;
+    cl::opt<int> DaemonizeThreshold;
     cl::opt<bool> DFSan;
     cl::opt<bool> CallStack;
     cl::opt<bool> Optimize;
@@ -137,6 +141,13 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           Sysroot("sysroot", cl::desc("Output directory"),
                   cl::cat(JoveCategory)),
+
+          Daemonize("daemonize", cl::desc("Run `jove llvm` as daemon"),
+                    cl::init(true), cl::cat(JoveCategory)),
+
+          DaemonizeThreshold("daemonize-threshold",
+                             cl::desc("Re-exec when |invalidated| becomes too big"),
+                             cl::init(-1), cl::cat(JoveCategory)),
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
@@ -325,54 +336,41 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)),
 
           Symbolize("symbolize",
-                 cl::desc("When recovering try to symbolize addresses"),
-                 cl::init(true),
-                 cl::cat(JoveCategory)),
+                    cl::desc("When recovering try to symbolize addresses"),
+                    cl::init(true), cl::cat(JoveCategory)),
 
-          VerifyBitcode(
-              "verify-bitcode",
-              cl::desc("Run the LLVM verifier"),
-              cl::cat(JoveCategory)),
+          VerifyBitcode("verify-bitcode", cl::desc("Run the LLVM verifier"),
+                        cl::cat(JoveCategory)),
 
-          ForceText(
-              "force-text",
-              cl::desc("Force text serialization"),
-              cl::init(true),
-              cl::cat(JoveCategory)),
+          ForceText("force-text", cl::desc("Force text serialization"),
+                    cl::init(true), cl::cat(JoveCategory)),
 
-          LoadRelocSectionPointers("load-reloc-section-pointers",
-                                   cl::desc(""),
+          LoadRelocSectionPointers("load-reloc-section-pointers", cl::desc(""),
                                    cl::cat(JoveCategory))
 
-          {}
+    {}
   } opts;
 
   const bool IsCOFF;
+  const unsigned SavedNumBinaries = 0;
 
   struct {
-    std::unique_ptr<temp_file>   file;
-    std::unique_ptr<scoped_fd>   mapping_fd;
-    std::unique_ptr<scoped_mmap> mapping;
-  } child_pid;
+    std::unique_ptr<temp_file> file;
+    std::unique_ptr<scoped_fd> mm_fd;
+    std::unique_ptr<loop::shared_mapping_t> mapping;
+  } run;
 
-  int get_child_pid(void) {
-    scoped_mmap *const pmm = child_pid.mapping.get();
-    if (!pmm)
-      return -1;
-
-    scoped_mmap &mm = *pmm;
-    if (!mm)
-      return -1;
-
-    return __atomic_load_n(reinterpret_cast<int *>(mm.get()), __ATOMIC_RELAXED);
-  }
+  int get_child_pid(void) const { return run.mapping->get_child_pid(); }
 
 public:
   LoopTool()
       : opts(JoveCategory),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {}
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
+        SavedNumBinaries(jv.Binaries.size()) {}
 
   int Run(void) override;
+
+  int PossiblyReexec(const invalidated_t &, bool ForceRecompile = false);
 };
 
 JOVE_REGISTER_TOOL("loop", LoopTool);
@@ -382,6 +380,8 @@ static const std::array<int, 4> ToRedirect = {
 };
 
 int LoopTool::Run(void) {
+  aassert(SetAutomaticReaping(false));
+
   int rc;
 
   if (!opts.Silent && !opts.HumanOutput.empty())
@@ -420,24 +420,20 @@ int LoopTool::Run(void) {
                   fs::path(sysroot) / "usr" / "bin" / "gdbserver",
                   fs::copy_options::overwrite_existing);
 
-  static constexpr unsigned CHILD_PID_FILE_NUM_INTS =
-      JOVE_PAGE_SIZE / sizeof(int);
-  static const int child_pid_file_init[CHILD_PID_FILE_NUM_INTS] = {
-      [0 ... CHILD_PID_FILE_NUM_INTS - 1] = 0, [0] = -1};
+  std::vector<uint8_t> zeros(JOVE_PAGE_SIZE, 0u);
 
-  child_pid.file = std::make_unique<temp_file>(
-      &child_pid_file_init[0], sizeof(child_pid_file_init), "jove.loop");
-  child_pid.file->store();
+  run.file = std::make_unique<temp_file>(&zeros[0], zeros.size(), "jove.loop");
+  run.file->store();
 
-  child_pid.mapping_fd = std::make_unique<scoped_fd>(
-      sys::retry_eintr(::open, child_pid.file->path().c_str(), O_RDWR));
-  aassert(child_pid.mapping_fd && *child_pid.mapping_fd);
+  run.mm_fd = std::make_unique<scoped_fd>(
+      sys::retry_eintr(::open, run.file->path().c_str(), O_RDWR));
+  aassert(run.mm_fd && *run.mm_fd);
 
-  child_pid.mapping =
-      std::make_unique<scoped_mmap>(nullptr, JOVE_PAGE_SIZE, PROT_READ,
-                                    MAP_SHARED, child_pid.mapping_fd->get(), 0);
-  aassert(child_pid.mapping && *child_pid.mapping);
-  assert(get_child_pid() == -1);
+  run.mapping = std::make_unique<loop::shared_mapping_t>(
+      nullptr, JOVE_PAGE_SIZE, PROT_READ, MAP_SHARED, run.mm_fd->get(), 0);
+  assert(run.mapping);
+  assert(run.mapping->get_child_pid() == 0);
+  assert(run.mapping->get_recovered() == '\0');
 
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&LoopTool::get_child_pid, this));
@@ -467,6 +463,7 @@ int LoopTool::Run(void) {
 
   //analyzer_options.Conservative = opts.Conservative;
 
+  PROPOGATE_OPTION(Daemonize);
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);
   PROPOGATE_OPTION(Trace);
@@ -503,15 +500,20 @@ int LoopTool::Run(void) {
                           helpers,
                           disas,
                           locator());
+
+  invalidated_t invalidated;
 #endif
 
+  bool FirstTime = true;
+  bool LaunchedLLVM = false;
   while (!this->interrupted.load(std::memory_order_relaxed)) {
     pid_t pid;
 
-    static bool FirstTime = true;
-    if (unlikely(FirstTime)) {
+    BOOST_SCOPE_DEFER [&] {
       FirstTime = false;
+    };
 
+    if (unlikely(FirstTime)) {
       if (opts.ForceRecompile)
         goto skip_run;
     }
@@ -527,6 +529,19 @@ int LoopTool::Run(void) {
       }
     }
 
+    {
+      analyzer.state.clear(); /* FIXME */
+
+      inflight.clear();
+      done.store(0, std::memory_order_relaxed);
+
+      analyzer.examine_blocks();
+      oneapi::tbb::parallel_invoke(
+          [&analyzer](void) -> void { analyzer.examine_callers(); },
+          [&analyzer](void) -> void { analyzer.identify_ABIs(); });
+      analyzer.identify_Sjs();
+    }
+
     //
     // run
     //
@@ -535,8 +550,8 @@ run:
       pid = RunTool(
           "run",
           [&](auto Arg) {
-            Arg("--child-fd");
-            Arg(std::to_string(child_pid.mapping_fd->get()));
+            Arg("--loopfd");
+            Arg(std::to_string(run.mm_fd->get()));
 
             if (sudo && ::getgid() > 0 && !opts.RunAsRoot) {
               Arg("-g");
@@ -669,24 +684,35 @@ run:
           Tool::RunToolExtraArgs(sudo, opts.PreserveEnvironment));
 
       {
-        int ret = WaitForProcessToExit(pid);
+        const int ret = WaitForProcessToExit(pid);
+        const char ch = run.mapping->get_recovered();
 
         //
         // XXX currently the only way to know that jove-recover was run is by
         // looking at the exit status
         //
-        if ((ret != 'b' &&
-             ret != 'B' &&
-             ret != 'f' &&
-             ret != 'F' &&
-             ret != 'O' &&
-             ret != 'a' &&
-             ret != 'r') || opts.JustRun)
+        if ((ch != 'b' &&
+             ch != 'B' &&
+             ch != 'f' &&
+             ch != 'F' &&
+             ch != 'O' &&
+             ch != 'a' &&
+             ch != 'r') || opts.JustRun)
           return ret;
       }
     }
 
-    assert(get_child_pid() == -1); /* should have been reset by jove run */
+    if (run.mapping->get_child_pid() != 0)
+      WithColor::warning() << "jove run should have reset the child pid\n";
+
+    jv.generation.load(boost::memory_order_acquire);
+
+    if (opts.Daemonize) {
+      if (opts.ForceRecompile)
+        PossiblyReexec(invalidated);
+      else
+        PossiblyReexec(invalidated, true);
+    }
 
 skip_run:
     if (!opts.Connect.empty()) { /* remote */
@@ -1255,9 +1281,8 @@ skip_run:
           Env("JOVEDIR=" + jove_dir());
         });
 #else
-      analyzer.state.clear();
+      analyzer.state.clear(); /* FIXME */
 
-      int rc = ({
       inflight.clear();
       done.store(0, std::memory_order_relaxed);
 
@@ -1267,14 +1292,25 @@ skip_run:
           [&analyzer](void) -> void { analyzer.identify_ABIs(); });
       analyzer.identify_Sjs();
 
-      (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
-      });
+      if (LaunchedLLVM && opts.Daemonize) {
+        invalidated.resize(jv.Binaries.size());
+
+        int rc = analyzer.analyze_blocks(invalidated);
+        if (rc)
+          return rc;
+
+        rc = analyzer.analyze_functions(invalidated);
+      } else {
+        rc = (analyzer.analyze_blocks() || analyzer.analyze_functions());
+      }
 #endif
 
       if (rc) {
         HumanOut() << "jove analyze failed!\n";
         return rc;
       }
+
+      jv.generation.fetch_add(1, boost::memory_order_release);
 
       //
       // recompile
@@ -1353,12 +1389,27 @@ skip_run:
           Env("JOVEDIR=" + jove_dir());
         });
 #else
-      rc = recompiler.go();
+      if (opts.Daemonize) {
+        rc = recompiler.go(invalidated);
+        LaunchedLLVM = true;
+      } else {
+        rc = recompiler.go();
+      }
 #endif
 
       if (rc) {
         HumanOut() << "jove recompile failed!\n";
         return rc;
+      }
+
+      //
+      // undoubtedly, the next thing to do is run.
+      //
+      if (opts.Daemonize && !FirstTime) {
+        if (opts.ForceRecompile)
+          ;                            /* will not */
+        else
+          PossiblyReexec(invalidated); /* will */
       }
 #endif
     }
@@ -1368,4 +1419,31 @@ skip_run:
   return 1;
 }
 
+int LoopTool::PossiblyReexec(const invalidated_t &invalidated,
+                             bool ForceRecompile) {
+  static const char *extra[] = {"-f"};
+
+  if (opts.Daemonize) {
+    if (jv.Binaries.size() != SavedNumBinaries)
+      aassert(this->reexec(extra));
+
+    if (opts.DaemonizeThreshold > 0) {
+      const uint64_t invalidated_functions_count =
+          std::accumulate(invalidated.begin(),
+                          invalidated.end(), 0u,
+                          [&](uint64_t n, const auto &set) -> uint64_t { return n + set.size();
+                          });
+      if (IsVeryVerbose()) {
+        WithColor::note() << llvm::formatv(
+            "not reexec'ing: {0} function{1} were invalid.\n",
+            invalidated_functions_count,
+            invalidated_functions_count == 1 ? "" : "s");
+      }
+
+      if (invalidated_functions_count > opts.DaemonizeThreshold)
+        aassert(this->reexec(extra));
+    }
+  }
+  return 0;
+}
 }

@@ -21,6 +21,7 @@ typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
 typedef dso_graph_t::vertex_descriptor dso_t;
 
 struct recompiler_options_t : public VerboseThing {
+  bool Daemonize = false;
   bool ForCBE = false;
   std::string Output;
   bool ForeignLibs = true;
@@ -138,6 +139,13 @@ class recompiler_t {
     std::string soname;
     dso_t dso;
 
+    struct {
+      pid_t pid = 0;
+
+      int request_wfd = -1;
+      int completion_rfd = -1;
+    } Daemon;
+
     binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
   };
 
@@ -188,10 +196,10 @@ public:
     }
   }
 
-  int go(void);
+  int go(boost::optional<invalidated_t &> = boost::none);
 
 private:
-  void worker(unsigned);
+  void worker(invalidated_t *, unsigned BIdx);
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
   binary_index_t ChooseBinaryWithSoname(const std::string &soname);

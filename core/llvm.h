@@ -46,6 +46,7 @@ struct llvm_options_t : public VerboseThing {
   bool PrintPCRel = false;
   bool SoftfpuBitcode = false;
   bool LoadRelocSectionPointers = false;
+  bool Daemonize = false;
 
   std::string ForAddr;
   std::string VersionScript;
@@ -55,6 +56,11 @@ struct llvm_options_t : public VerboseThing {
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 
   std::string temp_dir;
+
+  struct {
+    int request_rfd = -1;
+    int completion_wfd = -1;
+  } Daemon;
 };
 
 struct TranslateContext;
@@ -247,6 +253,11 @@ class llvm_t {
     llvm::Function *F = nullptr;
     llvm::Function *adapterF = nullptr;
 
+    struct {
+      llvm::Function *F = nullptr;
+      llvm::Function *adapterF = nullptr;
+    } old;
+
     function_state_t(const auto &f, const auto &b) {
       if (!is_basic_block_index_valid(f.Entry))
         return;
@@ -259,7 +270,7 @@ class llvm_t {
   jv_state_t<binary_state_t, function_state_t, basic_block_state_t,
              AreWeMT, /* MultiThreaded */
              true,  /* LazyInitialization */
-             true,  /* Eager */
+             false,  /* Eager */
              true, /* BoundsChecking */
              true, /* SubjectToChange */
              MT, MinSize> state;
@@ -434,8 +445,8 @@ class llvm_t {
 
   unordered_map<std::string, unordered_set<unsigned>> ordinal_imports;
 
-  llvm::Constant *__jove_fail_UnknownBranchTarget;
-  llvm::Constant *__jove_fail_UnknownCallee;
+  llvm::Constant *__jove_fail_UnknownBranchTarget = nullptr;
+  llvm::Constant *__jove_fail_UnknownCallee = nullptr;
 
   bool pcrel_flag = false; /* FIXME? !MT-safe */
   uint64_t lstaddr = 0;    /* FIXME? !MT-safe */
@@ -452,7 +463,6 @@ public:
   int go(void);
 
 private:
-  int TranslateFunction(const function_t &);
   int TranslateBasicBlock(TranslateContext &);
   int TranslateTCGOps(llvm::BasicBlock *ExitBB,
                       IRBuilderTy &,
@@ -492,6 +502,14 @@ private:
   int LinkInSoftFPU(void);
   int ForceCallConv(void);
   int WriteModule(void);
+
+  std::pair<llvm::Function *, llvm::Function *>
+  CreateFunction(const function_t &f);
+
+  std::pair<llvm::Function *, llvm::Function *>
+  TranslateFunction(const function_t &);
+
+  int Daemonize(std::vector<function_index_t> &invalidated);
 
   void DumpModule(const char *);
 
@@ -701,7 +719,8 @@ private:
 
   void fillInFunctionBody(llvm::Function *F,
                           std::function<void(IRBuilderTy &)> funcBuilder,
-                          bool internalize = true);
+                          bool internalize = true,
+                          bool replace = false);
 
   llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
     if (info.isPointer)
@@ -812,6 +831,10 @@ private:
         llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
                                         llvm::ArrayRef<llvm::Type *>(Tys, 1));
     return bswap;
+  }
+
+  void old(llvm::Value *V) {
+    V->setName(V->getName() + "_old");
   }
 };
 

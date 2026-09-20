@@ -1098,6 +1098,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT, MinSize> &b,
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
   bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
+  bbprop.Analysis.Invalidate();
 
   if constexpr (MT) {
     bool success;
@@ -1123,7 +1124,7 @@ allocates_function_t::allocates_function_t(binary_base_t<MT, MinSize> &b,
     auto &x = Functions.container();
 
     FIdx = x.size();
-    x.emplace_back(b, FIdx);
+    x.emplace_back(b, FIdx).Analysis.Invalidate();
   }
 
   store = FIdx;
@@ -1259,6 +1260,8 @@ struct jv_base_t {
 
   ip_name_to_binaries_map_type<MT, MinSize> name_to_binaries;
 
+  ip_atomic<uint64_t> generation = 0;
+
   template <typename Proc>
   void ForEachNameToBinaryEntry(Proc proc) const {
     if constexpr (MT)
@@ -1285,7 +1288,7 @@ struct jv_base_t {
       return name_to_binaries.try_emplace(std::forward<Args>(args)...).second;
   }
 
-  void InvalidateFunctionAnalyses(void);
+  void InvalidateAllFunctionAnalyses(void);
 
   void clear(bool everything = false);
 

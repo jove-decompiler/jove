@@ -128,7 +128,7 @@ JOVE_REGISTER_TOOL("server", ServerTool);
 static std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen);
 
 int ServerTool::Run(void) {
-  AutomaticallyReap();
+  aassert(SetAutomaticReaping(true));
 
   //
   // Create TCP socket

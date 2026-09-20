@@ -8,13 +8,14 @@ namespace jove {
 
 namespace cl = llvm::cl;
 
-struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
+struct LLVMTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<std::string> BinaryIndex;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
+    cl::list<std::string> Daemonize;
     cl::opt<std::string> VersionScript;
     cl::opt<std::string> LinkerScript;
     cl::opt<bool> Trace;
@@ -60,6 +61,11 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
                       cl::cat(JoveCategory)),
+
+          Daemonize("daemonize", cl::CommaSeparated,
+                    cl::value_desc("fd,fd"),
+                    cl::desc("request_fd,completion_fd"),
+                    cl::cat(JoveCategory)),
 
           VersionScript("version-script",
                         cl::desc("Output version script file for use with ld"),
@@ -195,7 +201,7 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
 
 
   analyzer_options_t analyzer_options;
-  llvm_options_t llvm_options;
+  llvm_options_t options;
 
   tiny_code_generator_t TCG;
   SafeLLVMContext SafeContext;
@@ -219,17 +225,17 @@ int LLVMTool::Run(void) {
       die("unknown global to pin: " + PinnedGlobalName);
 
     analyzer_options.PinnedEnvGlbs.set(idx);
-    llvm_options.PinnedEnvGlbs.set(idx);
+    options.PinnedEnvGlbs.set(idx);
   }
 
   ConfigureVerbosity(analyzer_options);
-  ConfigureVerbosity(llvm_options);
+  ConfigureVerbosity(options);
 
-  llvm_options.temp_dir = temporary_dir();
+  options.temp_dir = temporary_dir();
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \
-    llvm_options.name = this->opts.name;                                       \
+    options.name = this->opts.name;                                       \
   } while (false)
 
   PROPOGATE_OPTION(Output);
@@ -262,10 +268,19 @@ int LLVMTool::Run(void) {
   PROPOGATE_OPTION(SoftfpuBitcode);
   PROPOGATE_OPTION(LoadRelocSectionPointers);
 
-  analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
+  if (!opts.Daemonize.empty()) {
+    aassert(opts.Daemonize.size() == 2);
+
+    options.Daemon.request_rfd    = atoi(opts.Daemonize[0].c_str());
+    options.Daemon.completion_wfd = atoi(opts.Daemonize[1].c_str());
+
+    options.Daemonize = true;
+  }
+
+  analyzer_options.ForCBE = options.ForCBE; // XXX
 
   llvm_t llvm(jv,
-              llvm_options,
+              options,
               analyzer_options,
               TCG,
               helpers,

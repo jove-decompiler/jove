@@ -7,13 +7,19 @@
 
 namespace jove {
 
-void AutomaticallyReap(void) {
-  struct sigaction sa;
-  sa.sa_handler = SIG_IGN;
-  sa.sa_flags = SA_NOCLDWAIT;
+bool SetAutomaticReaping(bool On) {
+  struct sigaction sa = {0};
+
+  if (On) {
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = SA_NOCLDWAIT;
+  } else {
+    sa.sa_handler = SIG_DFL;
+  }
+
   sigemptyset(&sa.sa_mask);
 
-  aassert(::sigaction(SIGCHLD, &sa, nullptr) == 0);
+  return ::sigaction(SIGCHLD, &sa, nullptr) == 0;
 }
 
 

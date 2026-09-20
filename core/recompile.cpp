@@ -5,6 +5,8 @@
 #include "llvm.h"
 #include "path.h"
 #include "mt.h"
+#include "eintr.h"
+#include "autoreap.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -31,6 +33,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/uio.h>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
@@ -184,7 +187,12 @@ struct graphviz_prop_writer {
 };
 
 template <bool MT, bool MinSize>
-int recompiler_t<MT, MinSize>::go(void) {
+int recompiler_t<MT, MinSize>::go(
+    boost::optional<invalidated_t &> invalidated) {
+  aassert(SetAutomaticReaping(true));
+
+  invalidated_t *const pInvalidated = invalidated ? &(*invalidated) : nullptr;
+
   //
   // sanity checks for output path
   //
@@ -241,9 +249,13 @@ int recompiler_t<MT, MinSize>::go(void) {
       return;
 
     binary_state_t &x = state.for_binary(b);
+
     if (x.ExaminedOnce)
       return; /* already processed (could have been earlier run) */
-    x.ExaminedOnce = true;
+
+    BOOST_SCOPE_DEFER [&] {
+      x.ExaminedOnce = true;
+    };
 
     x.Bin = B::Create(b.data());
     std::tie(x.Base, x.End) = B::bounds_of_binary(x.Bin.get());
@@ -661,7 +673,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
   if (options.IsVerbose())
     WithColor::note() << llvm::formatv(
-        "Recompiling {0} {1}...",
+        "Recompiling {0} {1}...\n",
         Q.size(),
         options.ForeignLibs ? "binary" : "binaries");
 
@@ -674,9 +686,9 @@ int recompiler_t<MT, MinSize>::go(void) {
     WithColor::error() << "no binaries?\n";
     return 1;
   } if (Q.size() == 1) {
-    worker(0);
+    worker(pInvalidated, 0);
   } else {
-    mt::for_n(std::bind(&recompiler_t::worker, this, std::placeholders::_1), Q.size());
+    mt::for_n(std::bind(&recompiler_t::worker, this, pInvalidated, std::placeholders::_1), Q.size());
   }
 
   auto t2 = std::chrono::high_resolution_clock::now();
@@ -1154,10 +1166,11 @@ int recompiler_t<MT, MinSize>::go(void) {
 }
 
 template <bool MT, bool MinSize>
-void recompiler_t<MT, MinSize>::worker(unsigned j) {
+void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
+                                       unsigned j) {
   dso_t dso = Q.at(j);
 
-  int rc;
+  int rc = 1;
 
   binary_index_t BIdx = dso_graph[dso].BIdx;
 
@@ -1170,7 +1183,7 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
 
   assert(b.is_file());
 
-  const binary_state_t &x = state.for_binary(b);
+  binary_state_t &x = state.for_binary(b);
 
   const auto &chrooted_path = x.chrooted_path;
 
@@ -1194,15 +1207,57 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
   std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
 
-#if 0
-  if (MT == AreWeMT && MinSize == AreWeMinSize) {
-  rc = RunExecutableToExit(
+  if (options.IsVerbose())
+    llvm::errs() << llvm::formatv("jove llvm -o {0} --binary-index {1}\n", bcfp,
+                                  std::to_string(BIdx));
+
+  if (options.Daemonize) {
+    auto &request_wfd = x.Daemon.request_wfd;
+    auto &completion_rfd = x.Daemon.completion_rfd;
+
+    boost::container::vector<function_index_t> ToWrite;
+
+    //
+    // have we launched llvm_t yet?
+    //
+    if (x.Daemon.pid) {
+      // FIXME confirm it's still alive (pidfd?)
+      assert(pInvalidated);
+      invalidated_t &invalidated = *pInvalidated;
+
+      const auto &bin_invalidated = invalidated.at(BIdx);
+
+      ToWrite.reserve(bin_invalidated.size());
+      bin_invalidated.cvisit_all([&](const function_index_t &FIdx) {
+        if (options.IsVeryVerbose())
+          llvm::errs() << llvm::formatv(
+              "invalidated {0:x}\n",
+              entry_address_of_function(b.Analysis.Functions.at(FIdx), b));
+
+        ToWrite.push_back(FIdx);
+      });
+    } else {
+      std::array<int, 2> request_pipefd;
+      std::array<int, 2> completion_pipefd;
+
+      aassert(::pipe(&request_pipefd[0]) == 0);
+      aassert(::pipe(&completion_pipefd[0]) == 0);
+
+      x.Daemon.pid = RunExecutable(
       "/proc/self/exe", /* FIXME */
       [&](auto Arg) {
         Arg("llvm");
 
+        if (options.IsVeryVerbose())
+          Arg("-vv");
+        else if (options.IsVerbose())
+          Arg("-v");
+
         Arg("-o");
         Arg(bcfp);
+
+        Arg("--daemonize=" + std::to_string(request_pipefd[0]) + "," +
+                             std::to_string(completion_pipefd[1]));
 
         if (IsCOFF) {
           if (b.IsExecutable) {
@@ -1275,35 +1330,77 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
 
         Env("JVPATH=" + Tool::get_path_to_jv());
       },
-      path_to_stdout, path_to_stderr,
+      std::string(), std::string(),
+//    path_to_stdout, path_to_stderr,
       [&](const char **argv, const char **envp) {
-        if (options.IsVerbose()) {
-          print_command(argv);
-        }
+        ::close(request_pipefd[1]);    /* unused */
+        ::close(completion_pipefd[0]); /* unused */
       });
-  } else {
-#else
-  {
-#endif
-    llvm_options_t our_llvm_options(llvm_options);
 
-    if (B::is_coff(state.for_binary(b).Bin.get())) {
-      if (b.IsExecutable)
-        our_llvm_options.LinkerScript = ldfp;
-    } else {
-      our_llvm_options.VersionScript = mapfp;
+      ::close(request_pipefd[0]);    /* unused */
+      ::close(completion_pipefd[1]); /* unused */
+
+      request_wfd = request_pipefd[1];
+      completion_rfd = completion_pipefd[0];
+
+      aassert(fcntl(request_wfd, F_SETFD, fcntl(request_wfd, F_GETFD) | FD_CLOEXEC) != -1);
+      aassert(fcntl(completion_rfd, F_SETFD, fcntl(completion_rfd, F_GETFD) | FD_CLOEXEC) != -1);
     }
 
-    our_llvm_options.Output = bcfp;
-    our_llvm_options.BinaryIndex = std::to_string(BIdx);
+    //
+    // request a module
+    //
+    {
+      const uint32_t N = ToWrite.size();
 
+      boost::container::static_vector<struct iovec, 2> iov_vec;
 
-    llvm_t llvm(jv,
-                our_llvm_options,
+      iov_vec.emplace_back() = {const_cast<uint32_t *>(&N), sizeof(N)};
+      if (N)
+        iov_vec.emplace_back() = {ToWrite.data(), N * sizeof(function_index_t)};
+
+      aassert(sys::retry_eintr(::writev, request_wfd,
+                               &iov_vec[0], iov_vec.size()) ==
+              sizeof(N) + N * sizeof(function_index_t));
+    }
+
+    //
+    // wait for the daemon to complete its work
+    //
+    char done = 'n';
+    int ret = -1;
+    do {
+      ret = robust::read(completion_rfd, &done, sizeof(done));
+    } while (ret == -EINTR);
+
+    if (ret < 0) {
+      if (options.IsVerbose())
+        WithColor::error() << llvm::formatv("failed to get completion ({0})\n",
+                                            strerror(-ret));
+    } else if (ret == sizeof(done) && done == 'y') {
+      rc = 0;
+    }
+  } else {
+    auto bin_llvm_options =
+        std::make_unique<llvm_options_t>(this->llvm_options);
+
+    if (B::is_coff(x.Bin.get())) {
+      if (b.IsExecutable)
+        bin_llvm_options->LinkerScript = ldfp;
+    } else {
+      bin_llvm_options->VersionScript = mapfp;
+    }
+
+    bin_llvm_options->Output = bcfp;
+    bin_llvm_options->BinaryIndex = std::to_string(BIdx);
+
+    llvm_t<MT, MinSize> llvm(jv,
+                *bin_llvm_options,
                 analyzer_options,
                 tcg,
                 helpers,
                 disas, locator());
+
     rc = llvm.go();
   }
 
@@ -1435,6 +1532,8 @@ void recompiler_t<MT, MinSize>::worker(unsigned j) {
           std::string(),
           std::string(),
           [&](const char **argv, const char **envp) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+
             if (options.IsVerbose())
               print_command(argv);
           });

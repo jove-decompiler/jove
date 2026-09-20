@@ -1,3 +1,4 @@
+#define NO_JOVE_ASSERT
 #include "llvm.h"
 
 #ifndef JOVE_NO_BACKEND
@@ -12,6 +13,9 @@
 #include "sret.h"
 #include "byval.h"
 #include "safe.h"
+#include "robust.h"
+#include "process.h"
+#include "fork.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
@@ -69,6 +73,9 @@
 #include <cctype>
 #include <random>
 #include <set>
+
+#include <sys/prctl.h>
+#include <signal.h>
 
 #include "jove_constants.h"
 #include "jove/assert.h"
@@ -1284,13 +1291,26 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
 // function's body
 //
 template <bool MT, bool MinSize>
-void llvm_t<MT, MinSize>::fillInFunctionBody(llvm::Function *F,
-                                std::function<void(IRBuilderTy &)> funcBuilder,
-                                bool internalize) {
-  assert(F && "function is NULL!");
-  assert(F->empty() && "function is already defined!");
+void llvm_t<MT, MinSize>::fillInFunctionBody(
+    llvm::Function *F,
+    std::function<void(IRBuilderTy &)> funcBuilder,
+    bool internalize,
+    bool replace) {
+  assert(F);
 
-  llvm::DISubprogram *DbgSubprogram = nullptr;
+  llvm::DISubprogram *DbgSubprogram = F->getSubprogram();
+  if (!F->empty()) {
+    if (replace) {
+      F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+      F->deleteBody();
+    } else {
+      if (options.IsVeryVerbose())
+        WithColor::warning() << llvm::formatv(
+            "fillInFunctionBody: did nothing for {0}\n", F->getName());
+      return;
+    }
+  }
+
   if (!options.Debugify) {
   //
   // if we don't create debug information, llvm::verifyModule() will fail
@@ -1324,9 +1344,14 @@ void llvm_t<MT, MinSize>::fillInFunctionBody(llvm::Function *F,
   {
     IRBuilderTy IRB(BB);
 
-    if (!options.Debugify)
-    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-        Context, 0 /* Line */, 0 /* Column */, DbgSubprogram));
+    if (!options.Debugify) {
+      assert(DbgSubprogram);
+      assert(DbgSubprogram->isDefinition());
+      assert(DbgSubprogram->isDistinct());
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          Context, __LINE__ /* Line */, 0 /* Column */, DbgSubprogram));
+    }
 
     funcBuilder(IRB);
 
@@ -2060,10 +2085,6 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   return 0;
 }
 
-static llvm::FunctionType *DetermineFunctionType(function_t &);
-static llvm::FunctionType *DetermineFunctionType(binary_index_t, function_index_t);
-static llvm::FunctionType *DetermineFunctionType(dynamic_target_t);
-
 template <bool MT, bool MinSize>
 llvm::GlobalIFunc *
 llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
@@ -2549,29 +2570,50 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
+    const auto newPair = CreateFunction(f);
+    assert(newPair.first);
+
+    function_state_t &y = state.for_function(f);
+    std::tie(y.F, y.adapterF) = newPair;
+  });
+
+  return 0;
+}
+
+template <bool MT, bool MinSize>
+std::pair<llvm::Function *, llvm::Function *>
+llvm_t<MT, MinSize>::CreateFunction(const function_t &f) {
+  auto &Binary = jv.Binaries.at(BinaryIndex);
+  const auto &ICFG = Binary.Analysis.ICFG;
+
+    if (unlikely(!is_basic_block_index_valid(f.Entry)))
+      return std::make_pair(nullptr, nullptr);
+
+    assert(!state.for_function(f).F);
+
     const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
-    function_state_t &x = state.for_function(f);
+    llvm::Function *const F =
+        llvm::Function::Create(DetermineFunctionType(f),
+                               f.IsABI ? llvm::GlobalValue::ExternalLinkage
+                                       : llvm::GlobalValue::InternalLinkage,
+                               jove_name, Module.get());
 
-    x.F = llvm::Function::Create(DetermineFunctionType(f),
-                                 f.IsABI ? llvm::GlobalValue::ExternalLinkage
-                                         : llvm::GlobalValue::InternalLinkage,
-                                 jove_name, Module.get());
-    //x.F->addFnAttr(llvm::Attribute::NoInline);
+    //F->addFnAttr(llvm::Attribute::NoInline);
 
     if (f.IsABI) {
-      x.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+      F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
 #if defined(TARGET_I386)
       //
       // XXX i386 quirk
       //
-      for (unsigned i = 0; i < x.F->arg_size(); ++i) {
+      for (unsigned i = 0; i < F->arg_size(); ++i) {
         assert(i < 3);
 
-        x.F->addParamAttr(i, llvm::Attribute::InReg);
+        F->addParamAttr(i, llvm::Attribute::InReg);
       }
 #endif
 
@@ -2580,7 +2622,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
         //
         // XXX x86_64 windows: force calling convention
         //
-        x.F->setCallingConv(llvm::CallingConv::X86_64_SysV);
+        F->setCallingConv(llvm::CallingConv::X86_64_SysV);
       }
 #endif
     }
@@ -2593,40 +2635,34 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
       ExplodeFunctionArgs(f, glbv);
 
       unsigned i = 0;
-      for (llvm::Argument &A : x.F->args()) {
+      for (llvm::Argument &A : F->args()) {
         std::string name = options.ForCBE ? "_" : "";
         name.append(get_tcg_context()->temps[glbv.at(i)].name);
         A.setName(name);
         ++i;
       }
     }
-  });
 
-  for_each_function_in_binary(Binary, [&](const function_t &f) {
-    if (unlikely(!is_basic_block_index_valid(f.Entry)))
-      return;
-
-    const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-
+    llvm::Function *adapterF = nullptr;
     if (!f.IsABI) {
-      function_state_t &x = state.for_function(f);
-
       //
       // create "ABI adapter"
       //
-      x.adapterF = llvm::Function::Create(
-          FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
-          llvm::GlobalValue::ExternalLinkage,
-          (fmt("Jj%lx") % Addr).str(), Module.get());
+      assert(!state.for_function(f).adapterF);
+      adapterF =
+          llvm::Function::Create(
+              FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
+              llvm::GlobalValue::ExternalLinkage,
+              (fmt("Jj%lx") % Addr).str(), Module.get());
 
 #if defined(TARGET_I386)
       //
       // XXX i386 quirk
       //
-      for (unsigned i = 0; i < x.adapterF->arg_size(); ++i) {
+      for (unsigned i = 0; i < adapterF->arg_size(); ++i) {
         assert(i < 3);
 
-        x.adapterF->addParamAttr(i, llvm::Attribute::InReg);
+        adapterF->addParamAttr(i, llvm::Attribute::InReg);
       }
 #endif
 
@@ -2635,7 +2671,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
         //
         // XXX x86_64 windows: force calling convention
         //
-        x.adapterF->setCallingConv(llvm::CallingConv::X86_64_SysV);
+        adapterF->setCallingConv(llvm::CallingConv::X86_64_SysV);
       }
 #endif
 
@@ -2643,16 +2679,15 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
       // assign names to the arguments, the registers they represent
       //
       unsigned i = 0;
-      for (llvm::Argument &A : x.adapterF->args()) {
+      for (llvm::Argument &A : adapterF->args()) {
         std::string name = options.ForCBE ? "_" : "";
         name.append(get_tcg_context()->temps[CallConvArgArray.at(i)].name);
         A.setName(name);
         ++i;
       }
     }
-  });
 
-  return 0;
+  return std::make_pair(F, adapterF);
 }
 
 template <bool MT, bool MinSize>
@@ -2668,13 +2703,17 @@ int llvm_t<MT, MinSize>::CreateFunctionTables(void) {
     if (options.ForeignLibs && !binary.IsExecutable)
       continue;
 
-    state.for_binary(binary).SectsF = llvm::Function::Create(
+    llvm::Function *const SectsF = llvm::Function::Create(
         llvm::FunctionType::get(WordType(), false),
         llvm::GlobalValue::ExternalLinkage,
         (fmt("__jove_b%u_sects") % BIdx).str(), Module.get());
 
+    state.for_binary(binary).SectsF = SectsF;
+
     if (BIdx == BinaryIndex)
       continue;
+
+    /* FIXME daemon? */
 
     state.for_binary(binary).FunctionsTable = new llvm::GlobalVariable(
         *Module,
@@ -2702,9 +2741,9 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
   auto &ICFG = Binary.Analysis.ICFG;
 
   if (llvm::Function *F = state.for_binary(Binary).SectsF) {
-    fillInFunctionBody(F, [&](auto &IRB) {
-      IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
-    }, false /* internalize */);
+    fillInFunctionBody(state.for_binary(Binary).SectsF, [&](auto &IRB) {
+       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
+    }, false /* don't internalize */);
 
     F->setVisibility(llvm::GlobalValue::DefaultVisibility);
   }
@@ -2765,12 +2804,13 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
             ConstantTableInternalGV->getValueType(),
             ConstantTableInternalGV, 0, 0));
       },
-      !options.ForCBE);
+      !options.ForCBE,
+      true);
 
   fillInFunctionBody(
       Module->getFunction("_jove_function_count"), [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(Binary.Analysis.Functions.size()));
-      }, !options.ForCBE);
+      }, !options.ForCBE, true);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_functions_count"), [&](auto &IRB) {
@@ -2801,7 +2841,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
                             });
         IRB.CreateRet(IRB.getInt32(N));
 #endif
-      }, !options.ForCBE);
+      }, !options.ForCBE, true);
 
   return 0;
 }
@@ -5645,7 +5685,7 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
             }
           }
         }
-      }, !options.ForCBE);
+      }, !options.ForCBE, true);
 
   fillInFunctionBody(
       Module->getFunction("_jove_laid_out_sections"),
@@ -5821,21 +5861,25 @@ llvm::Value *llvm_t<MT, MinSize>::BuildCPUStatePointer(IRBuilderTy &IRB,
 }
 
 template <bool MT, bool MinSize>
-int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
+std::pair<llvm::Function *, llvm::Function *>
+llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   TranslateContext TC(f);
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
   auto &ICFG = Binary.Analysis.ICFG;
-  llvm::Function *F = state.for_function(f).F;
 
-  if (unlikely(state.for_function(f).bbvec.empty()))
-    return 0;
+  function_state_t &y = state.for_function(f);
 
-  bb_t entry_bb = state.for_function(f).bbvec.front();
+  llvm::Function *const F = y.F;
+  assert(F);
+
+  assert(!y.bbvec.empty());
+
+  bb_t entry_bb = y.bbvec.front();
 
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(Context, "", F);
-  for (bb_t bb : state.for_function(f).bbvec)
+  for (bb_t bb : y.bbvec)
     state.for_basic_block(Binary, bb).B = llvm::BasicBlock::Create(
         Context, (fmt("l%lx") % ICFG[bb].Addr).str(), F);
 
@@ -5964,16 +6008,16 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
                      {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)});
     }
 
-    IRB.CreateBr(state.for_basic_block(Binary, entry_bb).B);
+    llvm::BasicBlock *B = state.for_basic_block(Binary, entry_bb).B;
+    assert(B);
+    IRB.CreateBr(B);
   }
 
-  for (bb_t bb : state.for_function(f).bbvec) {
+  for (bb_t bb : y.bbvec) {
     TC.BBIdx = index_of_basic_block(ICFG, bb);
 
-    int ret = TranslateBasicBlock(TC);
-
-    if (unlikely(ret))
-      return ret;
+    if (unlikely(TranslateBasicBlock(TC)))
+      die("failed to translate basic block!");
   }
 
   CachedEnv = nullptr;
@@ -5984,21 +6028,22 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   DIBuilder->finalizeSubprogram(TC.DebugInformation.Subprogram);
   }
 
+  llvm::Function *adapterF = nullptr;
   if (!f.IsABI) {
     //
     // build "ABI adapter"
     //
-    F = state.for_function(f).adapterF;
+    adapterF = y.adapterF;
 
-    assert(F);
-    llvm::FunctionType *FTy = F->getFunctionType();
+    assert(adapterF);
+    llvm::FunctionType *FTy = adapterF->getFunctionType();
 
     llvm::DISubprogram *Subprogram = nullptr;
     if (!options.Debugify) {
     Subprogram = DIBuilder->createFunction(
         /* Scope       */ DebugInformation.CompileUnit,
-        /* Name        */ F->getName(),
-        /* LinkageName */ F->getName(),
+        /* Name        */ adapterF->getName(),
+        /* LinkageName */ adapterF->getName(),
         /* File        */ DebugInformation.File,
         /* LineNo      */ 0,
         /* Ty          */ SubProgType,
@@ -6006,11 +6051,11 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
         /* Flags       */ llvm::DINode::FlagZero,
         /* SPFlags     */ SubProgFlags);
 
-    F->setSubprogram(Subprogram);
+    adapterF->setSubprogram(Subprogram);
     }
 
     {
-      IRBuilderTy IRB(llvm::BasicBlock::Create(Context, "", F));
+      IRBuilderTy IRB(llvm::BasicBlock::Create(Context, "", adapterF));
 
       if (!options.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
@@ -6037,7 +6082,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
                                CallConvArgArray.begin(),
                                std::find(CallConvArgArray.begin(),
                                          CallConvArgArray.end(), glb));
-                           return F->getArg(Idx);
+                           return adapterF->getArg(Idx);
                          } else {
                            llvm::LoadInst *LI = IRB.CreateLoad(
                                TypeOfTCGGlobal(glb),
@@ -6048,7 +6093,7 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
                        });
       }
 
-      llvm::CallInst *Ret = IRB.CreateCall(state.for_function(f).F, argsToPass);
+      llvm::CallInst *Ret = IRB.CreateCall(F, argsToPass);
       Ret->setIsNoInline();
 
       {
@@ -6133,10 +6178,10 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
     DIBuilder->finalizeSubprogram(Subprogram);
     }
 
-    F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    adapterF->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
 
-  return 0;
+  return std::make_pair(F, adapterF);
 }
 
 template <bool MT, bool MinSize>
@@ -6163,12 +6208,234 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   for (const function_t &f : Binary.Analysis.Functions) {
-    int ret = TranslateFunction(f);
+    llvm::Function *const F = TranslateFunction(f).first;
+    aassert(F);
+
+    FPM.run(*F);
+  }
+
+  if (options.Daemonize) {
+    //
+    // in daemon mode, we "patch" the data-structures to reflect the newest jv_t.
+    //
+    int ret = 1;
+
+    jv.generation.load(boost::memory_order_acquire);
+
+#if 0
+    InlineSjStubs(); /* do it here, before we modify Module */
+#endif
+
+    std::vector<function_index_t> invalidated;
+
+    ret = Daemonize(invalidated);
     if (unlikely(ret))
       return ret;
 
-    if (likely(state.for_function(f).F))
-      FPM.run(*state.for_function(f).F);
+    binary_state_t &x = state.for_binary(Binary);
+
+    //
+    // create / re-create those which were invalidated
+    //
+    for (function_index_t FIdx : invalidated) {
+      const function_t &f = Binary.Analysis.Functions.at(FIdx);
+
+      function_state_t &y = state.for_function(f);
+
+      {
+        llvm::Function *const oldF = y.F;
+        llvm::Function *const oldAdapterF = y.adapterF;
+
+        y.old.F = oldF;
+        y.old.adapterF = oldAdapterF;
+
+        if (oldF)
+          old(oldF);
+        if (oldAdapterF)
+          old(oldAdapterF);
+
+        if (options.IsVeryVerbose())
+          llvm::errs() << llvm::formatv("{0} {1:x}\n",
+                                        oldF ? "re-creating" : "creating",
+                                        entry_address_of_function(f, Binary));
+      }
+
+      y.bbvec.clear();
+      y.exit_bbvec.clear();
+
+      y.F = nullptr;
+      y.adapterF = nullptr;
+
+      const auto newPair = CreateFunction(f);
+      assert(newPair.first);
+      std::tie(y.F, y.adapterF) = newPair;
+    }
+
+    //
+    // create / re-create the rest (functions which were *not*
+    // invalidated, but merely encountered *after* llvm_t was launched.)
+    //
+    for (const function_t &f : Binary.Analysis.Functions) {
+      function_state_t &y = state.for_function(f);
+
+      if (y.F)
+        continue;
+
+#if 0
+      if (!y.F) {
+        llvm::errs() << llvm::formatv("derp! {0:x}\n",
+                                      entry_address_of_function(f, Binary));
+        return 1;
+      }
+#endif
+
+      //
+      // these are functions which were *not* invalidated, but merely
+      // encountered *after* llvm_t was launched (we assume they have already
+      // been analyzed).
+      //
+      const auto newPair = CreateFunction(f);
+      assert(newPair.first);
+      std::tie(y.F, y.adapterF) = newPair;
+    }
+
+#if 0
+    if (!options.ForeignLibs) {
+      //
+      // re-recreate other function tables
+      //
+      llvm::GlobalVariable *const oldBinaryFunctionsTable = x.FunctionsTable;
+      old(oldBinaryFunctionsTable);
+
+      llvm::GlobalVariable *newBinaryFunctionsTable  = new llvm::GlobalVariable(
+          *Module,
+          llvm::ArrayType::get(WordType(),
+                               3 * Binary.Analysis.Functions.size() + 1),
+          false, llvm::GlobalValue::ExternalLinkage, nullptr,
+          (fmt("__jove_b%u") % BIdx).str());
+      oldBinaryFunctionsTable->replaceAllUsesWith(newBinaryFunctionsTable);
+
+      assert(oldBinaryFunctionsTable->use_empty());
+      oldBinaryFunctionsTable->eraseFromParent();
+
+      x.FunctionsTable = newBinaryFunctionsTable;
+    }
+#endif
+
+    //
+    // re-recreate function tables
+    //
+    {
+      llvm::GlobalVariable *const FTable =
+          Module->getGlobalVariable((fmt("__jove_b%u") % BinaryIndex).str());
+      assert(FTable);
+      old(FTable);
+    }
+    {
+      llvm::GlobalVariable *const InternalFTable = Module->getGlobalVariable(
+          (fmt("__jove_internal_b%u") % BinaryIndex).str(), true);
+      assert(InternalFTable);
+      old(InternalFTable);
+    }
+
+    aassert(!CreateFunctionTable());
+    aassert(!FixupHelperStubs());
+
+    //
+    // translate / re-translate those which were invalidated
+    //
+    for (function_index_t FIdx : invalidated) {
+      const function_t &f = Binary.Analysis.Functions.at(FIdx);
+
+      function_state_t &y = state.for_function(f);
+
+      llvm::Function *const oldF = y.old.F;
+      llvm::Function *const oldAdapterF = y.old.adapterF;
+
+      if (options.IsVeryVerbose())
+        llvm::errs() << llvm::formatv("{0} {1:x}\n",
+                                      oldF ? "re-translating" : "translating",
+                                      entry_address_of_function(f, Binary));
+
+      // FIXME should do this some other way?
+      basic_blocks_of_function(f, Binary, y.bbvec);
+      exit_basic_blocks_of_function(f, Binary, y.bbvec, y.exit_bbvec);
+
+      auto newPair = TranslateFunction(f);
+      llvm::Function *const newF = newPair.first;
+      aassert(newF);
+      llvm::Function *const newAdapterF = newPair.second;
+
+      assert(newF);
+      FPM.run(*newF);
+
+      if (oldAdapterF) {
+        oldAdapterF->deleteBody();
+      }
+
+      if (oldF) {
+        oldF->replaceAllUsesWith(newF);
+        oldF->deleteBody();
+
+        assert(oldF->use_empty());
+        oldF->eraseFromParent();
+      }
+
+      if (oldAdapterF) {
+        assert(newAdapterF);
+        oldAdapterF->replaceAllUsesWith(newAdapterF);
+
+        assert(oldAdapterF->use_empty());
+        oldAdapterF->eraseFromParent();
+      }
+    }
+
+    //
+    // translate / re-translate the rest (functions which were *not*
+    // invalidated, but merely encountered *after* llvm_t was launched.)
+    //
+    for (const function_t &f : Binary.Analysis.Functions) {
+      function_state_t &y = state.for_function(f);
+
+      llvm::Function *const F = y.F;
+      if (F)
+        continue;
+
+      assert(!y.old.F);
+      assert(!y.old.adapterF);
+
+#if 0
+      if (!y.F) {
+        llvm::errs() << llvm::formatv("derp! {0:x}\n",
+                                      entry_address_of_function(f, Binary));
+        return 1;
+      }
+#endif
+
+      //
+      // these are functions which were not invalidated, but merely
+      // encountered after llvm_t was launched.
+      //
+      auto newPair = TranslateFunction(f);
+      llvm::Function *const newF = newPair.first;
+      aassert(newF);
+      llvm::Function *const newAdapterF = newPair.second;
+
+      assert(newF);
+      FPM.run(*newF);
+    }
+
+#ifndef NDEBUG
+    for (const function_t &f : Binary.Analysis.Functions) {
+      if (unlikely(!state.for_function(f).F)) {
+
+        llvm::errs() << llvm::formatv(
+            "{0:x} should have been in invalidated\n",
+            entry_address_of_function(f, Binary));
+        return 1;
+      }
+    }
+#endif
   }
 
   if (!options.Debugify) {
@@ -6203,6 +6470,8 @@ int llvm_t<MT, MinSize>::InlineSjStubs(void) {
         WithColor::warning() << llvm::formatv("Oh no! We couldn't inline {0}\n", *F);
     }
   }
+
+  MustInlineSjStubs.clear();
 
   return 0;
 }
@@ -7230,6 +7499,56 @@ int llvm_t<MT, MinSize>::WriteModule(void) {
   return 0;
 }
 
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::Daemonize(std::vector<function_index_t> &invalidated) {
+  const int request_rfd    = options.Daemon.request_rfd;
+  const int completion_wfd = options.Daemon.completion_wfd;
+
+  uint32_t N = 0;
+
+  for (;;) {
+    ssize_t ret = robust::read(request_rfd, &N, sizeof(N));
+    if (ret != sizeof(N))
+      return 1;
+
+    if (N) {
+      invalidated.resize(N);
+      aassert(robust::read(request_rfd, &invalidated[0], N*sizeof(function_index_t)) == N*sizeof(function_index_t));
+    }
+
+    pid_t child = jove::fork();
+    if (!child) {
+      ::close(request_rfd);
+      ::close(completion_wfd);
+      break;
+    }
+
+    const char done = WaitForProcessToExit(child) == 0 ? 'y' : 'n';
+    aassert(robust::write(completion_wfd, &done, sizeof(done)) == sizeof(done));
+  }
+
+  if (options.IsVeryVerbose()) {
+    std::stringstream stream;
+
+    auto &Binary = jv.Binaries.at(BinaryIndex);
+
+    stream << "translating / re-translating {";
+    for (auto it = invalidated.begin(); it != invalidated.end(); ++it) {
+      const function_index_t FIdx = *it;
+
+      stream << std::hex
+             << entry_address_of_function(Binary.Analysis.Functions.at(FIdx), Binary);
+      if (std::next(it) != invalidated.end())
+        stream << ", ";
+    }
+    stream << "}...\n";
+
+    llvm::errs() << stream.str();
+  }
+
+  return 0;
+}
+
 } // namespace jove
 
 namespace llvm {
@@ -7802,6 +8121,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     function_index_t FIdx = ICFG[bb].Term._call.Target;
 
     const function_t &callee = Binary.Analysis.Functions.at(FIdx);
+    function_state_t &y2 = state.for_function(callee);
 
     //
     // setjmp/longjmp
@@ -7911,15 +8231,15 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     push_onto_callstack();
 
     if (options.DFSan) {
-      if (state.for_function(callee).PreHook) {
-        assert(state.for_function(callee).hook);
-        assert(state.for_function(callee).PreHookClunk);
+      if (y2.PreHook) {
+        assert(y2.hook);
+        assert(y2.PreHookClunk);
 
         llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
                                       BinaryIndex,
                                       FIdx);
 
-        const hook_t &hook = *state.for_function(callee).hook;
+        const hook_t &hook = *y2.hook;
 
         std::vector<llvm::Value *> ArgVec;
 
@@ -7932,11 +8252,11 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
                          return llvm::Constant::getNullValue(Ty);
                        });
         IRB.CreateCall(
-            state.for_function(callee).PreHook->getFunctionType(),
+            y2.PreHook->getFunctionType(),
             IRB.CreateIntToPtr(
                 IRB.CreateLoad(WordType(),
-                               state.for_function(callee).PreHookClunk),
-                state.for_function(callee).PreHook->getType()),
+                               y2.PreHookClunk),
+                y2.PreHook->getType()),
             ArgVec);
       }
     }
@@ -7961,8 +8281,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     } _dfsan_hook;
 
     if (options.DFSan) {
-      if (state.for_function(callee).PreHook ||
-          state.for_function(callee).PostHook) {
+      if (y2.PreHook ||
+          y2.PostHook) {
         _dfsan_hook.SavedArgs.resize(CallConvArgArray.size());
         std::transform(
             CallConvArgArray.begin(),
@@ -7998,10 +8318,22 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       store_stack_pointer();
     }
 
-    llvm::CallInst *Ret = IRB.CreateCall(state.for_function(callee).F, ArgVec);
+    llvm::Function *const y2F = y2.F;
+    assert(y2F);
 
-    if (state.for_function(callee).PreHook ||
-        state.for_function(callee).PostHook) {
+    {
+      llvm::FunctionType *const FTy = y2F->getFunctionType();
+      if (ArgVec.size() != FTy->getNumParams()) {
+        WithColor::error() << llvm::formatv(
+            "calling function {0} ({1} args) mismatch: {2} but {3} args to pass\n",
+            y2F->getName(), FTy->getNumParams(), *FTy, ArgVec.size());
+        return 1;
+      }
+    }
+    llvm::CallInst *Ret = IRB.CreateCall(y2F, ArgVec);
+
+    if (y2.PreHook ||
+        y2.PostHook) {
       llvm::MDNode *Node =
           llvm::MDNode::get(Context, llvm::MDString::get(Context, "1"));
       Ret->setMetadata("jove.hook", Node);
@@ -8050,15 +8382,15 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       }
     }
 
-    if (state.for_function(callee).PostHook) {
-      assert(state.for_function(callee).hook);
-      assert(state.for_function(callee).PostHookClunk);
+    if (y2.PostHook) {
+      assert(y2.hook);
+      assert(y2.PostHookClunk);
 
       llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
                                     BinaryIndex,
                                     FIdx);
 
-      const hook_t &hook = *state.for_function(callee).hook;
+      const hook_t &hook = *y2.hook;
 
       //
       // prepare arguments for post hook
@@ -8162,9 +8494,9 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       // make the call
       //
       llvm::CallInst *PostHookRet = IRB.CreateCall(
-          state.for_function(callee).PostHook->getFunctionType(),
-          IRB.CreateIntToPtr(IRB.CreateLoad(WordType(), state.for_function(callee).PostHookClunk),
-                             state.for_function(callee).PostHook->getType()),
+          y2.PostHook->getFunctionType(),
+          IRB.CreateIntToPtr(IRB.CreateLoad(WordType(), y2.PostHookClunk),
+                             y2.PostHook->getType()),
           HookArgVec);
 
       //

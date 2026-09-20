@@ -13,6 +13,8 @@
 #include "align.h"
 #include "eintr.h"
 #include "robust.h"
+#include "autoreap.h"
+#include "loop.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -90,7 +92,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::alias GroupAlias;
     cl::opt<std::string> User;
     cl::alias UserAlias;
-    cl::opt<unsigned> ChildFd;
+    cl::opt<unsigned> LoopFd;
     cl::opt<std::string> WineStderr;
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
@@ -181,9 +183,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
                     cl::cat(JoveCategory)),
 
-          ChildFd("child-fd",
-                  cl::desc("File descriptor to which child PID will be written"),
-                  cl::cat(JoveCategory)),
+          LoopFd("loopfd", cl::cat(JoveCategory)),
 
           WineStderr("wine-stderr",
                      cl::desc("Redirect WINEDEBUG output with WINEDEBUGLOG"),
@@ -221,19 +221,12 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<CodeRecovery<IsToolMT, IsToolMinSize>> Recovery;
 
   struct {
-    std::unique_ptr<scoped_mmap> mapping;
-  } child_pid;
+    std::unique_ptr<loop::shared_mapping_t> mapping;
+  } loop;
 
-  int get_child_pid(void) {
-    scoped_mmap *const pmm = child_pid.mapping.get();
-    if (!pmm)
-      return -1;
-
-    scoped_mmap &mm = *pmm;
-    if (!mm)
-      return -1;
-
-    return __atomic_load_n(reinterpret_cast<int *>(mm.get()), __ATOMIC_RELAXED);
+  int get_child_pid(void) const {
+    assert(loop.mapping);
+    return loop.mapping->get_child_pid();
   }
 
 public:
@@ -269,6 +262,8 @@ static const std::array<int, 4> ToRedirect = {
 };
 
 int RunTool::Run(void) {
+  aassert(SetAutomaticReaping(false));
+
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 
@@ -299,11 +294,8 @@ int RunTool::Run(void) {
 
   BOOST_PP_SEQ_FOR_EACH_PRODUCT(RUN_CASE, (WILL_CHROOT_POSSIBILTIES)(LIVING_DANGEROUSLY_POSSIBILTIES))
 
-  assert(false);
-  return 1;
+  abort();
 }
-
-static void *recover_proc(const char *fifo_path);
 
 #if 0
 static std::atomic<bool> InterruptSleep = false;
@@ -485,12 +477,15 @@ int RunTool::DoRun(void) {
   //
   // communicating child PID to jove-loop (1)
   //
-  if (opts.ChildFd.getNumOccurrences() > 0) {
-    child_pid.mapping = std::make_unique<scoped_mmap>(
+  if (opts.LoopFd.getNumOccurrences() > 0) {
+    loop.mapping = std::make_unique<loop::shared_mapping_t>(
         nullptr, JOVE_PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
-        opts.ChildFd, 0);
+        opts.LoopFd, 0);
 
-    aassert(child_pid.mapping && *child_pid.mapping);
+    aassert(loop.mapping->mm);
+
+    loop.mapping->set_child_pid(0);
+    loop.mapping->set_recovered('\0');
   }
 
   //
@@ -632,9 +627,12 @@ int RunTool::DoRun(void) {
       WithColor::warning() << llvm::formatv("FifoChild vanished!\n");
     }
 
+    //
+    // reap if necessary (shouldn't be)
+    //
     {
       siginfo_t si;
-      if (waitid(P_PIDFD, pidfd.get(), &si, WEXITED) < 0) {
+      if (waitid(P_PIDFD, pidfd.get(), &si, WEXITED) < 0 && errno != ECHILD) {
         int err = errno;
         WithColor::error() << llvm::formatv("waitid failed: {0}\n",
                                             strerror(err));
@@ -1074,17 +1072,14 @@ int RunTool::DoRun(void) {
     return 1;
   }
 
-  //
-  // communicate child PID to jove-loop
-  //
-  if (scoped_mmap *const pmm = child_pid.mapping.get()) {
-    scoped_mmap &mm = *pmm;
+  if (loop.mapping) {
+    //
+    // communicate child PID to jove-loop
+    //
+    if (loop.mapping->get_child_pid() != 0)
+      WithColor::warning() << "loop child pid is not reset\n";
 
-    assert(get_child_pid() == -1);
-
-    if (mm)
-      __atomic_store_n(reinterpret_cast<int *>(mm.get()), pid,
-                       __ATOMIC_RELAXED);
+    loop.mapping->set_child_pid(pid);
   }
 
   IgnoreCtrlC();
@@ -1186,15 +1181,8 @@ int RunTool::DoRun(void) {
   //
   // reset child PID
   //
-  if (scoped_mmap *const pmm = child_pid.mapping.get()) {
-    scoped_mmap &mm = *pmm;
-
-    assert(get_child_pid() >= 0);
-
-    if (mm)
-      __atomic_store_n(reinterpret_cast<int *>(mm.get()), -1,
-                       __ATOMIC_RELAXED); /* reset */
-  }
+  if (loop.mapping)
+    loop.mapping->set_child_pid(0); /* reset */
 
   }
 
@@ -1243,9 +1231,10 @@ int RunTool::DoRun(void) {
     //
     // robust means of determining whether jove-recover has run
     //
+    jv.generation.fetch_add(1, boost::memory_order_release);
     char ch = shared_data.recovered_ch.load(boost::memory_order_relaxed);
-    if (ch)
-      return ch; /* return char jove-loop will recognize */
+    if (loop.mapping && ch)
+      loop.mapping->set_recovered(ch);
   }
 
   return ret_val;
@@ -1327,7 +1316,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
     }
 
     if (IsVeryVerbose())
-      HumanOut() << llvm::formatv("recover_proc: got '{0}'\n", ch);
+      HumanOut() << llvm::formatv("FifoChild: got '{0}'\n", ch);
 
     {
       static bool FirstTime = true;
@@ -1587,7 +1576,12 @@ int RunTool::FifoChild(const char *const fifo_path) {
       std::string message;
       block_signals([&] { message = do_recover(); });
 
-      HumanOut() << message << '\n';
+      if (!message.empty()) {
+        //
+        // an empty message here means: recover ran, but found nothing new.
+        //
+        HumanOut() << message << '\n';
+      }
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",

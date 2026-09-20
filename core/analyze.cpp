@@ -118,8 +118,9 @@ void analyzer_t<MT, MinSize>::examine_blocks(void) {
     function_state_t &x = state.for_function(f);
 
     const auto &bbvec = x.bbvec;
-    const auto &exit_bbvec = x.exit_bbvec;
+    assert(!bbvec.empty());
 
+    const auto &exit_bbvec = x.exit_bbvec;
     if (!exit_bbvec.empty())
       f.Returns = true;
 
@@ -188,21 +189,35 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
       });
 }
 
-
 template <bool MT, bool MinSize>
-int analyzer_t<MT, MinSize>::analyze_blocks(void) {
+int analyzer_t<MT, MinSize>::analyze_blocks(
+    boost::optional<invalidated_t &> invalidated) {
   std::atomic<unsigned> count = 0;
 
   for_each_basic_block(
       std::execution::seq, /* FIXME */
       jv, [&](binary_t &b, bb_t bb) {
           auto &ICFG = b.Analysis.ICFG;
+          auto &bbprop = ICFG[bb];
           if (AnalyzeBasicBlock(state.for_binary(b).Bin.get(),
-                                ICFG[bb],
+                                bbprop,
                                 tcg,
                                 helpers,
-                                options))
+                                options)) {
             count.fetch_add(1u, std::memory_order_relaxed);
+            if (invalidated) {
+              auto &bin_invalidated = (*invalidated).at(index_of_binary(b));
+
+              const auto &ParentsVec = bbprop.Parents.template get<MT>();
+
+              std::for_each(maybe_par_unseq,
+                            ParentsVec.cbegin(),
+                            ParentsVec.cend(),
+                            [&](function_index_t FIdx) {
+                              bin_invalidated.insert(FIdx);
+                            });
+            }
+          }
       });
 
   if (options.IsVerbose())
@@ -224,7 +239,8 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
 
 template <bool MT, bool MinSize>
 template <bool BottomUp>
-int analyzer_t<MT, MinSize>::analyze_functions(void) {
+int analyzer_t<MT, MinSize>::analyze_functions(
+    boost::optional<invalidated_t &> invalidated) {
   cg_t cg(jv);
   auto &CG = cg.G;
 
@@ -257,12 +273,17 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
   tbb::flow::function_node<call_node_t> analyze_node(
       flow_graph, tbb::flow::unlimited,
       [this, &counts, &analyze_node, &CGCondensed,
-       &components, &CG](call_node_t v) -> void {
+       &components, &CG, &invalidated](call_node_t v) -> void {
         auto &scc_verts =
             components.at(boost::get(boost::vertex_index, CGCondensed, v));
         tbb::parallel_for_each(
             scc_verts.begin(), scc_verts.end(), [&](call_node_t V) {
-              analyze_function(function_of_target(CG[V], jv));
+              const dynamic_target_t X(CG[V]);
+
+              if (invalidated)
+                analyze_function(function_of_target(X, jv), (*invalidated).at(X.first));
+              else
+                analyze_function(function_of_target(X, jv));
             });
 
 if constexpr (BottomUp) {
@@ -306,9 +327,13 @@ if constexpr (BottomUp) {
 }
 
 template <bool MT, bool MinSize>
-int analyzer_t<MT, MinSize>::analyze_function(function_t &f) {
+int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
+      boost::optional<boost::concurrent_flat_set<function_index_t> &> invalidated) {
   if (!f.Analysis.Stale.test(boost::memory_order_acquire))
     return 0;
+
+  if (invalidated)
+    (*invalidated).insert(index_of_function(f));
 
   dynamic_target_t X(target_of_function(f));
 
@@ -968,7 +993,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALU
   template int                                                                 \
   analyzer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                         \
              GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>::                       \
-      analyze_functions<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product))>(void);
+      analyze_functions<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product))>(boost::optional<invalidated_t &>);
 
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2)(VALUES_TO_INSTANTIATE_WITH3))
 

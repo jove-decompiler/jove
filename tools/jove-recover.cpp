@@ -251,7 +251,7 @@ int RecoverTool::Run(void) {
 
   HumanOut() << msg << '\n';
 
-  jv.InvalidateFunctionAnalyses(); /* FIXME */
+  jv.InvalidateAllFunctionAnalyses(); /* FIXME */
 
   return 0;
 }

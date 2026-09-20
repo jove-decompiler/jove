@@ -9,6 +9,6 @@ namespace jove {
 // PID's are recycled, following a fork(2).
 // 
 //
-void AutomaticallyReap(void);
+bool SetAutomaticReaping(bool);
 
 }

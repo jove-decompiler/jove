@@ -9,6 +9,9 @@ namespace jove {
 
 struct tiny_code_generator_t;
 
+using invalidated_t =
+    boost::container::vector<boost::concurrent_flat_set<function_index_t>>;
+
 struct analyzer_options_t : public VerboseThing {
   unsigned Precision = 0;
   unsigned Conservative = 1;
@@ -82,11 +85,12 @@ struct analyzer_t {
   void identify_ABIs(void);
   void identify_Sjs(void);
 
-  int analyze_blocks(void);
+  int analyze_blocks(boost::optional<invalidated_t &> invalidated = boost::none);
   template <bool BottomUp = false>
-  int analyze_functions(void);
+  int analyze_functions(boost::optional<invalidated_t &> invalidated = boost::none);
 
-  int analyze_function(function_t &);
+  int analyze_function(function_t &,
+      boost::optional<boost::concurrent_flat_set<function_index_t> &> = boost::none);
 
 private:
   flow_vertex_t copy_function_cfg(

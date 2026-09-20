@@ -4,6 +4,7 @@
 #include "pidfd.h"
 #include "robust.h"
 #include "util.h"
+#include "process.h"
 
 #include <cerrno>
 #include <cstdint>
