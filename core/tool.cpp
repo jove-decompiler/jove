@@ -47,6 +47,9 @@ void RegisterTool(const char *name, ToolCreationProc proc) {
 using llvm::WithColor;
 
 int main(int argc, char **argv) {
+  const int saved_argc = argc;
+  char **const saved_argv = argv;
+
 #if !defined(__mips64) && !defined(__mips__) /* ld.lld --wrap is broken on MIPS. FIXME */
   boost::stacktrace::this_thread::set_capture_stacktraces_at_throw(true);
   assert(boost::stacktrace::this_thread::get_capture_stacktraces_at_throw());
@@ -179,6 +182,8 @@ int main(int argc, char **argv) {
   if (jove::handle_exceptions([&] {
         std::unique_ptr<jove::Tool> tool((*MaybeToolCreationProc)());
         tool->_name = name;
+        tool->saved.argc = saved_argc;
+        tool->saved.argv = saved_argv;
 
         llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
         tool->UpdateVerbosity();
@@ -457,6 +462,30 @@ void Tool::cleanup_temp_dir(void) {
 
     fs::remove_all(_temp_dir);
   }
+}
+
+int Tool::reexec(std::span<const char *> extra_tool_args) {
+  std::vector<char *> argv;
+  argv.reserve(saved.argc);
+
+  char **p = saved.argv;
+  if (*p) { /* "jove" */
+    argv.push_back(*p++);
+    if (*p) { /* loop */
+      argv.push_back(*p++);
+
+      for (const char *extra : extra_tool_args)
+        argv.push_back(const_cast<char *>(extra));
+
+      for (; *p; ++p)
+        argv.push_back(*p);
+      argv.push_back(nullptr);
+
+      return ::execve("/proc/self/exe", &argv[0], ::environ);
+    }
+  }
+
+  return -1;
 }
 
 struct invalid_size_exception {};

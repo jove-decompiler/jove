@@ -30,7 +30,13 @@ class Tool : public VerboseThing {
 public:
   llvm::cl::OptionCategory JoveCategory;
 
-private:
+public: /* FIXME */
+  struct {
+    int argc = 0;
+    char **argv = nullptr;
+  } saved;
+
+public: /* FIXME */
   llvm::cl::opt<bool> opt_Verbose;
   llvm::cl::alias opt_VerboseAlias;
   llvm::cl::opt<bool> opt_VeryVerbose;
@@ -263,6 +269,9 @@ private:
   void on_exec_tool(before_exec_t before_exec, const char **argv, const char **envp);
   void persist_tool_options(std::function<void(const std::string &)> Arg);
   std::string path_to_jove(void);
+
+protected:
+  int reexec(std::span<const char *> extra_tool_args = {});
 };
 
 typedef Tool *(*ToolCreationProc)(void);
