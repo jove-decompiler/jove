@@ -159,12 +159,11 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
     ICFG.add_edge(bb, basic_block_of_index(TargetBBIdx, ICFG)).second;
   });
 
-  ICFG[bb].InvalidateAnalyses(jv, b);
+  if (isNewTarget)
+    ICFG[bb].InvalidateAnalyses(jv, b);
 
-  if (!isNewTarget)
-    return std::string();
-
-  return (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR)
+  return (fmt(__ANSI_GREEN "%s(goto) %s -> %s" __ANSI_NORMAL_COLOR)
+          % (isNewTarget ? "" : __ANSI_NORMAL_COLOR)
           % addr2str(b, TermAddr)
           % addr2str(b, Addr))
       .str();
@@ -183,6 +182,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
   if (!is_function_index_valid(CalleeFIdx))
     throw std::runtime_error((fmt("failed to translate indirect call target %#lx") % CalleeAddr).str());
 
+  /* FIXME is new? */
+
   if (!is_binary_index_valid(IndCallBIdx) ||
       !is_basic_block_index_valid(IndCallBBIdx))
     return (fmt(__ANSI_CYAN "(call*) -> %s" __ANSI_NORMAL_COLOR)
@@ -193,23 +194,30 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndCallBIdx, IndCallBBIdx);
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
+  bb_t bb;
 
-  bool Ambig = ({
+  bool Ambig = false;
+  const bool isNewTarget = ({
     auto s_lck = CallerBinary.BBMap.shared_access();
 
-    bb_t bb = basic_block_at_address(TermAddr, CallerBinary);
+    bb = basic_block_at_address(TermAddr, CallerBinary);
 
-    bool isNewTarget =
+    const bool res =
         ICFG[bb].insertDynTarget(IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv);
-    (void)isNewTarget; /* FIXME */
 
-    ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-    IsAmbiguousIndirectJump(ICFG, bb);
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
+      Ambig = IsAmbiguousIndirectJump(ICFG, bb);
+
+    res;
   });
 
-  if (Ambig)
-    CallerBinary.FixAmbiguousIndirectJump(
-        TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
+  if (isNewTarget) {
+    if (Ambig)
+      CallerBinary.FixAmbiguousIndirectJump(
+          TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
+
+    ICFG[bb].InvalidateAnalyses(jv, CallerBinary);
+  }
 
 #if 0
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
@@ -232,7 +240,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
   }
 #endif
 
-  return (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR)
+  return (fmt(__ANSI_CYAN "%s(call*) %s -> %s" __ANSI_NORMAL_COLOR)
+          % (isNewTarget ? "" : __ANSI_NORMAL_COLOR)
           % addr2str(CallerBinary, TermAddr)
           % addr2str(CalleeBinary, CalleeAddr))
       .str();
@@ -281,42 +290,50 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
     auto s_lck = b.BBMap.shared_access();
 
     bb_t bb = basic_block_at_address(TermAddr, b);
+    auto &bbprop = ICFG[bb];
 
-    ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
+    bbprop.Addr + bbprop.Size + (unsigned)IsMIPSTarget * 4;
   });
+
+  /* FIXME is new */
+  bool isNewTarget =
+      !is_function_index_valid(index_of_function_at_address(b, NextAddr));
 
   basic_block_index_t NextBBIdx =
       E.explore_basic_block(b, state.for_binary(b).Bin.get(), NextAddr);
   assert(is_basic_block_index_valid(NextBBIdx));
 
-  bb_t bb;
-
-  bool isNewTarget = ({
+  {
     auto s_lck = b.BBMap.shared_access();
 
-    bb = basic_block_at_address(TermAddr, b);
+    bb_t bb = basic_block_at_address(TermAddr, b);
+    auto &bbprop = ICFG[bb];
 
-    bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
-    bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
+    bool isCall = bbprop.Term.Type == TERMINATOR::CALL;
+    bool isIndirectCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
 
     assert(isCall || isIndirectCall);
     assert(TermAddr);
 
-    if (isCall && is_function_index_valid(ICFG[bb].Term._call.Target))
-      b.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns = true;
+    if (isCall && is_function_index_valid(bbprop.Term._call.Target))
+      b.Analysis.Functions.at(bbprop.Term._call.Target).Returns = true;
 
     unsigned deg = ICFG.out_degree(bb);
     if (deg > 0)
       return std::string();
 
-    ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG)).second;
-  });
+    isNewTarget =
+        ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG)).second ||
+        isNewTarget;
 
-  ICFG[bb].InvalidateAnalyses(jv, b);
+    if (isNewTarget)
+      bbprop.InvalidateAnalyses(jv, b);
+  };
 
   (void)isNewTarget; /* FIXME */
 
-  return (fmt(__ANSI_YELLOW "(returned) %s" __ANSI_NORMAL_COLOR)
+  return (fmt(__ANSI_YELLOW "%s(returned) %s" __ANSI_NORMAL_COLOR)
+          % (isNewTarget ? "" : __ANSI_NORMAL_COLOR)
           % addr2str(b, NextAddr))
       .str();
 }
