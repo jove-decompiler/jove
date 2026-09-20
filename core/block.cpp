@@ -177,11 +177,15 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   function_t &callee = function_of_target(X, jv);
 
-  bool res = doInsertDynTarget<MT, MinSize>(X);
-  if (res) {
+  const bool isNewTarget = doInsertDynTarget<MT, MinSize>(X);
+  if (isNewTarget) {
     callee.Analysis.Invalidate();
     callee.Analysis.AddCaller<MT, MinSize>(caller_t(ThisBIdx, Term.Addr));
 
+    //
+    // update call graph
+    //
+    {
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.template get<MT>();
 
@@ -197,9 +201,10 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
                         callee.Analysis.ReverseCGVert(jv),
                         caller.Analysis.ReverseCGVert(jv));
                   });
+    }
   }
 
-  return res;
+  return isNewTarget;
 }
 
 template <bool MT, bool MinSize>
