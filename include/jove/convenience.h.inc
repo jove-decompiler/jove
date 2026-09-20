@@ -591,6 +591,7 @@ static inline void exit_basic_blocks_of_function(
     std::vector<typename ip_icfg_base_t<MT>::vertex_descriptor> &out) {
   const auto &ICFG = b.Analysis.ICFG;
 
+  out.clear();
   out.reserve(bbvec.size());
 
   std::copy_if(
@@ -780,7 +781,6 @@ index_of_function_at_address(const binary_base_t<MT, MinSize> &b,
     if (it != b.fnmap.end())
       FIdx = static_cast<function_index_t>((*it).second);
   }
-  assert(is_function_index_valid(FIdx));
 
   return FIdx;
 }
