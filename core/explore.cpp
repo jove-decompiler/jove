@@ -98,7 +98,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   rec(basic_block_of_index(EntryIdx, ICFG));
 
   if (maybe_jv)
-    ICFG[basic_block_of_index(EntryIdx, ICFG)].InvalidateAnalysis(*maybe_jv, b);
+    ICFG[basic_block_of_index(EntryIdx, ICFG)].InvalidateAnalyses(*maybe_jv, b);
 
   return Idx;
 }
