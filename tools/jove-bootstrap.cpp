@@ -322,7 +322,7 @@ int BootstrapTool::Run(void) {
     INSTALL_SIG(SIGABRT);
   }
 
-  AutomaticallyReap();
+  aassert(SetAutomaticReaping(true));
 
   if (IsCOFF)
     _coff.path_to_debug_log = temporary_dir() + "/stderr";
@@ -1117,12 +1117,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
       for (;;) {
         taddr_t TermAddr = 0;
 
+        bb_t bb;
         {
           auto s_lck = b.BBMap.shared_access();
 
           auto vi_pair = ICFG.vertices();
           for (auto vi = vi_pair.first; vi != vi_pair.second; ++vi) {
-            bb_t bb = *vi;
+            bb = *vi;
 
             if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
               continue;
@@ -1138,8 +1139,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
           break;
 
         if (b.FixAmbiguousIndirectJump(TermAddr, *E,
-                                       state.for_binary(b).Bin.get(), jv))
+                                       state.for_binary(b).Bin.get(), jv)) {
+          ICFG[bb].InvalidateAnalyses(jv, b);
           ++NumChanged;
+        }
       }
     });
 
@@ -1148,6 +1151,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
         HumanOut() << llvm::formatv("fixed {0} ambiguous indirect jump{1}\n", c,
                                     c > 1 ? "s" : "");
   }
+
+  // FIXME
+  jv.InvalidateAllFunctionAnalyses();
 
   return 0;
 }
@@ -1798,11 +1804,19 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
       assert(is_function_index_valid(FIdx));
 
+      /* FIXME is new? */
+      TargetICFG[basic_block_of_index(TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)]
+          .InvalidateAnalyses(jv, TargetBinary);
+
       Target.isNew = fallthru<bool>(
           jv, BIdx, BBIdx, [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
             assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
-            return bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
+            bool res = bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
+            if (res)
+              bbprop.InvalidateAnalyses(jv, jv.Binaries.at(BIdx));
+
+            return res;
           });
 
       trapmap.at(SavedPC).DT = 1;
@@ -1844,12 +1858,20 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
           assert(is_function_index_valid(FIdx));
 
+          /* FIXME is new? */
+          TargetICFG[basic_block_of_index(TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)]
+              .InvalidateAnalyses(jv, TargetBinary);
+
           Target.isNew = fallthru<bool>(
               jv, BIdx, BBIdx,
               [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
                 assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-                return bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
+                bool res = bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
+                if (res)
+                  bbprop.InvalidateAnalyses(jv, jv.Binaries.at(BIdx));
+
+                return res;
               });
 
           trapmap.at(SavedPC).DT = 1;
@@ -2568,7 +2590,7 @@ void BootstrapTool::on_return(pid_t child,
     bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
 
     if (!isCall && !isIndirectCall) {
-      if (IsVeryVerbose())
+      if (IsVerbose())
         HumanOut() << llvm::formatv("on_return: unexpected term {0} @ {1}\n",
                                     description_of_terminator(before_Term.Type),
                                     description_of_program_counter(before_pc, true));
@@ -2777,6 +2799,11 @@ BootstrapTool::function_at_program_counter(pid_t child, taddr_t pc) {
 
   function_index_t FIdx =
       E->explore_function(binary, x.Bin.get(), va_of_pc(pc, BIdx));
+
+  /* FIXME is new? */
+  auto &ICFG = binary.Analysis.ICFG;
+  ICFG[basic_block_of_index(binary.Analysis.Functions.at(FIdx).Entry, ICFG)]
+      .InvalidateAnalyses(jv, binary);
 
   return std::make_pair(BIdx, FIdx);
 }
