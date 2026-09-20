@@ -93,7 +93,7 @@ void setup_crash_signal_handler(void) {
   memset(&sa, 0, sizeof(sa));
 
   sigemptyset(&sa.sa_mask);
-  sa.sa_flags = SA_NODEFER | SA_ONSTACK;
+  sa.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
   sa.sa_handler = crash_signal_handler;
 
   if (::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
