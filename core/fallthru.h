@@ -4,7 +4,7 @@
 namespace jove {
 
 //
-// this code is for moving past NONEs.
+// this code is for moving past NONEs. it does so without taking the bbmap lock.
 //
 template <typename Result, bool MT, bool MinSize>
 static inline Result fallthru(
