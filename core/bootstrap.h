@@ -415,6 +415,8 @@ public:
 
   template <bool Throw = true>
   ssize_t poke(const taddr_t dst, const uint8_t *src, const size_t len);
+
+  void invalidate_block(bbprop_t &, binary_t &);
 };
 
 }

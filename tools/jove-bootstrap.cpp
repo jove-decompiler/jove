@@ -80,6 +80,19 @@
 #include "LLVMGenRegisterInfo.hpp"
 
 //#define JOVE_HAVE_MEMFD
+//#define JOVE_BOOTSTRAP_EAGER_INVALIDATION
+
+#ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
+#define eager_invalidate_block(__the_bbprop, __the_binary)                     \
+  do {                                                                         \
+    bbprop_t &___the_bbprop = __the_bbprop;                                    \
+    binary_t &___the_binary = __the_binary;                                    \
+                                                                               \
+    this->invalidate_block(___the_bbprop, ___the_binary);                      \
+  } while (false)
+#else
+#define eager_invalidate_block(...) do {} while (false)
+#endif
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -1140,7 +1153,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
         if (b.FixAmbiguousIndirectJump(TermAddr, *E,
                                        state.for_binary(b).Bin.get(), jv)) {
-          ICFG[bb].InvalidateAnalyses(jv, b);
+          eager_invalidate_block(ICFG[bb], b);
           ++NumChanged;
         }
       }
@@ -1152,8 +1165,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
                                     c > 1 ? "s" : "");
   }
 
-  // FIXME
+#ifndef JOVE_BOOTSTRAP_EAGER_INVALIDATION
   jv.InvalidateAllFunctionAnalyses();
+#endif
 
   return 0;
 }
@@ -1805,8 +1819,9 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       assert(is_function_index_valid(FIdx));
 
       /* FIXME is new? */
-      TargetICFG[basic_block_of_index(TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)]
-          .InvalidateAnalyses(jv, TargetBinary);
+      eager_invalidate_block(
+          TargetICFG[basic_block_of_index(TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)],
+          TargetBinary);
 
       Target.isNew = fallthru<bool>(
           jv, BIdx, BBIdx, [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
@@ -1814,7 +1829,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
             bool res = bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
             if (res)
-              bbprop.InvalidateAnalyses(jv, jv.Binaries.at(BIdx));
+              eager_invalidate_block(bbprop, jv.Binaries.at(BIdx));
 
             return res;
           });
@@ -1835,8 +1850,8 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
 
-        TargetICFG[basic_block_of_index(BBIdx, TargetICFG)].InvalidateAnalyses(
-            jv, TargetBinary);
+        eager_invalidate_block(
+            TargetICFG[basic_block_of_index(BBIdx, TargetICFG)], TargetBinary);
       } else {
         // on an indirect jump, we must determine one of two possibilities.
         //
@@ -1859,8 +1874,10 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           assert(is_function_index_valid(FIdx));
 
           /* FIXME is new? */
-          TargetICFG[basic_block_of_index(TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)]
-              .InvalidateAnalyses(jv, TargetBinary);
+          eager_invalidate_block(
+              TargetICFG[basic_block_of_index(
+                  TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)],
+              TargetBinary);
 
           Target.isNew = fallthru<bool>(
               jv, BIdx, BBIdx,
@@ -1869,7 +1886,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
                 bool res = bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
                 if (res)
-                  bbprop.InvalidateAnalyses(jv, jv.Binaries.at(BIdx));
+                  eager_invalidate_block(bbprop, jv.Binaries.at(BIdx));
 
                 return res;
               });
@@ -1894,7 +1911,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
                                .second;
 
                 if (res)
-                  bbprop.InvalidateAnalyses(jv, binary);
+                  eager_invalidate_block(bbprop, binary);
 
                 return res;
               });
@@ -2604,7 +2621,7 @@ void BootstrapTool::on_return(pid_t child,
 
     // connect
     if (ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)).second)
-      ICFG[before_bb].InvalidateAnalyses(jv, b);
+      eager_invalidate_block(ICFG[before_bb], b);
   }
 }
 
@@ -2801,9 +2818,7 @@ BootstrapTool::function_at_program_counter(pid_t child, taddr_t pc) {
       E->explore_function(binary, x.Bin.get(), va_of_pc(pc, BIdx));
 
   /* FIXME is new? */
-  auto &ICFG = binary.Analysis.ICFG;
-  ICFG[basic_block_of_index(binary.Analysis.Functions.at(FIdx).Entry, ICFG)]
-      .InvalidateAnalyses(jv, binary);
+  eager_invalidate_block(binary.Analysis.ICFG[basic_block_of_index(binary.Analysis.Functions.at(FIdx).Entry, binary)], binary);
 
   return std::make_pair(BIdx, FIdx);
 }
@@ -2959,6 +2974,11 @@ void BootstrapTool::DropPrivileges(void) {
       HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
     }
   }
+}
+
+void BootstrapTool::invalidate_block(bbprop_t &bbprop,
+                                     binary_t &binary) {
+  bbprop.InvalidateAnalyses(this->jv, binary);
 }
 
 void arch_put_breakpoint(void *code) {
