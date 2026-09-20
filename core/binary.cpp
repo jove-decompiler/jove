@@ -164,9 +164,8 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
                     bbprop.insertDynTarget(index_of_binary(*this, jv),
                                            {index_of_binary(*this, jv), FIdx}, jv);
                   });
+    bbprop.InvalidateAnalyses(jv, *this);
   }
-
-  ICFG[bb].InvalidateAnalyses(jv, *this);
 
   return true;
 }
