@@ -1,19 +1,19 @@
 #pragma once
+
 #include <stddef.h>
 #include <boost/preprocessor/cat.hpp>
 
-#ifndef likely
-#define likely(x) __builtin_expect(!!(x), 1)
-#endif
+//
+// QEMU helper code is, strictly speaking, written in the C programming
+// language. It should never encroach upon the tools.
+//
+#pragma GCC poison CONFIG_JOVE
+#pragma GCC poison CONFIG_JOVE_HELPERS
 
-#ifndef unlikely
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#endif
-
+//
+// The __error__ attribute is useful, because it allows one to write code that
+// won't compile unless it's dead-code-eliminated away.
+//
 #define __compiletime_error(msg) __attribute__((__error__(msg)))
 
 #define __noreturn __attribute__((__noreturn__))
@@ -39,19 +39,22 @@
 extern void __compiletime_error("unreachable")
 __compiletime_unreachable(void);
 
-#define UNIQUE_VAR_NAME(base) BOOST_PP_CAT(base,__COUNTER__)
-
-#ifdef NDEBUG
-#define rassert(cond)                                                          \
-  do {                                                                         \
-    if (unlikely(!(!!(cond)))) {                                               \
-      __builtin_trap();                                                        \
-      __builtin_unreachable();                                                 \
-    }                                                                          \
-  } while (false)
-#else
-#define rassert(cond) assert(cond)
+//
+// essential common stuff (taken from linux)
+//
+#ifndef likely
+#define likely(x) __builtin_expect(!!(x), 1)
 #endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
+#define UNIQUE_VAR_NAME(base) BOOST_PP_CAT(base,__COUNTER__)
 
 #define JOVE_CONTAINER_OF(ptr, T, member)                                      \
   (reinterpret_cast<T *>(reinterpret_cast<char *>(ptr) -                       \
