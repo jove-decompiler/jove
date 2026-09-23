@@ -1,4 +1,6 @@
 #pragma once
+#include "jove/macros.h" /* poison */
+
 #ifdef __cplusplus
 //
 // We shouldn't be using *any* data structures from QEMU whose memory layout
@@ -10,6 +12,11 @@
 
 extern "C" {
 #endif
+
+//
+// The following include a *minimal* subset of QEMU which is, roughly speaking,
+// semantically equivalent C/C++, and which allow us to make use of the TCG.
+//
 
 #if defined(__x86_64__)
 #include "../bin/x86_64/qemu.tcg.copy.h"
