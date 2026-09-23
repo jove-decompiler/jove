@@ -1309,6 +1309,8 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
           Arg("--softfpu-bitcode");
         if (options.VerifyBitcode)
           Arg("--verify-bitcode");
+        if (options.LoadRelocSectionPointers)
+          Arg("--load-reloc-section-pointers");
 
 #if 0
         if (!options.PinnedGlobals.empty()) {
