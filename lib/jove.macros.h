@@ -36,6 +36,7 @@
 #define _NORET  __attribute__((noreturn))
 #define _FLATTEN __attribute__((flatten))
 #define _UNUSED __attribute__((unused))
+#define _USED __attribute__((used))
 #define _HIDDEN __attribute__((visibility("hidden")))
 #define _SECTION(name) __attribute__((section(name)))
 
