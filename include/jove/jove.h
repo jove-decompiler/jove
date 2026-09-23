@@ -1103,10 +1103,10 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT, MinSize> &b,
   if constexpr (MT) {
     bool success;
     success = bbprop.pub.mtx.try_lock();
-    rassert(success && "allocates_basic_block_t: BUG1");
+    aassert(success && "allocates_basic_block_t: BUG1");
 
     success = bbprop.mtx.try_lock();
-    rassert(success && "allocates_basic_block_t: BUG2");
+    aassert(success && "allocates_basic_block_t: BUG2");
   }
 
   store = Idx;
