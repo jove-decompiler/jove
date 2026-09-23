@@ -1196,7 +1196,7 @@ void dump_detailed_ucontext(ucontext_t *uctx, siginfo_t *si) {
   char *s;
   ___guarded_str___(s, JOVE_LARGE_BUFF_SIZE);
 
-  _strcat(s, "*** crash? *** [");
+  _strcat(s, "*** crash? try running `jove invalidate -bf`*** [");
   {
     char buff[65];
     _uint_to_string(_jove_sys_gettid(), buff, 10);
