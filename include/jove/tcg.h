@@ -1,5 +1,10 @@
 #pragma once
 
+//
+// x86_64 and arm64 are the only supported host architectures for
+// doing cross-recompilation. The below is a little bit funky.
+//
+
 #if defined(__x86_64__)
 #if defined(TARGET_X86_64)
 #include "../bin/x86_64/tcgconstants.h"
