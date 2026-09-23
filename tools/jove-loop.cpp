@@ -147,7 +147,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           DaemonizeThreshold("daemonize-threshold",
                              cl::desc("Re-exec when |invalidated| becomes too big"),
-                             cl::init(-1), cl::cat(JoveCategory)),
+                             cl::init(-1 /* FIXME */), cl::cat(JoveCategory)),
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
