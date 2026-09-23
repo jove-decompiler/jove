@@ -529,6 +529,7 @@ int LoopTool::Run(void) {
       }
     }
 
+#ifndef JOVE_NO_BACKEND
     {
       analyzer.state.clear(); /* FIXME */
 
@@ -541,6 +542,7 @@ int LoopTool::Run(void) {
           [&analyzer](void) -> void { analyzer.identify_ABIs(); });
       analyzer.identify_Sjs();
     }
+#endif
 
     //
     // run
@@ -707,12 +709,14 @@ run:
 
     jv.generation.load(boost::memory_order_acquire);
 
+#ifndef JOVE_NO_BACKEND
     if (opts.Daemonize) {
       if (opts.ForceRecompile)
         PossiblyReexec(invalidated);
       else
         PossiblyReexec(invalidated, true);
     }
+#endif
 
 skip_run:
     if (!opts.Connect.empty()) { /* remote */
