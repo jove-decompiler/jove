@@ -7,7 +7,6 @@
 // QEMU helper code is, strictly speaking, written in the C programming
 // language. It should never encroach upon the tools.
 //
-#pragma GCC poison CONFIG_JOVE
 #pragma GCC poison CONFIG_JOVE_HELPERS
 
 //
