@@ -85,7 +85,7 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
                      cl::init(true), cl::cat(JoveCategory)),
 
       Symbolize("symbolize", cl::desc("Whether to run addr2line"),
-                cl::init(true), cl::cat(JoveCategory)),
+                cl::cat(JoveCategory)),
 
       Addr2Line("addr2line", cl::desc("Run addr2line to symbolize"),
                cl::cat(JoveCategory))
