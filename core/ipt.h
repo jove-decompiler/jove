@@ -1522,7 +1522,7 @@ protected:
       assert(CurrPoint.Valid());
 
       if (IsNewBlock) /* (FIXME? (should this be done here?)) */
-        the_new_bbprop.get().InvalidateAnalysis(jv, b);
+        the_new_bbprop.get().InvalidateAnalyses(jv, b);
     } catch (const invalid_control_flow_exception &) {
       if constexpr (1 /* IsVerbose() */)
         fprintf(stderr,
@@ -1785,7 +1785,7 @@ protected:
         bb_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
         fr_ICFG.add_edge(fr_bb, to_bb);
 
-        fr_ICFG[fr_bb].InvalidateAnalysis(jv, fr_b);  /* (FIXME? (should this be done here?)) */
+        fr_ICFG[fr_bb].InvalidateAnalyses(jv, fr_b);  /* (FIXME? (should this be done here?)) */
       }
 
       break;
@@ -1830,7 +1830,7 @@ protected:
         }
 
         to_ICFG.add_edge(before_bb, to_bb); /* connect */
-        before_bbprop.InvalidateAnalysis(jv, to_b); /* (FIXME? (should this be done here?)) */
+        before_bbprop.InvalidateAnalyses(jv, to_b); /* (FIXME? (should this be done here?)) */
       }
       break;
     }
