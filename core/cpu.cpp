@@ -1,5 +1,5 @@
 #include "cpu.h"
-#include "assert.h"
+#include "jove/assert.h"
 
 #include <sched.h>
 #include <errno.h>

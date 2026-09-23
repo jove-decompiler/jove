@@ -2,7 +2,7 @@
 #include "mt.h"
 #include "cpu.h"
 #include "likely.h"
-#include "assert.h"
+#include "jove/assert.h"
 
 #include <atomic>
 #include <exception>

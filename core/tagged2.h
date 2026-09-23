@@ -1,5 +1,5 @@
 #pragma once
-#include "assert.h"
+#include "jove/assert.h"
 
 #include <bit>
 #include <cstddef>

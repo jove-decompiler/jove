@@ -1,6 +1,6 @@
 #include "util.h"
 #include "fd.h"
-#include "assert.h"
+#include "jove/assert.h"
 #include "term.h"
 
 #include <cerrno>

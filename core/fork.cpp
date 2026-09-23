@@ -3,7 +3,7 @@
 #include "fd.h"
 #include "pidfd.h"
 #include "eintr.h"
-#include "assert.h"
+#include "jove/assert.h"
 #include "except.h"
 
 #include <poll.h>

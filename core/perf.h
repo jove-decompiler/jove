@@ -2,7 +2,7 @@
 #include "mmap.h"
 #include "likely.h"
 #include "eintr.h"
-#include "assert.h"
+#include "jove/assert.h"
 #include "fd.h"
 
 #include <memory>

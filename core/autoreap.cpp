@@ -1,5 +1,5 @@
 #include "autoreap.h"
-#include "assert.h"
+#include "jove/assert.h"
 
 #include <cerrno>
 
