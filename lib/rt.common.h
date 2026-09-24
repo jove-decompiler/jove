@@ -4,4 +4,4 @@
 #include "rt.macros.h"
 #include "rt.options.h"
 
-struct jove_opts_t __jove_opts;
+_EXPORT struct jove_opts_t __jove_opts;

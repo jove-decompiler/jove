@@ -98,6 +98,9 @@
 #define TRUE 1
 #define FALSE 0
 
+#define _EXPORT __attribute__((visibility("default")))
+#define _IMPORT
+
 #if defined(JOVE_COFF)
 #define _DLLEXPORT __declspec(dllexport)
 #define _DLLIMPORT __declspec(dllimport)
