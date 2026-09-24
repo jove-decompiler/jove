@@ -326,6 +326,8 @@ int KnifeTool::Run(void) {
   };
 
   auto ForceDLLExport = [&](llvm::GlobalValue *G) {
+    G->setLinkage(llvm::GlobalValue::ExternalLinkage);
+    G->setVisibility(llvm::GlobalValue::DefaultVisibility);
     G->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
   };
 
