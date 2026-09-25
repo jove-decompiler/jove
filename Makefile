@@ -359,6 +359,7 @@ i386_LINUX_CARBON_EXTRACT_PARAMS := -f arch/x86/lib/string_32.c
 
 linux_carbon_extract_params = -f lib/jove.c \
                               -f lib/string.c \
+                              -f lib/bsearch.c \
                               $($(1)_LINUX_CARBON_EXTRACT_PARAMS)
 
 define target_template

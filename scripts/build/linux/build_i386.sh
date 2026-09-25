@@ -22,7 +22,7 @@ if test "$#" = 1 ; then
     make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=i386 i386_defconfig
     alter_config
     fi
-    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=i386 lib/jove.o lib/string.o arch/x86/lib/string_32.o
+    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=i386 lib/jove.o lib/string.o lib/bsearch.o arch/x86/lib/string_32.o
 
     exit 0
   fi
