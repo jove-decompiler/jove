@@ -1179,10 +1179,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
                                     c > 1 ? "s" : "");
   }
 
-#ifndef JOVE_BOOTSTRAP_EAGER_INVALIDATION
-  jv.InvalidateAllFunctionAnalyses();
-#endif
-
   return 0;
 }
 
