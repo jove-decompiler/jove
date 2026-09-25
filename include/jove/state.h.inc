@@ -270,10 +270,10 @@ public:
 
 #define FOR_SOMETHING_BODY(thing)                                              \
   if constexpr (LazyInitialization) {                                          \
-    StatePtr<T> &x = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
+    StatePtr<T> &_ = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
     if constexpr (MultiThreaded) {                                             \
       {                                                                        \
-        T *const xp = x.load(boost::memory_order_acquire);                     \
+        T *const xp = _.load(boost::memory_order_acquire);                     \
         if (likely(xp))                                                        \
           return *xp;                                                          \
       }                                                                        \
@@ -282,7 +282,7 @@ public:
                                                                                \
       T *expected = nullptr;                                                   \
       T *const desired = new_x.get();                                          \
-      if (x.compare_exchange_strong(expected, desired,                         \
+      if (_.compare_exchange_strong(expected, desired,                         \
                                     boost::memory_order_release,               \
                                     boost::memory_order_acquire)) {            \
         new_x.release();                                                       \
@@ -291,11 +291,11 @@ public:
       assert(expected);                                                        \
       return *expected;                                                        \
     } else {                                                                   \
-      T *xp = x.get();                                                         \
+      T *xp = _.get();                                                         \
       if (unlikely(!xp)) {                                                     \
         auto new_x = std::make_unique<T>(BOOST_PP_CAT(thing,_NEW_ARGS));       \
         xp = new_x.get();                                                      \
-        x = std::move(new_x);                                                  \
+        _ = std::move(new_x);                                                  \
       }                                                                        \
       return *xp;                                                              \
     }                                                                          \
