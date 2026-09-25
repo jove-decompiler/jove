@@ -383,6 +383,10 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     if (exitVertices.empty()) {
       f.Analysis.rets.reset();
     } else {
+      //
+      // registers defined on every function exit, excluding non-return and
+      // pinned environment globals.
+      //
       f.Analysis.rets =
           std::accumulate(
               exitVertices.begin(),
