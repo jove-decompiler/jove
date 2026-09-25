@@ -50,6 +50,8 @@ runtime_cflags = -std=gnu11 \
                  $($(1)_RUNTIME_CFLAGS) \
                  -D _GNU_SOURCE \
                  -D _LARGEFILE64_SOURCE \
+                 -fno-omit-frame-pointer \
+                 -mno-omit-leaf-frame-pointer \
                  -Weverything \
                  -Werror-implicit-function-declaration \
                  -Werror=return-type \
