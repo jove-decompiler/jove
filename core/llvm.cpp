@@ -1191,7 +1191,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
-      || ((options.ForCBE || options.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
+      || ((options.Optimize || options.ForCBE || options.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
       || (options.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!options.VersionScript.empty() ? WriteVersionScript() : 0)
@@ -3293,6 +3293,46 @@ struct unhandled_relocation_exception {};
 
 #include "relocs_llvm.hpp"
 
+//
+//   ┌───────────────────────┐
+//   │         .text         │
+//   └───────────────────────┘
+//               ⋮
+//   ┌───────────────────────┐
+//   │        .rodata        │
+//   └───────────────────────┘
+//   ┌───────────────────────┐
+//   │         .data         │
+//   └───────────────────────┘
+//
+//   ┌───────────────────────┐
+//   │         .bss          │
+//   └───────────────────────┘
+//
+//              │
+//              ▼
+//
+//   ┌───────────────────────┐  ─┐
+//   │         .text         │   │
+//   ├───────────────────────┤   │
+//   │                       │   │
+//   │        < hole >       │   │
+//   │                       │   │
+//   ├───────────────────────┤   │
+//   │        .rodata        │   │
+//   ├───────────────────────┤   │  __jove_sections
+//   │         .data         │   │
+//   ├───────────────────────┤   │
+//   │                       │   │
+//   │        < hole >       │   │
+//   │                       │   │
+//   ├───────────────────────┤   │
+//   │         .bss          │   │
+//   └───────────────────────┘  ─┘
+//
+// unless --lay-out-sections is passed, in which case there will be a distinct
+// global variable associated with each section (or segment).
+//
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
