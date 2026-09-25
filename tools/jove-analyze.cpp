@@ -42,6 +42,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
     cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
     cl::opt<int> Conservative;
+    cl::opt<unsigned> Precision;
     cl::opt<unsigned> WaitMilli;
     cl::opt<bool> BottomUp;
     cl::opt<unsigned> DynTargetInlineThreshold;
@@ -66,6 +67,9 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
               cl::desc(
                   "1 => assume any arg registers could be live for ABI calls."),
               cl::cat(JoveCategory), cl::init(1)),
+
+          Precision("precision", cl::value_desc(">=0"), cl::init(0),
+                    cl::cat(JoveCategory)),
 
           WaitMilli(
               "wait-for",
@@ -134,12 +138,14 @@ int AnalyzeTool::Run(void) {
 
   analyzer_options.VerbosityLevel = GetVerbosityLevel();
   analyzer_options.Conservative = opts.Conservative;
+  analyzer_options.Precision = opts.Precision;
   analyzer_options.DynTargetInlineThreshold = opts.DynTargetInlineThreshold;
 
   analyzer.examine_blocks();
   analyzer.examine_callers();
   analyzer.identify_ABIs();
   analyzer.identify_Sjs();
+  analyzer.refine_analyses();
 
   return AnalyzeBlocks()
       || AnalyzeFunctions();

@@ -350,6 +350,10 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     f.Analysis.Stale.clear(boost::memory_order_release);
   };
 
+  binary_index_t BIdx = binary_index_of_function(f, jv); /* XXX */
+  auto &b = jv.Binaries.at(BIdx);
+  auto &ICFG = b.Analysis.ICFG;
+
   {
     flow_graph_t G;
 
@@ -357,8 +361,12 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
         function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>>
         memoize;
 
+    std::unique_ptr<flow_vertex_t[]> Orig2CopyMap( /* look ma, no memset */
+        new flow_vertex_t[ICFG.actual_num_vertices()]);
+
     std::vector<exit_vertex_pair_t> exitVertices;
-    flow_vertex_t entryV = copy_function_cfg(G, f, exitVertices, memoize);
+    flow_vertex_t entryV =
+        copy_function_cfg(G, f, Orig2CopyMap.get(), exitVertices, memoize);
 
     //
     // build vector of vertices in DFS order
@@ -374,6 +382,21 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     //
     if (!f.IsABI)
       f.Analysis.args.set(tcg_stack_pointer_index);
+
+    //
+    // if we are really being precise, then save the live-out sets
+    //
+    if (options.Precision >= 1) {
+      const auto &bbvec = state.for_function(f).bbvec;
+
+      std::for_each(maybe_par_unseq,
+                    bbvec.cbegin(),
+                    bbvec.end(),
+                    [&](bb_t bb) {
+                      flow_vertex_t V = Orig2CopyMap.get()[bb];
+                      ICFG[bb].Analysis.live.out = G[V].OUT;
+                    });
+    }
 
     reachingComputeFixpoint(G, Vertices);
 
@@ -477,6 +500,7 @@ template <bool MT, bool MinSize>
 flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
     flow_graph_t &G,
     function_t &f,
+    flow_vertex_t *Orig2CopyMap,
     std::vector<exit_vertex_pair_t> &exitVertices,
     boost::unordered::unordered_flat_map<
         function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>>
@@ -516,11 +540,8 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   //
   G.m_vertices.reserve(G.m_vertices.size() + bbvec.size());
 
-  std::unique_ptr<flow_vertex_t[]> Orig2CopyMap( /* look ma, no memset */
-      new flow_vertex_t[boost::num_vertices(ICFG.container())]);
-
   auto Orig2CopyPropMap = boost::make_iterator_property_map(
-      Orig2CopyMap.get(),
+      Orig2CopyMap,
       boost::get(boost::vertex_index, ICFG.container()));
 
 #if 0
@@ -643,13 +664,19 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 #endif
 
           function_t &callee = function_of_target(DynTarget, jv);
+          auto &callee_b = jv.Binaries.at(binary_index_of_function(callee, jv));
+          auto &callee_ICFG = callee_b.Analysis.ICFG;
+
 
 #if 0
           if (callee.Analysis.Stale) {
 #endif
+          std::unique_ptr<flow_vertex_t[]> Orig2CopyMap( /* look ma, no memset */
+              new flow_vertex_t[callee_ICFG.actual_num_vertices()]);
           std::vector<exit_vertex_pair_t> calleeExitVertices;
+
           flow_vertex_t calleeEntryV = copy_function_cfg(
-              G, callee, calleeExitVertices, memoize);
+              G, callee, Orig2CopyMap.get(), calleeExitVertices, memoize);
 
           boost::add_edge(V, calleeEntryV, G);
 
@@ -760,9 +787,12 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 #else
       if (callee.Analysis.Stale.test(boost::memory_order_acquire)) {
 #endif
+      std::unique_ptr<flow_vertex_t[]> Orig2CopyMap( /* look ma, no memset */
+          new flow_vertex_t[ICFG.actual_num_vertices()]);
       std::vector<exit_vertex_pair_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV =
-          copy_function_cfg(G, callee, calleeExitVertices, memoize);
+
+      flow_vertex_t calleeEntryV = copy_function_cfg(
+          G, callee, Orig2CopyMap.get(), calleeExitVertices, memoize);
 
       boost::add_edge(V, calleeEntryV, G);
 
@@ -877,10 +907,15 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 #endif
 
         function_t &callee = function_of_target(DynTarget, jv);
+        auto &callee_b = jv.Binaries.at(binary_index_of_function(callee, jv));
+        auto &callee_ICFG = callee_b.Analysis.ICFG;
 
+        std::unique_ptr<flow_vertex_t[]> Orig2CopyMap( /* look ma, no memset */
+            new flow_vertex_t[callee_ICFG.actual_num_vertices()]);
         std::vector<exit_vertex_pair_t> calleeExitVertices;
-        flow_vertex_t calleeEntryV =
-            copy_function_cfg(G, callee, calleeExitVertices, memoize);
+
+        flow_vertex_t calleeEntryV = copy_function_cfg(
+            G, callee, Orig2CopyMap.get(), calleeExitVertices, memoize);
 
         boost::add_edge(V, calleeEntryV, G);
 
@@ -967,6 +1002,40 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
     return std::nullopt;
 
   return std::make_pair(args, rets);
+}
+
+template <bool MT, bool MinSize>
+void
+analyzer_t<MT, MinSize>::refine_analyses(void) {
+  if (options.Precision < 1)
+    return;
+
+  //
+  // a register is considered a return register only if the at least one caller
+  // has that register live immediately after the call.
+  //
+  // the main benefit of this refinement is that the registers which happen to
+  // be consistently written by the function but are never actually consumed as
+  // outputs are filtered-out. in other words,
+  //
+  // rets(f) = rets(f) ∩ (⋃_{caller ∈ callers(f)} live_after_call(caller))
+  //
+  for_each_function(maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
+    tcg_global_set_t live_after_calls;
+
+    f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
+      block_t caller_block = block_for_caller_in_binary(caller, b, jv);
+
+      auto &caller_b = jv.Binaries.at(caller_block.first);
+      bb_t caller_bb = basic_block_of_index(caller_block.second, caller_b);
+
+      auto &caller_ICFG = caller_b.Analysis.ICFG;
+
+      live_after_calls |= caller_ICFG[caller_bb].Analysis.live.out;
+    });
+
+    f.Analysis.rets &= live_after_calls;
+  });
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

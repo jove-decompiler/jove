@@ -248,6 +248,10 @@ struct bb_analysis_t {
     /* let use_B be the set of variables whose values may be used in B */
     /* prior to any definition of the variable */
     tcg_global_set_t use;
+
+    // the set of registers whose values are still needed after this block
+    // finishes.
+    tcg_global_set_t out;
   } live;
 
   struct {

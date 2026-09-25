@@ -85,6 +85,8 @@ struct analyzer_t {
   void identify_ABIs(void);
   void identify_Sjs(void);
 
+  void refine_analyses(void);
+
   int analyze_blocks(boost::optional<invalidated_t &> invalidated = boost::none);
   template <bool BottomUp = false>
   int analyze_functions(boost::optional<invalidated_t &> invalidated = boost::none);
@@ -96,6 +98,7 @@ private:
   flow_vertex_t copy_function_cfg(
              flow_graph_t &G,
              function_t &f,
+             flow_vertex_t *Orig2CopyMap,
              std::vector<exit_vertex_pair_t> &exitVertices,
              boost::unordered::unordered_flat_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize);
 

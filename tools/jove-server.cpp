@@ -459,6 +459,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
         [&analyzer](void) -> void { analyzer.examine_callers(); },
         [&analyzer](void) -> void { analyzer.identify_ABIs(); });
     analyzer.identify_Sjs();
+    analyzer.refine_analyses();
 
     (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
     });

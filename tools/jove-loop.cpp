@@ -66,6 +66,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Sysroot;
     cl::opt<bool> Daemonize;
     cl::opt<int> DaemonizeThreshold;
+    cl::opt<unsigned> Precision;
     cl::opt<bool> DFSan;
     cl::opt<bool> CallStack;
     cl::opt<bool> Optimize;
@@ -148,6 +149,9 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           DaemonizeThreshold("daemonize-threshold",
                              cl::desc("Re-exec when |invalidated| becomes too big"),
                              cl::init(-1 /* FIXME */), cl::cat(JoveCategory)),
+
+          Precision("precision", cl::value_desc(">=0"), cl::init(0),
+                    cl::cat(JoveCategory)),
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
@@ -464,6 +468,7 @@ int LoopTool::Run(void) {
   //analyzer_options.Conservative = opts.Conservative;
 
   PROPOGATE_OPTION(Daemonize);
+  PROPOGATE_OPTION(Precision);
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);
   PROPOGATE_OPTION(Trace);
@@ -541,6 +546,7 @@ int LoopTool::Run(void) {
           [&analyzer](void) -> void { analyzer.examine_callers(); },
           [&analyzer](void) -> void { analyzer.identify_ABIs(); });
       analyzer.identify_Sjs();
+      analyzer.refine_analyses();
     }
 #endif
 
@@ -1291,6 +1297,7 @@ skip_run:
           [&analyzer](void) -> void { analyzer.examine_callers(); },
           [&analyzer](void) -> void { analyzer.identify_ABIs(); });
       analyzer.identify_Sjs();
+      analyzer.refine_analyses();
 
       if (LaunchedLLVM && opts.Daemonize) {
         invalidated.resize(jv.Binaries.size());
