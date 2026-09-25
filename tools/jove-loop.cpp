@@ -689,10 +689,6 @@ run:
         const int ret = WaitForProcessToExit(pid);
         const char ch = run.mapping->get_recovered();
 
-        //
-        // XXX currently the only way to know that jove-recover was run is by
-        // looking at the exit status
-        //
         if ((ch != 'b' &&
              ch != 'B' &&
              ch != 'f' &&
