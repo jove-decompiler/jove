@@ -3,6 +3,7 @@
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
+#include <boost/scope/defer.hpp>
 
 namespace jove {
 
@@ -179,6 +180,10 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   const bool isNewTarget = doInsertDynTarget<MT, MinSize>(X);
   if (isNewTarget) {
+    BOOST_SCOPE_DEFER [&] {
+      jv.generation.fetch_add(1, boost::memory_order_relaxed);
+    };
+
     callee.Analysis.Invalidate();
     callee.Analysis.AddCaller<MT, MinSize>(caller_t(ThisBIdx, Term.Addr));
 

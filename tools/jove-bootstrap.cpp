@@ -663,6 +663,20 @@ int BootstrapTool::TracerLoop(pid_t child) {
   long sig = 0;
   const unsigned long syscall_or_cont =
       opts.Syscalls ? PTRACE_SYSCALL : PTRACE_CONT;
+  const unsigned SavedGeneration = jv.generation.load(boost::memory_order_relaxed);
+  const unsigned SavedNumBinaries = jv.NumBinaries();
+
+#ifndef JOVE_BOOTSTRAP_EAGER_INVALIDATION
+  BOOST_SCOPE_DEFER [&] {
+    bool Changed = false;
+
+    Changed = Changed || (SavedNumBinaries != jv.NumBinaries());
+    Changed = Changed || (jv.generation.load(boost::memory_order_relaxed) != SavedGeneration);
+
+    if (Changed)
+      jv.InvalidateAllFunctionAnalyses();
+  };
+#endif
 
   {
     for (;; (void)({
@@ -1754,6 +1768,11 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     bool isNew = false;
     binary_index_t BIdx = invalid_binary_index;
   } Target;
+
+  BOOST_SCOPE_DEFER [&] {
+    if (Target.isNew)
+      jv.generation.fetch_add(1, boost::memory_order_relaxed);
+  };
 
   Target.BIdx = binary_at_program_counter(child, TargetAddr);
 

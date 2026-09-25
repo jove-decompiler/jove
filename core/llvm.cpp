@@ -6220,8 +6220,6 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
     //
     int ret = 1;
 
-    jv.generation.load(boost::memory_order_acquire);
-
 #if 0
     InlineSjStubs(); /* do it here, before we modify Module */
 #endif

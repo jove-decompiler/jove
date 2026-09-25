@@ -1231,7 +1231,7 @@ int RunTool::DoRun(void) {
     //
     // robust means of determining whether jove-recover has run
     //
-    jv.generation.fetch_add(1, boost::memory_order_release);
+    jv.generation.fetch_add(1, boost::memory_order_relaxed);
     char ch = shared_data.recovered_ch.load(boost::memory_order_relaxed);
     if (loop.mapping && ch)
       loop.mapping->set_recovered(ch);

@@ -371,9 +371,11 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
       bbprop.mtx, boost::interprocess::accept_ownership);
 
   {
-  BOOST_SCOPE_DEFER [&bbprop] {
+  BOOST_SCOPE_DEFER [&] {
       bbprop.pub.is.test_and_set(MT ? boost::memory_order_release
                                     : boost::memory_order_relaxed);
+    if (maybe_jv)
+      (*maybe_jv).generation.fetch_add(1, boost::memory_order_relaxed);
   };
 
   typename BBMap_t<MT>::exclusive_lock_guard e_lck_bbmap(

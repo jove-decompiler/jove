@@ -1227,6 +1227,7 @@ struct jv_base_t {
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
   boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
+  ip_atomic<uint64_t> generation = 0;
 
   //
   // references to binary_t will never be invalidated.
@@ -1259,8 +1260,6 @@ struct jv_base_t {
   ip_cached_hashes_type<MT, MinSize> cached_hashes; /* NOT serialized */
 
   ip_name_to_binaries_map_type<MT, MinSize> name_to_binaries;
-
-  ip_atomic<uint64_t> generation = 0;
 
   template <typename Proc>
   void ForEachNameToBinaryEntry(Proc proc) const {
