@@ -1021,6 +1021,9 @@ analyzer_t<MT, MinSize>::refine_analyses(void) {
   // rets(f) = rets(f) ∩ (⋃_{caller ∈ callers(f)} live_after_call(caller))
   //
   for_each_function(maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
+    if (!f.Analysis.hasCaller())
+      return;
+
     tcg_global_set_t live_after_calls;
 
     f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
