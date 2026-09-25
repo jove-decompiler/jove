@@ -235,6 +235,18 @@ case "$target" in
     ;;
 esac
 
+ourcflags=(
+  "--target=$triple"
+  "$optimization"
+)
+
+marchvar="JOVE_MARCH_${arch}"
+
+if [[ -n ${!marchvar:-} ]]; then
+  echo "$marchvar=${!marchvar}; adding -march=${!marchvar}"
+  ourcflags+=("-march=${!marchvar}")
+fi
+
 if [ -n "$cross" ]; then
   projects="llvm"
 else
@@ -265,11 +277,6 @@ if [ -n "$cross" ]; then
 #   -D "LLVM_TABLEGEN=$(pwd)/../tblgen_build/llvm/bin/llvm-tblgen"
   )
 fi
-
-ourcflags=(
-  "--target=$triple"
-  "$optimization"
-)
 
 # better debugging
 if [ -n "$frame_pointer" ]; then
