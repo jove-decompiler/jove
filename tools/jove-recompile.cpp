@@ -21,6 +21,8 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::alias OutputAlias;
     cl::opt<bool> Trace;
     cl::opt<std::string> UseLd;
+    cl::opt<unsigned> Precision;
+    cl::opt<unsigned> Conservative;
     cl::opt<bool> DFSan;
     cl::opt<bool> CallStack;
     cl::opt<bool> Optimize;
@@ -56,6 +58,15 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
           UseLd("use-ld",
                 cl::desc("Force using particular linker (lld,bfd,gold)"),
                 cl::cat(JoveCategory)),
+
+          Precision("precision", cl::value_desc(">=0"), cl::init(0),
+                    cl::cat(JoveCategory)),
+
+          Conservative(
+              "conservative",
+              cl::desc(
+                  "1 => assume any arg registers could be live for ABI calls."),
+              cl::cat(JoveCategory), cl::init(1)),
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
@@ -193,6 +204,8 @@ int RecompileTool::Run(void) {
   PROPOGATE_OPTION(Output);
   PROPOGATE_OPTION(ForeignLibs);
   PROPOGATE_OPTION(RuntimeMT);
+  PROPOGATE_OPTION(Precision);
+  PROPOGATE_OPTION(Conservative);
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(SkipCopyRelocHack);
   PROPOGATE_OPTION(Optimize);

@@ -66,6 +66,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Sysroot;
     cl::opt<bool> Daemonize;
     cl::opt<int> DaemonizeThreshold;
+    cl::opt<unsigned> Conservative;
     cl::opt<unsigned> Precision;
     cl::opt<bool> DFSan;
     cl::opt<bool> CallStack;
@@ -104,7 +105,6 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
-    cl::opt<int> Conservative;
     cl::opt<std::string> WineStderr;
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
@@ -149,6 +149,12 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           DaemonizeThreshold("daemonize-threshold",
                              cl::desc("Re-exec when |invalidated| becomes too big"),
                              cl::init(-1 /* FIXME */), cl::cat(JoveCategory)),
+
+          Conservative(
+              "conservative",
+              cl::desc(
+                  "1 => assume any arg registers could be live for ABI calls."),
+              cl::cat(JoveCategory), cl::init(1)),
 
           Precision("precision", cl::value_desc(">=0"), cl::init(0),
                     cl::cat(JoveCategory)),
@@ -316,12 +322,6 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                        "fault."),
               cl::cat(JoveCategory)),
 
-          Conservative(
-              "conservative",
-              cl::desc(
-                  "1 => assume any arg registers could be live for ABI calls."),
-              cl::cat(JoveCategory), cl::init(1)),
-
           WineStderr("wine-stderr",
                      cl::desc("Redirect WINEDEBUG output with WINEDEBUGLOG"),
                      cl::cat(JoveCategory)),
@@ -465,9 +465,9 @@ int LoopTool::Run(void) {
     recompiler_options.name = opts.name;                                          \
   } while (false)
 
-  //analyzer_options.Conservative = opts.Conservative;
 
   PROPOGATE_OPTION(Daemonize);
+  PROPOGATE_OPTION(Conservative);
   PROPOGATE_OPTION(Precision);
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);

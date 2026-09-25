@@ -41,7 +41,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
-    cl::opt<int> Conservative;
+    cl::opt<unsigned> Conservative;
     cl::opt<unsigned> Precision;
     cl::opt<unsigned> WaitMilli;
     cl::opt<bool> BottomUp;

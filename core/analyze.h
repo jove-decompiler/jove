@@ -13,8 +13,9 @@ using invalidated_t =
     boost::container::vector<boost::concurrent_flat_set<function_index_t>>;
 
 struct analyzer_options_t : public VerboseThing {
-  unsigned Precision = 0;
   unsigned Conservative = 1;
+  unsigned Precision = 0;
+
   bool ForCBE = false;
   unsigned DynTargetInlineThreshold = 8;
 

@@ -43,6 +43,7 @@ struct recompiler_options_t : public VerboseThing {
   bool VerifyBitcode = false;
   bool LoadRelocSectionPointers = false;
 
+  unsigned Conservative = 1;
   unsigned Precision = 0;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
@@ -57,6 +58,7 @@ struct recompiler_options_t : public VerboseThing {
     res.name = this->name;                                                     \
   } while (false)
 
+    PROPOGATE(Conservative);
     PROPOGATE(Precision);
     PROPOGATE(VerbosityLevel);
     PROPOGATE(ForCBE);
