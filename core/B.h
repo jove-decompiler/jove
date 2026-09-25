@@ -128,6 +128,22 @@ static inline Result _X(ref Bin,
 
 typedef std::pair<uint64_t, uint64_t> addr_pair;
 
+//
+//   ┌───────────────────────┐  ←──────────── bounds(b).first
+//   │         .text         │
+//   └───────────────────────┘
+//
+//   ┌───────────────────────┐
+//   │        .rodata        │
+//   └───────────────────────┘
+//   ┌───────────────────────┐
+//   │         .data         │
+//   └───────────────────────┘
+//
+//   ┌───────────────────────┐
+//   │         .bss          │
+//   └───────────────────────┘  ←──────────── bounds(b).second
+//
 BFUNCTION(addr_pair, bounds_of_binary)
 BFUNCTION(uint64_t, va_of_offset, uint64_t, off)
 BFUNCTION(const void *, toMappedAddr, uint64_t, Addr)
