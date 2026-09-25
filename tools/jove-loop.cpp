@@ -75,6 +75,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> ForceRecompile;
     cl::alias ForceRecompileAlias;
     cl::opt<bool> JustRun;
+    cl::opt<bool> JustOnce;
     cl::opt<std::string> UseLd;
     cl::opt<bool> Trace;
     cl::opt<bool> DebugSjlj;
@@ -185,6 +186,9 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           JustRun("just-run", cl::desc("Just run, nothing else"),
                   cl::cat(JoveCategory)),
+
+          JustOnce("just-once", cl::desc("Just run & recompile, nothing else"),
+                    cl::cat(JoveCategory)),
 
           UseLd("use-ld",
                 cl::desc("Force using particular linker (lld,bfd,gold)"),
@@ -719,6 +723,9 @@ run:
         PossiblyReexec(invalidated, true);
     }
 #endif
+
+    if (unlikely(opts.JustOnce && opts.ForceRecompile))
+      return 0;
 
 skip_run:
     if (!opts.Connect.empty()) { /* remote */
@@ -1420,6 +1427,9 @@ skip_run:
       }
 #endif
     }
+
+    if (unlikely(opts.JustOnce && !opts.ForceRecompile))
+      return 0;
   }
 
   assert(this->interrupted.load(std::memory_order_relaxed));
