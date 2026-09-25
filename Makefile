@@ -32,6 +32,8 @@ JOVE_GITVER := $(shell git log -n1 --format="%h")
 
 BINDIR := bin
 
+aarch64_RUNTIME_CFLAGS  := -mno-outline-atomics
+
 mipsel_RUNTIME_CFLAGS   := -D TARGET_MIPS32
 mips_RUNTIME_CFLAGS     := -D TARGET_MIPS32
 mips64el_RUNTIME_CFLAGS := -D TARGET_MIPS64
