@@ -72,6 +72,7 @@ runtime_cflags = -std=gnu11 \
                  -g \
                  -ggdb \
                  -gdwarf-4 \
+                 -fvisibility=hidden \
                  -ffreestanding \
                  -fno-strict-aliasing \
                  -fno-stack-protector \
