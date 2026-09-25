@@ -102,11 +102,11 @@
 #define _IMPORT
 
 #if defined(JOVE_COFF)
-#define _DLLEXPORT __declspec(dllexport)
-#define _DLLIMPORT __declspec(dllimport)
+#define _DLLEXPORT _EXPORT __declspec(dllexport)
+#define _DLLIMPORT _EXPORT __declspec(dllimport)
 #else
-#define _DLLEXPORT
-#define _DLLIMPORT
+#define _DLLEXPORT _EXPORT
+#define _DLLIMPORT _EXPORT
 #endif
 
 #if defined(JOVE_COFF)
@@ -135,8 +135,8 @@
 
 #else
 
-#define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x) extern _DLLIMPORT _JTHREAD t __jove_##x;
-#define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)   _DLLEXPORT _JTHREAD t __jove_##x = init;
+#define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x) extern _DLLIMPORT _EXPORT _JTHREAD t __jove_##x;
+#define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)   _DLLEXPORT _EXPORT _JTHREAD t __jove_##x = init;
 #define JOVE_RT_THREAD_GLOBALP(x) (&__jove_##x)
 
 #endif

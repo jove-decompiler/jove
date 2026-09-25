@@ -17,15 +17,15 @@ DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace_begin, NULL)
 DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, callstack, NULL)
 DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, callstack_begin, NULL)
 
-uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
+_EXPORT uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
-uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES] = {
+_EXPORT uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
-DEFINE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
+_EXPORT DEFINE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
 static mutex_t to_free_lock = JOVE_MUTEX_INIT;
 static uintptr_t to_free[16];
@@ -62,17 +62,17 @@ static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 static void _jove_init_cpu_state(void);
 static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
-void _jove_flush_trace(void);
+_EXPORT void _jove_flush_trace(void);
 
 #ifdef JOVE_MT
-int _jove_needs_multi_threaded_runtime(void) { return 1; }
+_EXPORT int _jove_needs_multi_threaded_runtime(void) { return 1; }
 #else
-int _jove_needs_single_threaded_runtime(void) { return 1; }
+_EXPORT int _jove_needs_single_threaded_runtime(void) { return 1; }
 #endif
 
 static void _jove_parse_opts(void);
 
-void _jove_rt_init(void) {
+_EXPORT void _jove_rt_init(void) {
   static bool _Done = false;
   if (_Done)
     return;

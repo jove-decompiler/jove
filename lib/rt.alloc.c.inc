@@ -13,7 +13,7 @@ static struct jove_allocation_t *allocp = &alloc_arr[0];
 static mutex_t alloc_list_lock = JOVE_MUTEX_INIT;
 static struct hlist_head alloc_list = HLIST_HEAD_INIT;
 
-void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc) {
+_EXPORT void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc) {
   struct jove_allocation_t *p;
 
   if (allocp >= &alloc_arr[ARRAY_SIZE(alloc_arr)])
@@ -31,7 +31,7 @@ void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc) {
   _mutex_unlock(&alloc_list_lock);
 }
 
-void _jove_rt_track_free(uintptr_t beg, size_t len) {
+_EXPORT void _jove_rt_track_free(uintptr_t beg, size_t len) {
   struct jove_allocation_t *cur;
   struct hlist_node *tmp_node;
 
@@ -47,7 +47,7 @@ void _jove_rt_track_free(uintptr_t beg, size_t len) {
   _mutex_unlock(&alloc_list_lock);
 }
 
-const char *_jove_rt_description_for_alloc(uintptr_t beg) {
+_EXPORT const char *_jove_rt_description_for_alloc(uintptr_t beg) {
   struct jove_allocation_t *cur;
   struct hlist_node *tmp_node;
 
