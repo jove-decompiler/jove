@@ -2765,10 +2765,10 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
       continue;
     }
 
-    auto &x = state.for_function(f);
+    auto &y = state.for_function(f);
 
     if (!f.IsABI)
-      assert(x.adapterF);
+      assert(y.adapterF);
 
     C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
 #if 0
@@ -2780,9 +2780,9 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
     //
     C2 = llvm::Constant::getNullValue(WordType());
 #endif
-    C3 = x.adapterF
-             ? llvm::ConstantExpr::getPtrToInt(x.adapterF, WordType())
-             : llvm::ConstantExpr::getPtrToInt(x.F, WordType());
+    C3 = y.adapterF
+             ? llvm::ConstantExpr::getPtrToInt(y.adapterF, WordType())
+             : llvm::ConstantExpr::getPtrToInt(y.F, WordType());
   }
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
