@@ -249,10 +249,11 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
     return pid;
   }
 
+  (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
+
   if (pipe_trick)
     rfd.close(); /* unused in child. */
 
-  (void)::prctl(PR_SET_PDEATHSIG, SIGTERM);
   if (our_pfd) {
     const int poll_ret = ({
       struct pollfd pfd = {.fd = our_pfd.get(), .events = POLLIN};
