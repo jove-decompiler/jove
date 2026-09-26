@@ -1437,45 +1437,7 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
   }
 
   std::array<pid_t, 3> pidarr;
-  pidarr[0] =
-          //
-          // run llvm-dis on bitcode
-          //
-          RunExecutable(locator().dis(), [&](auto Arg) {
 
-            Arg(locator().dis());
-            Arg("-o");
-            Arg(llfp);
-            Arg(bcfp);
-          },
-          std::string(),
-          std::string(),
-          [&](const char **argv, const char **envp) {
-            if (options.IsVerbose())
-              print_command(argv);
-
-            nice(10);
-          });
- pidarr[1] =
-          //
-          // run opt on bitcode to generate stripped ll
-          //
-          RunExecutable(locator().opt(), [&](auto Arg) {
-            Arg(locator().opt());
-            Arg("-o");
-            Arg(ll_strip_fp);
-            Arg("-S");
-            Arg("--strip-debug");
-            Arg(bcfp);
-          },
-          std::string(),
-          std::string(),
-          [&](const char **argv, const char **envp) {
-            if (options.IsVerbose())
-              print_command(argv);
-
-            nice(10);
-          });
  pidarr[2] =
           //
           // run llc
@@ -1553,6 +1515,45 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
 
             if (options.IsVerbose())
               print_command(argv);
+          });
+  pidarr[0] =
+          //
+          // run llvm-dis on bitcode
+          //
+          RunExecutable(locator().dis(), [&](auto Arg) {
+
+            Arg(locator().dis());
+            Arg("-o");
+            Arg(llfp);
+            Arg(bcfp);
+          },
+          std::string(),
+          std::string(),
+          [&](const char **argv, const char **envp) {
+            if (options.IsVerbose())
+              print_command(argv);
+
+            nice(10);
+          });
+ pidarr[1] =
+          //
+          // run opt on bitcode to generate stripped ll
+          //
+          RunExecutable(locator().opt(), [&](auto Arg) {
+            Arg(locator().opt());
+            Arg("-o");
+            Arg(ll_strip_fp);
+            Arg("-S");
+            Arg("--strip-debug");
+            Arg(bcfp);
+          },
+          std::string(),
+          std::string(),
+          [&](const char **argv, const char **envp) {
+            if (options.IsVerbose())
+              print_command(argv);
+
+            nice(10);
           });
 
   std::array<int, 3> rcarr;
