@@ -481,7 +481,7 @@ private:
   int CreatePossibleTramps(void);
   int CreateFunctionTable(void);
   int CreateBinaryNamesTable(void);
-  int FixupHelperStubs(void);
+  int FixupRuntimeStubs(void);
   int CreateNoAliasMetadata(void);
   int ProcessManualRelocations(void);
   int CreateCopyRelocationHack(void);

@@ -1175,7 +1175,7 @@ int llvm_t<MT, MinSize>::go(void) {
 
   return CreateFunctionTable()
       || CreateBinaryNamesTable()
-      || FixupHelperStubs()
+      || FixupRuntimeStubs()
       || CreateNoAliasMetadata()
       || ProcessManualRelocations()
       || CreateCopyRelocationHack()
@@ -5469,7 +5469,7 @@ int llvm_t<MT, MinSize>::CreateBinaryNamesTable(void) {
 }
 
 template <bool MT, bool MinSize>
-int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
+int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
   fillInFunctionBody(
@@ -6353,7 +6353,7 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
     old_nocheck(oldInternalFTable);
 
     aassert(!CreateFunctionTable());
-    aassert(!FixupHelperStubs());
+    aassert(!FixupRuntimeStubs());
 
     dead(oldFTable);
     dead_nocheck(oldInternalFTable);
