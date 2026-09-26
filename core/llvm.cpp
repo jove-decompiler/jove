@@ -5708,9 +5708,12 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
 
               llvm::Constant *Init = llvm::ConstantArray::get(TblTy, constantTable);
 
+              std::string name = (fmt("__jove_foreign_function_table_%u") % BIdx).str();
+              dead(Module->getGlobalVariable(name));
+
               llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
-                  *Module, TblTy, false, llvm::GlobalValue::InternalLinkage, Init,
-                  (fmt("__jove_foreign_function_table_%u") % BIdx).str());
+                  *Module, TblTy, false, llvm::GlobalValue::InternalLinkage,
+                  Init, name);
 
               llvm::BasicBlock *CaseBB = llvm::BasicBlock::Create(Context, "", F);
               {
