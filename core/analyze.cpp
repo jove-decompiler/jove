@@ -463,16 +463,6 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
         f.Analysis.rets.set(CallConvRetArray[i]);
     }
   }
-#elif 0
-    // XXX TODO
-    assert(!CallConvRetArray.empty());
-    if (f.Analysis.rets[CallConvRetArray.front()]) {
-      f.Analysis.rets.reset();
-      f.Analysis.rets.set(CallConvRetArray.front());
-    } else {
-      f.Analysis.rets.reset();
-    }
-  }
 #endif
 
   //
