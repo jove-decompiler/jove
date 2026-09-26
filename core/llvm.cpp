@@ -6156,7 +6156,6 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
             assert(glbv.size() == 1);
 
             unsigned glb = glbv.front();
-            assert(glb == tcg_stack_pointer_index);
 
             llvm::StoreInst *SI =
                 IRB.CreateStore(Ret, BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
