@@ -1,5 +1,6 @@
 #include "sjlj.h"
 #include "B.h"
+#include "straight.h"
 
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -15,10 +16,14 @@ template <bool MT, bool MinSize>
 void ScanForSjLj(binary_base_t<MT, MinSize> &b,
                  llvm::object::Binary &TheBin,
                  explorer_t<MT, MinSize> &E) {
+  auto &ICFG = b.Analysis.ICFG;
+
   B::ref Bin = B::from_ref(TheBin);
 
   std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
+
+  // TODO endianness, this will matter if host endianness != guest endianness
 
 #if defined(TARGET_X86_64)
   {
@@ -459,10 +464,45 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
                             sizeof(pattern));
   }
+
+  {
+    // glibc
+    static const uint32_t pattern[] = {
+//    0xd503201f,        // nop
+      0xa9405013,        // ldp x19, x20, [x0]
+      0xa9415815,        // ldp x21, x22, [x0, #16]
+      0xa9426017,        // ldp x23, x24, [x0, #32]
+      0xa9436819,        // ldp x25, x26, [x0, #48]
+      0xa944701b,        // ldp x27, x28, [x0, #64]
+      0xa945101d,        // ldp x29, x4, [x0, #80]
+      0xb0000b22,        // adrp    x2, 19f000 <sys_sigabbrev@GLIBC_2.17+0x1c0>
+      0xf9471842,        // ldr x2, [x2, #3632]
+      0xf9400043,        // ldr x3, [x2]
+      0xca03009e,        // eor x30, x4, x3
+      0x6d472408,        // ldp d8, d9, [x0, #112]
+      0x6d482c0a,        // ldp d10, d11, [x0, #128]
+      0x6d49340c,        // ldp d12, d13, [x0, #144]
+      0x6d4a3c0e,        // ldp d14, d15, [x0, #160]
+      0xf9403404,        // ldr x4, [x0, #104]
+      0xb0000b22,        // adrp    x2, 19f000 <sys_sigabbrev@GLIBC_2.17+0x1c0>
+      0xf9471842,        // ldr x2, [x2, #3632]
+      0xf9400043,        // ldr x3, [x2]
+      0xca030085,        // eor x5, x4, x3
+      0x910000bf,        // mov sp, x5
+      0xf100003f,        // cmp x1, #0x0
+      0xd2800020,        // mov x0, #0x1
+      0x9a801020,        // csel    x0, x1, x0, ne  // ne = any
+      0xd61f03c0,        // br  x30
+    };
+
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        sizeof(pattern) - 1 * 4);
+  }
 #endif
 
-  std::string PrintStr;
-  llvm::raw_string_ostream OS(PrintStr);
+  llvm::raw_ostream &OS = llvm::errs();
 
   auto found_setjmp = [&](uint64_t A) -> void {
     if (E.IsVerbose())
@@ -471,7 +511,6 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
     assert(is_basic_block_index_valid(BBIdx));
 
-    auto &ICFG = b.Analysis.ICFG;
     ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
   };
 
@@ -483,17 +522,24 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     assert(is_basic_block_index_valid(BBIdx));
 
     auto &ICFG = b.Analysis.ICFG;
-    auto bb = basic_block_of_index(BBIdx, ICFG);
 
-    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+    StraightLineGo<false, false, MT, MinSize>(
+        b, BBIdx, invalid_basic_block_index,
+        [&](auto &bbprop, auto BBIdx) -> basic_block_index_t {
+          const auto TermType = bbprop.Term.Type;
 
-    if (ICFG.out_degree(bb) != 0) {
-      if (E.IsVerbose())
-        OS << llvm::formatv("jump aint local! @ {0:x}\n", ICFG[bb].Addr);
-      ICFG.clear_out_edges(bb);
-    }
+          aassert(IsTerminatorIndirect(bbprop.Term.Type));
 
-    ICFG[bb].Term._indirect_jump.IsLj = true;
+          auto bb = ICFG.vertex(BBIdx);
+          if (ICFG.out_degree(bb) != 0) {
+            if (E.IsVerbose())
+              OS << llvm::formatv("jump aint local! @ {0:x}\n", bbprop.Addr);
+            ICFG.clear_out_edges(bb);
+          }
+
+          bbprop.Lj = true;
+          return BBIdx;
+        });
   };
 
 
@@ -570,13 +616,6 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
       }
     }
   });
-
-  {
-    static std::mutex mtx;
-    std::unique_lock<std::mutex> lk(mtx);
-
-    llvm::errs() << PrintStr;
-  }
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

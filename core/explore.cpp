@@ -224,7 +224,7 @@ on_insn:
     bbprop_1.Size = off;
     bbprop_1.Term.Type = TERMINATOR::NONE;
     bbprop_1.Term.Addr = 0;
-    bbprop_1.Term._indirect_jump.IsLj = false;
+    bbprop_1.Lj = false;
     bbprop_1.Sj = false;
     bbprop_1.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
 

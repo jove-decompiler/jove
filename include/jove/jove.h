@@ -380,10 +380,6 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
     } _call;
 
     struct {
-      bool IsLj = false;
-    } _indirect_jump;
-
-    struct {
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
       //
       // is this a string‐manipulation instruction?
@@ -418,6 +414,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
     return *the_psm;
   }
 
+  bool Lj = false;
   bool Sj = false;
   bb_analysis_t Analysis;
 
@@ -1212,6 +1209,7 @@ using on_newbin_proc_t = std::function<void(binary_base_t<MT, MinSize> &)>;
 
 struct AddOptions_t : public VerboseThing {
   bool Objdump = false;
+  bool SjLj = true;
 };
 
 template <bool MT, bool MinSize>

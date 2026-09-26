@@ -502,9 +502,9 @@ static void save(Archive &ar, const jove::bbprop_t &bbprop, const unsigned int) 
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Type)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
-     &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
 //   &BOOST_SERIALIZATION_NVP(bbprop.Analysis)
+     &BOOST_SERIALIZATION_NVP(bbprop.Lj)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj);
 
   assert(jove::pFile_hack);
@@ -552,9 +552,9 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Type)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
-     &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
 //   &BOOST_SERIALIZATION_NVP(bbprop.Analysis)
+     &BOOST_SERIALIZATION_NVP(bbprop.Lj)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj);
 
   assert(jove::pFile_hack);

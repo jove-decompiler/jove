@@ -8,11 +8,9 @@ namespace jove {
 //
 template <typename Result, bool MT, bool MinSize>
 static inline Result fallthru(
-    jv_base_t<MT, MinSize> &jv,
-    binary_index_t BIdx,
+    binary_base_t<MT, MinSize> &b,
     basic_block_index_t BBIdx,
     std::function<Result(bbprop_t &, basic_block_index_t)> on_block) {
-  binary_base_t<MT, MinSize> &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
   std::reference_wrapper<bbprop_t> the_bbprop =

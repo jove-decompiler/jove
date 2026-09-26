@@ -580,7 +580,8 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
     }
   );
 
-  ScanForSjLj(b, Bin, explorer);
+  if (Options.SjLj)
+    ScanForSjLj(b, Bin, explorer);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

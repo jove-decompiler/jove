@@ -696,9 +696,9 @@ static inline bool IsFunctionLongjmp(
       bbvec.begin(),
       bbvec.end(),
       [&](typename ip_icfg_base_t<MT>::vertex_descriptor bb) -> bool {
-        auto &Term = ICFG[bb].Term;
-        return Term.Type == TERMINATOR::INDIRECT_JUMP &&
-               Term._indirect_jump.IsLj;
+        auto &bbprop = ICFG[bb];
+        auto &Term = bbprop.Term;
+        return Term.Type == TERMINATOR::INDIRECT_JUMP && bbprop.Lj;
       });
 }
 

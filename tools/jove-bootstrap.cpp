@@ -1552,7 +1552,7 @@ bool BootstrapTool::handle_breakpoint(void) {
   binary_t &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
   fallthru<void>(
-      jv, BIdx, BBIdx,
+      b, BBIdx,
       [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
         if (IsTerminatorIndirect(bbprop.Term.Type))
           place_breakpoints_in_block(
@@ -1839,7 +1839,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           TargetBinary);
 
       Target.isNew = fallthru<bool>(
-          jv, BIdx, BBIdx, [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
+          binary, BBIdx, [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
             assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
             bool res = bbprop.insertDynTarget(BIdx, {Target.BIdx, FIdx}, jv);
@@ -1895,7 +1895,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
               TargetBinary);
 
           Target.isNew = fallthru<bool>(
-              jv, BIdx, BBIdx,
+              binary, BBIdx,
               [&](bbprop_t &bbprop, basic_block_index_t) -> bool {
                 assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
@@ -1915,7 +1915,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, TargetICFG);
 
           Target.isNew = fallthru<bool>(
-              jv, BIdx, BBIdx,
+              binary, BBIdx,
               [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) -> bool {
                 assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 

@@ -40,11 +40,16 @@ namespace jove {
 class InitTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Prog;
+    cl::opt<bool> SjLj;
     cl::opt<bool> Objdump;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          SjLj("sjlj",
+               cl::desc("Whether to scan for setjmp() and longjmp()."),
+               cl::init(true), cl::cat(JoveCategory)),
 
           Objdump("objdump",
                   cl::desc("Run objdump and treat output as authoritative."),
@@ -140,7 +145,7 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  ConfigureVerbosity(AddOptions);
+  AddOptions.SjLj = opts.SjLj;
   AddOptions.Objdump = opts.Objdump;
 
   fs::path prog = fs::canonical(opts.Prog);

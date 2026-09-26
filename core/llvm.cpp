@@ -8598,7 +8598,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
-    if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
+    if (!IsCall && ICFG[bb].Lj) {
       llvm::outs() << llvm::formatv("longjmp at {0:x}\n", ICFG[bb].Addr);
 
       std::string message =

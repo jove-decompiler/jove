@@ -103,7 +103,7 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
   this->BIdx = static_cast<unsigned>(BIdx);
   this->TT = static_cast<unsigned>(bbprop.Term.Type);
   this->IC = static_cast<unsigned>(isCall);
-  this->LJ = static_cast<unsigned>(bbprop.Term._indirect_jump.IsLj);
+  this->LJ = static_cast<unsigned>(bbprop.Lj);
   this->OD = static_cast<unsigned>(
       ICFG.template out_degree<false>(ICFG.template vertex<false>(BBIdx)) != 0);
   this->DT = static_cast<unsigned>(bbprop.hasDynTarget());

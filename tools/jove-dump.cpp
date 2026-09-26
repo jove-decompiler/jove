@@ -220,9 +220,6 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             Writer.printBoolean("String", ICFG[bb].Term._conditional_jump.String);
 #endif
 
-          if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
-            Writer.printBoolean("IsLj", ICFG[bb].Term._indirect_jump.IsLj);
-
 #if 0
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
             Writer.printBoolean("Returns", ICFG[bb].Term._indirect_call.Returns);
@@ -232,8 +229,8 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             Writer.printBoolean("Returns", ICFG[bb].Term._return.Returns);
         }
 
-        if (ICFG[bb].Sj)
-          Writer.printBoolean("Sj", true);
+        if (ICFG[bb].Lj) Writer.printBoolean("IsLj", ICFG[bb].Lj);
+        if (ICFG[bb].Sj) Writer.printBoolean("Sj", true);
 
 #if 0
         if (!(ICFG[bb].Analysis.Stale &&
