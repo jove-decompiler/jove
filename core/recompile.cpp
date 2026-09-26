@@ -1523,13 +1523,28 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
 
-#if defined(TARGET_X86_64)
-            Arg("-mattr=+cx16");
-#elif defined(TARGET_I386)
-            Arg("-mattr=+sse2");
-#elif defined(TARGET_MIPS32)
+#if defined(TARGET_MIPS32)
             Arg("-mno-check-zero-division");
 #endif
+
+            ////////////////////////////////////////////////////////////////////
+            // FIXME
+            //
+#if defined(TARGET_X86_64)
+            Arg("-mattr=+lzcnt");
+            Arg("-mattr=+popcnt");
+            Arg("-mattr=+cx16");
+#elif defined(TARGET_AARCH64)
+            Arg("-mattr=+lse");
+#elif defined(TARGET_I386)
+            Arg("-mattr=+cx8");
+            Arg("-mattr=+cmov");
+#elif defined(TARGET_MIPS32)
+            /* TODO test non-PIC with noabicalls */
+#endif
+            //
+            //
+            ////////////////////////////////////////////////////////////////////
           },
           std::string(),
           std::string(),
