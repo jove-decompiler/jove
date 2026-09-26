@@ -1011,12 +1011,8 @@ analyzer_t<MT, MinSize>::refine_analyses(void) {
     return;
 
   //
-  // a register is considered a return register only if the at least one caller
+  // a register is considered a return register only if at least one caller
   // has that register live immediately after the call.
-  //
-  // the main benefit of this refinement is that the registers which happen to
-  // be consistently written by the function but are never actually consumed as
-  // outputs are filtered-out. in other words,
   //
   // rets(f) = rets(f) ∩ (⋃_{caller ∈ callers(f)} live_after_call(caller))
   //
