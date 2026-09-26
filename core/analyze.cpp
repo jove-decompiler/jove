@@ -354,6 +354,8 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
+  const bool IsABI = f.IsABI;
+
   {
     flow_graph_t G;
 
@@ -380,7 +382,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     //
     // all non-ABI functions will be passed the stack pointer.
     //
-    if (!f.IsABI)
+    if (!IsABI)
       f.Analysis.args.set(tcg_stack_pointer_index);
 
     //
@@ -417,9 +419,9 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
               ~tcg_global_set_t(),
               [&](tcg_global_set_t res, exit_vertex_pair_t Pair) -> tcg_global_set_t {
                 flow_vertex_t V;
-                bool IsABI;
+                bool _;
 
-                std::tie(V, IsABI) = Pair;
+                std::tie(V, _) = Pair;
 
                 res &= G[V].OUT;
 
@@ -430,13 +432,13 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
       //
       // all non-ABI functions with an exit block will return the stack pointer.
       //
-      if (!f.IsABI)
+      if (!IsABI)
         f.Analysis.rets.set(tcg_stack_pointer_index);
     }
   }
 
 #if 0
-  if (f.IsABI) {
+  if (IsABI) {
     //
     // for ABI's, if we need a return register whose index > 0, then we will
     // infer that all the preceeding return registers are live as well
@@ -460,6 +462,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
       for (unsigned i = 0; i <= idx; ++i)
         f.Analysis.rets.set(CallConvRetArray[i]);
     }
+  }
 #elif 0
     // XXX TODO
     assert(!CallConvRetArray.empty());
@@ -476,7 +479,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
   // for ABI's, if we need a register parameter whose index > 0, then we will
   // infer that all the preceeding paramter registers are live as well
   //
-  if (f.IsABI) {
+  if (IsABI) {
     std::vector<unsigned> glbv;
     explode_tcg_global_set(glbv, f.Analysis.args);
 
