@@ -6808,13 +6808,7 @@ int llvm_t<MT, MinSize>::Debugify(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
-  if (options.LayOutSections)
-    return 0; /* FIXME */
-
   auto &Binary = jv.Binaries.at(BinaryIndex);
-
-  if (!SectsGlobal)
-    return 0;
 
   auto hunt_and_erase = [&](std::function<llvm::Instruction *(llvm::Instruction &)> HuntFunc) -> void {
     std::vector<llvm::Instruction *> ToErase;
