@@ -2789,13 +2789,15 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
 
   llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
   llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
-  llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
-      *Module, T, true, llvm::GlobalValue::ExternalLinkage, Init,
-      (fmt("__jove_b%u") % BinaryIndex).str());
+
+  if (!options.ForeignLibs)
+    new llvm::GlobalVariable(*Module, T, true,
+                             llvm::GlobalValue::ExternalLinkage, Init,
+                             (fmt("__jove_b%u") % BinaryIndex).str());
 
   llvm::GlobalVariable *ConstantTableInternalGV = new llvm::GlobalVariable(
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
-      (fmt("__jove_internal_b%u") % BinaryIndex).str());
+      (fmt("__jove_internal_b%u") % BinaryIndex).str()); /* FIXME? */
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_function_table"),
@@ -6287,10 +6289,8 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
         y.old.F = oldF;
         y.old.adapterF = oldAdapterF;
 
-        if (oldF)
-          old(oldF);
-        if (oldAdapterF)
-          old(oldAdapterF);
+        old(oldF);
+        old(oldAdapterF);
 
         if (options.IsVeryVerbose())
           llvm::errs() << llvm::formatv("{0} {1:x}\n",
@@ -6337,47 +6337,27 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
       std::tie(y.F, y.adapterF) = newPair;
     }
 
-#if 0
-    if (!options.ForeignLibs) {
-      //
-      // re-recreate other function tables
-      //
-      llvm::GlobalVariable *const oldBinaryFunctionsTable = x.FunctionsTable;
-      old(oldBinaryFunctionsTable);
-
-      llvm::GlobalVariable *newBinaryFunctionsTable  = new llvm::GlobalVariable(
-          *Module,
-          llvm::ArrayType::get(WordType(),
-                               3 * Binary.Analysis.Functions.size() + 1),
-          false, llvm::GlobalValue::ExternalLinkage, nullptr,
-          (fmt("__jove_b%u") % BIdx).str());
-      oldBinaryFunctionsTable->replaceAllUsesWith(newBinaryFunctionsTable);
-
-      assert(oldBinaryFunctionsTable->use_empty());
-      oldBinaryFunctionsTable->eraseFromParent();
-
-      x.FunctionsTable = newBinaryFunctionsTable;
-    }
-#endif
-
     //
     // re-recreate function tables
     //
     {
-      llvm::GlobalVariable *const FTable =
-          Module->getGlobalVariable((fmt("__jove_b%u") % BinaryIndex).str());
-      assert(FTable);
-      old(FTable);
-    }
-    {
-      llvm::GlobalVariable *const InternalFTable = Module->getGlobalVariable(
-          (fmt("__jove_internal_b%u") % BinaryIndex).str(), true);
-      assert(InternalFTable);
-      old(InternalFTable);
-    }
+    llvm::GlobalVariable *const oldFTable =
+        Module->getGlobalVariable((fmt("__jove_b%u") % BinaryIndex).str());
+    llvm::GlobalVariable *const oldInternalFTable = Module->getGlobalVariable(
+        (fmt("__jove_internal_b%u") % BinaryIndex).str(), true); /* FIXME? */
+
+    assert(oldFTable || options.ForeignLibs);
+    assert(oldInternalFTable);
+
+    old(oldFTable);
+    old_nocheck(oldInternalFTable);
 
     aassert(!CreateFunctionTable());
     aassert(!FixupHelperStubs());
+
+    dead(oldFTable);
+    dead_nocheck(oldInternalFTable);
+    }
 
     //
     // translate / re-translate those which were invalidated

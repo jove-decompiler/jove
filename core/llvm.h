@@ -833,8 +833,23 @@ private:
     return bswap;
   }
 
-  void old(llvm::Value *V) {
+  void old_nocheck(llvm::Value *V) {
     V->setName(V->getName() + "_old");
+  }
+
+  void old(llvm::Value *V) {
+    if (V)
+      old_nocheck(V);
+  }
+
+  void dead_nocheck(llvm::GlobalValue *GV) {
+    assert(GV->use_empty());
+    GV->eraseFromParent();
+  }
+
+  void dead(llvm::GlobalValue *GV) {
+    if (GV)
+      dead_nocheck(GV);
   }
 };
 
