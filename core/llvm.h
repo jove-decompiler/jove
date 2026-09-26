@@ -501,6 +501,7 @@ private:
   int BreakBeforeUnreachables(void);
   int LinkInSoftFPU(void);
   int ForceCallConv(void);
+  int ForceSectVarsNotConstant(void);
   int WriteModule(void);
 
   std::pair<llvm::Function *, llvm::Function *>

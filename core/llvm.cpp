@@ -1198,6 +1198,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || (!options.LinkerScript.empty() ? WriteLinkerScript() : 0)
       || (options.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
       || (options.Debugify ? Debugify() : 0)
+      || ((options.LayOutSections && !IsCOFF) ? ForceSectVarsNotConstant() : 0)
       || WriteModule();
 }
 
@@ -7486,6 +7487,25 @@ int llvm_t<MT, MinSize>::ForceCallConv(void) {
   }
 
 #endif
+
+  return 0;
+}
+
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ForceSectVarsNotConstant(void) {
+  assert(options.LayOutSections);
+  assert(!IsCOFF);
+
+  //
+  // a read-only global and a write-able global can never occupy the same
+  // resulting (i.e. recompiled) section, because they have incompatible flags.
+  // so- for ELF, unless we do this, the global variables can get re-arranged.
+  //
+  // an alternative solution to this is to simply use a linker script, but,
+  // doing so would complicate an otherwise simple situation.
+  //
+  for (const auto &x : LaidOut.GVVec)
+    x.first->setConstant(false);
 
   return 0;
 }
