@@ -8,8 +8,7 @@ typedef uint32_t basic_block_index_t;
 typedef uint32_t call_graph_index_t;
 
 //
-// make our own custom class so these things are trivially copyable.
-// can we make each index type's number of bits configurable via _ExtInt? FIXME
+// FIXME(?) _ExtInt
 //
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
 typedef std::pair<binary_index_t, basic_block_index_t> block_t;
