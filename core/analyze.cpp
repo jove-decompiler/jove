@@ -385,10 +385,12 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     if (!IsABI)
       f.Analysis.args.set(tcg_stack_pointer_index);
 
+#if 0
     //
     // if we are really being precise, then save the live-out sets
     //
-    if (options.Precision >= 1) {
+#endif
+    if (1 /* options.Precision >= 1 */) {
       const auto &bbvec = state.for_function(f).bbvec;
 
       std::for_each(maybe_par_unseq,
