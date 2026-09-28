@@ -1004,7 +1004,7 @@ int llvm_t<MT, MinSize>::go(void) {
       (rc = ProcessBinaryTLSSymbols()) ||
       (rc = (options.DFSan ? LocateHooks() : 0)) ||
       (rc = CreateTLSModGlobal()) ||
-      (rc = CreateSectionGlobalVariables()) ||
+      (rc = (LayingOut() ? CreateSectionGlobalVariables<true>() : CreateSectionGlobalVariables<false>())) ||
       (rc = CreatePossibleTramps()))
     return rc;
 
@@ -3317,16 +3317,16 @@ struct unhandled_relocation_exception {};
 //
 //   ┌───────────────────────┐  ─┐
 //   │         .text         │   │
-//   ├───────────────────────┤   │
+//   ├-----------------------┤   │
 //   │                       │   │
-//   ├───────────────────────┤   │
+//   ├-----------------------┤   │
 //   │        .rodata        │   │
-//   ├───────────────────────┤   │
-//   ├───────────────────────┤   │  __jove_sections
+//   ├-----------------------┤   │
+//   ├-----------------------┤   │  __jove_sections
 //   │         .data         │   │
-//   ├───────────────────────┤   │
+//   ├-----------------------┤   │
 //   │                       │   │
-//   ├───────────────────────┤   │
+//   ├-----------------------┤   │
 //   │         .bss          │   │
 //   └───────────────────────┘  ─┘
 //
@@ -3334,9 +3334,11 @@ struct unhandled_relocation_exception {};
 // global variable associated with each section (or segment).
 //
 template <bool MT, bool MinSize>
+template <bool LayOutSections>
 int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
-  auto &Bin = state.for_binary(Binary).Bin;
+  auto &x = state.for_binary(Binary);
+  auto &Bin = x.Bin;
 
   struct PatchContents {
     llvm_t &tool;
@@ -3409,8 +3411,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
   } __PatchContents(*this, Binary);
 
-  const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
-  const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
+  const auto SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
+  const auto SectsEndAddr   = state.for_binary(Binary).SectsEndAddr;
 
   struct {
     int rsrcSectIdx = -1;
@@ -3476,7 +3478,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       } else {
         llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
             Elf.getSectionContents(Sec);
-        assert(contents);
+        aassert(contents);
         sectprop.contents = *contents;
       }
 
@@ -3539,7 +3541,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       LoadSegments.push_back(&Phdr);
     }
 
-    assert(!LoadSegments.empty());
+    aassert(!LoadSegments.empty());
 
     std::stable_sort(LoadSegments.begin(),
                      LoadSegments.end(),
@@ -3553,7 +3555,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     SectTable.resize(NumSections);
     SegContents.resize(NumSections);
     for (unsigned i = 0; i < NumSections; ++i) {
-      assert(LoadSegments[i]->p_filesz <= LoadSegments[i]->p_memsz);
+      aassert(LoadSegments[i]->p_filesz <= LoadSegments[i]->p_memsz);
 
       std::vector<uint8_t> &vec = SegContents.at(i);
       vec.resize(LoadSegments[i]->p_memsz);
@@ -3608,7 +3610,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       const obj::SectionRef &S = *it;
 
       const llvm::object::coff_section *pSect = O.getCOFFSection(S);
-      assert(pSect);
+      aassert(pSect);
       const llvm::object::coff_section &Sect = *pSect;
 
       section_properties_t sectprop;
@@ -3620,7 +3622,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           WithColor::warning() << "failed to get contents of section "
                              << Sect.Name << '\n';
         } else {
-          assert(contents.size() <= Sect.SizeOfRawData);
+          aassert(contents.size() <= Sect.SizeOfRawData);
 
           if (options.IsVeryVerbose())
             llvm::errs() << llvm::formatv(
@@ -3661,7 +3663,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       SectMap.add({intervl, {sectprop}});
     }
 
-    assert(SectMap.iterative_size() == NumSections);
+    aassert(SectMap.iterative_size() == NumSections);
 
     i = 0;
     for (const auto &pair : SectMap) {
@@ -3691,7 +3693,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
   });
 
-  assert(NumSections > 0);
+  aassert(NumSections > 0);
+  aassert(std::is_sorted(SectTable.cbegin(),
+                         SectTable.cend(),
+                         [](const section_t &lhs, const section_t &rhs) {
+                           return lhs.Addr < rhs.Addr;
+                         }));
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
     auto it = SectIdxMap.find(Addr);
@@ -3724,15 +3731,40 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     ConstantRelocations.emplace(Addr, C);
   };
 
-  llvm::StructType *SectsGlobalTy;
+  std::conditional_t<!LayOutSections, std::vector<llvm::Type *>,     std::monostate> WholeFieldTyVec;
+  std::conditional_t<!LayOutSections, std::vector<llvm::Constant *>, std::monostate> WholeFieldCVec;
 
+  std::string jove_po_needed_name =
+      "__jove_space_" + std::to_string(2 * NumSections + 1);
+
+  //
+  // each section is a struct. in-between these structs are constant arrays of
+  // zeros.
+  //
+  // in --lay-out-sections, each struct is a global variable. otherwise, the
+  // whole thing is one big struct with each field being the struct or zeros.
+  //
+  // create the global variables first, but don't initialize them.
+  //
+  std::conditional_t<!LayOutSections, llvm::StructType *, std::monostate> WholeTy{};
   auto declare_sections = [&](void) -> void {
-    //
-    // create global variable for sections
-    //
-    std::vector<llvm::Type *> SectsGlobalFieldTys;
+    std::conditional_t<LayOutSections, bool,     std::monostate> EmptyGVVec;
+    std::conditional_t<LayOutSections, unsigned, std::monostate> trailingBytes;
+    unsigned j = 0;
+
+    if constexpr (LayOutSections) {
+      EmptyGVVec = this->LaidOut.Vec.empty();
+      trailingBytes = 0;
+    } else {
+      WholeTy = nullptr;
+      WholeFieldTyVec.clear();
+      WholeFieldCVec.clear();
+    }
+
+    std::string CurrSectName = ".jove";
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
+
 #if 0
       llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
 #endif
@@ -3743,20 +3775,92 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       //
       if (i > 0) {
         section_t &PrevSect = SectTable[i - 1];
-        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-        if (space > 0) {
-          // zero padding between sections
-          SectsGlobalFieldTys.push_back(
-              llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), space));
+        const uint64_t PrevEnd = PrevSect.Addr + PrevSect.Size;
+        if (Sect.Addr < PrevEnd)
+          die("overlapping sections");
+
+        uint64_t GapAddr = PrevEnd;
+        uint64_t Space = Sect.Addr - PrevEnd;
+        if (Space > 0) {
+          if constexpr (LayOutSections) { /* may need slight adjustment */
+            if (trailingBytes > Space)
+              die("not enough space to fit trailingBytes (" +
+                  std::to_string(trailingBytes) + ")");
+
+            GapAddr += trailingBytes;
+            Space -= trailingBytes;
+          }
+
+          if (Space > 0) {
+            ////////////////////////////////////////////////////////////////////
+            // space between the sections
+            //
+            BOOST_SCOPE_DEFER[&] { ++j; };
+
+            auto *const T = llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), Space);
+            auto *const C = llvm::Constant::getNullValue(T); /* already know */
+
+            if constexpr (LayOutSections) {
+              const uint64_t GapOff = GapAddr - SectsStartAddr;
+              if (EmptyGVVec) {
+                auto *const GV = new llvm::GlobalVariable(
+                    *Module, T, true, llvm::GlobalValue::InternalLinkage, C,
+                    "__jove_space_" + std::to_string(j));
+
+                GV->setSection(CurrSectName);
+                GV->setAlignment(llvm::Align(1));
+
+                assert(this->LaidOut.Vec.size() == j);
+                this->LaidOut.Vec.emplace_back(T, GV, Space, GapOff);
+              } else {
+                assert(std::get<0>(this->LaidOut.Vec.at(j)) && /* FIXME (style) */ std::get<0>(this->LaidOut.Vec.at(j))->isArrayTy());
+                assert(std::get<1>(this->LaidOut.Vec.at(j)));
+                assert(std::get<2>(this->LaidOut.Vec.at(j)) == Space);
+                assert(std::get<3>(this->LaidOut.Vec.at(j)) == GapOff);
+
+                std::get<0>(this->LaidOut.Vec.at(j)) = T; /* GV is already there */
+              }
+            } else {
+              assert(WholeFieldTyVec.size() == j);
+              assert(WholeFieldCVec.size() == j);
+
+              WholeFieldTyVec.push_back(T);
+              WholeFieldCVec.push_back(C);
+            }
+            //
+            //
+            ////////////////////////////////////////////////////////////////////
+          }
+        } else {
+          if constexpr (LayOutSections)
+            aassert(trailingBytes == 0);
         }
       }
 
-      std::vector<llvm::Type *> SectFieldTys;
+      //////////////////////////////////////////////////////////////////////////
+      // section's struct's type
+      //
+      Sect.j = j;
+      BOOST_SCOPE_DEFER [&] { ++j; };
+
+      if (options.IsVeryVerbose())
+        llvm::errs() << llvm::formatv("Declaring section {0}\n", Sect.Name);
+
+      if (IsCOFF && _coff.rsrcSectIdx >= 0) {
+        if (i < _coff.rsrcSectIdx)
+          ;
+        else if (i > _coff.rsrcSectIdx)
+          CurrSectName = ".jove_po";
+        else
+          CurrSectName = ".rsrc";
+      }
+
+      std::vector<llvm::Type *> FieldTyVec;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
-        auto it = Sect.Stuff.Types.find(intvl.lower());
-
         llvm::Type *T;
+
+        auto it = Sect.Stuff.Types.find(intvl.lower());
         if (it == Sect.Stuff.Types.end() || !(*it).second)
           T = llvm::ArrayType::get(llvm::IntegerType::get(Context, 8),
                                    intvl.upper() - intvl.lower());
@@ -3764,75 +3868,146 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           T = (*it).second;
 
 #if 0
-        llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <T: {2}>\n",
-                                      intvl.lower(),
-                                      intvl.upper(), *T);
+        if (options.IsVeryVerbose())
+          llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <T: {2}>\n",
+                                        intvl.lower(),
+                                        intvl.upper(), *T);
 #endif
 
-        SectFieldTys.push_back(T);
+        FieldTyVec.push_back(T);
       }
 
-      std::string SectNm = Sect.Name;
-      SectNm.erase(std::remove(SectNm.begin(), SectNm.end(), '.'),
-                   SectNm.end());
+      auto *const NewT = ({
+        std::string SectNm(Sect.Name);
+        SectNm.erase(std::remove(SectNm.begin(), SectNm.end(), '.'), SectNm.end());
 
-      SectTable[i].T = llvm::StructType::create(
-          Context, SectFieldTys, "section." + SectNm, true /* isPacked */);
+        llvm::StructType::create(Context, FieldTyVec, "section." + SectNm, true /* isPacked */);
+      });
 
-      SectsGlobalFieldTys.push_back(SectTable[i].T);
+      Sect.T = NewT;
+
+      if constexpr (LayOutSections) {
+        const unsigned actualSize = DL.getTypeAllocSize(NewT);
+        aassert(actualSize >= Sect.Size);
+        trailingBytes = actualSize - Sect.Size;
+
+        const uint64_t SectsStartOff = Sect.Addr - x.SectsStartAddr;
+
+        auto *const OldGV =
+            EmptyGVVec ? nullptr : std::get<1>(this->LaidOut.Vec.at(j));
+        old(OldGV);
+        auto *const NewGV = ({ /* TODO reuse if type remains the same */
+          std::string suffix = Sect.Name;
+          std::replace_if(
+              suffix.begin(),
+              suffix.end(),
+              [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
+
+          new llvm::GlobalVariable(
+              *Module, NewT, false, llvm::GlobalValue::InternalLinkage,
+              nullptr, "__jove_section_" + suffix, /* InsertBefore */ OldGV);
+        });
+        NewGV->setSection(CurrSectName);
+        NewGV->setAlignment(llvm::Align(1));
+        if (OldGV) {
+          OldGV->replaceAllUsesWith(
+              llvm::ConstantExpr::getPointerCast(NewGV, OldGV->getType()));
+          dead_nocheck(OldGV);
+        }
+
+        if (EmptyGVVec) {
+          if (!this->LaidOut.HeadGV)
+            this->LaidOut.HeadGV = NewGV;
+
+          assert(this->LaidOut.Vec.size() == j);
+          this->LaidOut.Vec.emplace_back(NewT, NewGV, actualSize, SectsStartOff);
+        } else {
+          assert(std::get<0>(this->LaidOut.Vec.at(j)) && /* FIXME (style) */ std::get<0>(this->LaidOut.Vec.at(j))->isStructTy());
+          assert(std::get<1>(this->LaidOut.Vec.at(j)));
+          assert(std::get<2>(this->LaidOut.Vec.at(j)) == actualSize);
+          assert(std::get<3>(this->LaidOut.Vec.at(j)) == SectsStartOff);
+
+          std::get<0>(this->LaidOut.Vec.at(j)) = NewT;
+          std::get<1>(this->LaidOut.Vec.at(j)) = nullptr;
+        }
+
+        auto *&T = std::get<0>(this->LaidOut.Vec.at(j));
+        T = NewT;
+
+        auto *&GV = std::get<1>(this->LaidOut.Vec.at(j));
+        GV = NewGV;
+      } else {
+        assert(WholeFieldTyVec.size() == j);
+        assert(WholeFieldCVec.size() == j);
+
+        WholeFieldTyVec.push_back(NewT);
+        WholeFieldCVec.push_back(nullptr);
+      }
+      //
+      //
+      //////////////////////////////////////////////////////////////////////////
     }
 
-    SectsGlobalTy = llvm::StructType::create(Context, SectsGlobalFieldTys,
-                                             "struct.sections", true);
-    struct {
-      llvm::GlobalVariable *SectsGlobal;
-      llvm::GlobalVariable *ConstSectsGlobal;
-    } Old = {SectsGlobal, ConstSectsGlobal};
-
-    if (Old.SectsGlobal && Old.ConstSectsGlobal) {
-      Old.SectsGlobal->setName("");
-      Old.ConstSectsGlobal->setName("");
-    }
-
-    SectsGlobal = new llvm::GlobalVariable(*Module,
-        SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage, nullptr,
-        SectsGlobalName);
-
-    ConstSectsGlobal = new llvm::GlobalVariable(
-        *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
-        nullptr, ConstSectsGlobalName);
-
-    if (!jv.Binaries.at(BinaryIndex).IsPIC) {
-      assert(jv.Binaries.at(BinaryIndex).IsExecutable);
-
-      SectsGlobal->setAlignment(llvm::Align(1));
-      ConstSectsGlobal->setAlignment(llvm::Align(1));
+    if constexpr (LayOutSections) {
+      assert(this->LaidOut.Vec.size() >= NumSections &&
+             this->LaidOut.Vec.size() <= 2*NumSections);
     } else {
-      SectsGlobal->setAlignment(llvm::Align(2 * WordBytes()));
-      ConstSectsGlobal->setAlignment(llvm::Align(2 * WordBytes()));
+      //
+      // create the whole sections
+      //
+      WholeTy = llvm::StructType::create(
+          Context, WholeFieldTyVec, "struct.sections", true /* packed */);
+
+      llvm::GlobalVariable *const OldSectsGlobal      = this->SectsGlobal;
+      llvm::GlobalVariable *const OldConstSectsGlobal = this->ConstSectsGlobal;
+
+      const bool HasOldSectsGlobal      = old(OldSectsGlobal);
+      const bool HasOldConstSectsGlobal = old(OldConstSectsGlobal);
+
+      auto *const GV = new llvm::GlobalVariable(
+          *Module, WholeTy, false, llvm::GlobalValue::ExternalLinkage, nullptr,
+          SectsGlobalName);
+
+      GV->setAlignment(llvm::Align(1));
+
+      auto *const ConstGV = new llvm::GlobalVariable(
+          *Module, WholeTy, false, llvm::GlobalValue::ExternalLinkage,
+          nullptr, ConstSectsGlobalName);
+
+      ConstGV->setAlignment(llvm::Align(1));
+
+      if (!jv.Binaries.at(BinaryIndex).IsPIC) {
+        aassert(jv.Binaries.at(BinaryIndex).IsExecutable);
+
+        GV->setAlignment(llvm::Align(1));
+        ConstGV->setAlignment(llvm::Align(1));
+      } else {
+        GV->setAlignment(llvm::Align(2 * WordBytes()));      /* FIXME */
+        ConstGV->setAlignment(llvm::Align(2 * WordBytes())); /* FIXME */
+      }
+
+      this->SectsGlobal      = GV;
+      this->ConstSectsGlobal = ConstGV;
+
+      if (!HasOldSectsGlobal)
+        return;
+      aassert(HasOldConstSectsGlobal);
+
+      OldSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
+          GV, OldSectsGlobal->getType()));
+      OldConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
+          ConstGV, OldConstSectsGlobal->getType()));
+
+      dead_nocheck(OldSectsGlobal);
+      dead_nocheck(OldConstSectsGlobal);
     }
-
-    if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
-      return;
-
-    Old.SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
-        SectsGlobal, Old.SectsGlobal->getType()));
-
-    Old.ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
-        ConstSectsGlobal, Old.ConstSectsGlobal->getType()));
-
-    assert(Old.SectsGlobal->user_begin() == Old.SectsGlobal->user_end());
-    assert(Old.ConstSectsGlobal->user_begin() == Old.ConstSectsGlobal->user_end());
-
-    Old.SectsGlobal->eraseFromParent();
-    Old.ConstSectsGlobal->eraseFromParent();
   };
 
+  // this *should* be easier than declare_sections(). spaces already have
+  // initializers, so we just have to take care of sections.
   auto define_sections = [&](void) -> void {
-    //
-    // create global variable initializer for sections
-    //
-    std::vector<llvm::Constant *> SectsGlobalFieldInits;
+    std::conditional_t<!LayOutSections, std::vector<llvm::Constant *>, std::monostate> WholeSectFieldInits;
+
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
 
@@ -3841,21 +4016,10 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
             "Section: \"{0}\" Size={1} Sect.Contents.size()={2}\n", Sect.Name,
             Sect.Size, Sect.Contents.size());
 
+      //////////////////////////////////////////////////////////////////////////
+      // section's struct's initializer
       //
-      // check if there's space between the start of this section and the
-      // previous
-      //
-      if (i > 0) {
-        section_t &PrevSect = SectTable[i - 1];
-        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-        if (space > 0) {
-          // zero padding between sections
-          SectsGlobalFieldInits.push_back(llvm::Constant::getNullValue(
-              llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), space)));
-        }
-      }
-
-      std::vector<llvm::Constant *> SectFieldInits;
+      std::vector<llvm::Constant *> FieldCVec;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
         if (options.IsVeryVerbose())
@@ -3863,41 +4027,35 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                                         intvl.lower(),
                                         intvl.upper());
 
-        //
-        // FIXME the following is code duplication, don't you think?
-        //
-        llvm::Type *T;
-        {
-          auto it = Sect.Stuff.Types.find(intvl.lower());
-
-          if (it == Sect.Stuff.Types.end() || !(*it).second)
-            T = llvm::ArrayType::get(llvm::IntegerType::get(Context, 8),
-                                     intvl.upper() - intvl.lower());
-          else
-            T = (*it).second;
-        }
-
-        auto it = Sect.Stuff.Constants.find(intvl.lower());
-
         llvm::Constant *C = nullptr;
-        if (it == Sect.Stuff.Constants.end()) {
-          ptrdiff_t len = intvl.upper() - intvl.lower();
-          assert(len > 0);
+        {
+          auto it = Sect.Stuff.Constants.find(intvl.lower());
+          if (it == Sect.Stuff.Constants.end()) {
+            ptrdiff_t len = intvl.upper() - intvl.lower();
+            assert(len > 0);
 
-          if (Sect.Contents.size() >= len) {
-            assert(Sect.Contents.size() - intvl.lower() >= len);
+            if (Sect.Contents.size() >= len) {
+              assert(Sect.Contents.size() - intvl.lower() >= len);
 
-            C = llvm::ConstantDataArray::get(
-                Context,
-                llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
-                                        Sect.Contents.begin() + intvl.upper()));
+              C = llvm::ConstantDataArray::get(
+                  Context,
+                  llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
+                                          Sect.Contents.begin() + intvl.upper()));
+            } else {
+              C = llvm::Constant::getNullValue(
+                  llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), len));
+            }
           } else {
-            C = llvm::Constant::getNullValue(
-                llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), len));
+            auto *const T = ({
+              auto it = Sect.Stuff.Types.find(intvl.lower());
+              assert(it != Sect.Stuff.Types.end());
+              (*it).second;
+            });
+
+            C = (*it).second ?: llvm::Constant::getNullValue(T);
           }
-        } else {
-          C = (*it).second ?: llvm::Constant::getNullValue(T);
         }
+
         assert(C);
 
 #if 0
@@ -3907,35 +4065,55 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                                         intvl.upper(), *C);
 #endif
 
-        SectFieldInits.push_back(C);
+        FieldCVec.push_back(C);
       }
+      //
+      //
+      //////////////////////////////////////////////////////////////////////////
 
-      // XXX the following assumes .rsrc is just pure bytes, and it assumes the
-      // section can basically just be anywhere relative to the other sections
-      // XXX wasteful, consider --lay-out-sections
-      if (!options.LayOutSections && IsCOFF && Sect.Name == ".rsrc" &&
-          !Module->getGlobalVariable("__jove_rsrc", true)) {
-        llvm::GlobalVariable *rsrcSectGV = new llvm::GlobalVariable(
-            *Module, SectTable[i].T, false, llvm::GlobalValue::InternalLinkage,
-            llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits),
-            "__jove_rsrc");
-        rsrcSectGV->setSection(".rsrc");
+      // TODO check that it's what we computed in declare_sections()
+      llvm::StructType *const T = Sect.T;
+      auto *const C = llvm::ConstantStruct::get(T, FieldCVec);
 
-        if (!Sect.w)
-          rsrcSectGV->setConstant(true);
+      Sect.C = C;
+
+      const unsigned j = Sect.j;
+
+      if constexpr (LayOutSections) {
+        std::get<1>(this->LaidOut.Vec.at(j))->setInitializer(C);
+      } else {
+        WholeFieldCVec.at(j) = C;
       }
-
-      SectTable[i].C = llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits);
-
-      SectsGlobalFieldInits.push_back(SectTable[i].C);
     }
 
-    SectsGlobal->setInitializer(
-        llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
-    ConstSectsGlobal->setInitializer(
-        llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+    if constexpr (!LayOutSections) {
+      SectsGlobal->setInitializer(
+          llvm::ConstantStruct::get(WholeTy, WholeFieldCVec));
+      ConstSectsGlobal->setInitializer(
+          llvm::ConstantStruct::get(WholeTy, WholeFieldCVec));
+      ConstSectsGlobal->setConstant(true);
+    }
 
-    ConstSectsGlobal->setConstant(true);
+    if (_coff.rsrcSectIdx == NumSections - 1) {
+      assert(IsCOFF);
+
+      //
+      // .rsrc is the last section, so .jove_po wasn't created. unfortunately
+      // we have to do the following. XXX
+      //
+      if (!Module->getGlobalVariable(jove_po_needed_name)) {
+        auto *GV = new llvm::GlobalVariable(
+            *Module, WordType(), false,
+            llvm::GlobalValue::InternalLinkage,
+            llvm::Constant::getNullValue(WordType()),
+            jove_po_needed_name);
+
+        GV->setConstant(true);
+        GV->setSection(".jove_po");
+
+        ReferenceInNoDCEFunc(GV);
+      }
+    }
   };
 
   auto create_global_variable = [&](const uint64_t Addr,
@@ -4555,7 +4733,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           });
     });
 
-    declare_sections();
+    declare_sections(); /* type_at_address()'s have been called */
 
     B::_elf(Bin.get(), [&](ELFO &O) {
 
@@ -4751,7 +4929,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           });
     });
 
-    define_sections();
+    define_sections(); /* constant_at_address()'s have been called */
 
     //
     // global variables
@@ -4826,139 +5004,6 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   if (TLSSectsGlobal) {
     TLSSectsGlobal->setAlignment(llvm::Align(2 * WordBytes()));
     TLSSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-  }
-
-  if (options.LayOutSections) {
-    std::string CurrSectName = ".jove";
-
-    unsigned trailingBytes = 0; /* cuts into space between sections */
-    unsigned j = 0;
-    for (unsigned i = 0; i < NumSections; ++i) {
-      section_t &Sect = SectTable[i];
-
-      //
-      // check if there's space between the start of this section and the
-      // previous
-      //
-      if (i > 0) {
-        section_t &PrevSect = SectTable[i - 1];
-        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-        if (space > 0) {
-          if (trailingBytes > 0) {
-            if (trailingBytes > space) {
-              llvm::errs() << llvm::formatv(
-                  "not enough space to fit trailingBytes {0}\n", trailingBytes);
-              return 1;
-            } else {
-              space -= trailingBytes;
-              trailingBytes = 0;
-            }
-          }
-
-          if (space > 0) {
-            auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), space);
-            auto *C = llvm::Constant::getNullValue(T); // zeros between sections
-
-            auto *GV = new llvm::GlobalVariable(
-                *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
-                "__jove_space_" + std::to_string(j));
-            ++j;
-
-            GV->setConstant(true);
-            GV->setAlignment(llvm::Align(1));
-            GV->setSection(CurrSectName); /* no .bss */
-
-            assert(DL.getTypeAllocSize(T) == space);
-
-            LaidOut.GVVec.emplace_back(GV, space);
-          }
-        } else if (trailingBytes > 0) {
-          WithColor::error() << llvm::formatv(
-              "no space for trailingBytes {0}\n", trailingBytes);
-          return 1;
-        }
-      } else {
-        assert(trailingBytes == 0);
-      }
-
-      if (options.IsVeryVerbose())
-        llvm::errs() << llvm::formatv("Laying out section {0}\n", Sect.Name);
-
-      if (IsCOFF && _coff.rsrcSectIdx >= 0) {
-        if (i < _coff.rsrcSectIdx)
-          ;
-        else if (i > _coff.rsrcSectIdx)
-          CurrSectName = ".jove_po";
-        else
-          CurrSectName = ".rsrc";
-      }
-
-      auto *T = Sect.T;
-      auto *C = Sect.C;
-
-      assert(T);
-      assert(C);
-
-      std::string suffix = Sect.Name;
-      std::replace_if(
-          suffix.begin(), suffix.end(),
-          [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
-
-      auto *GV = new llvm::GlobalVariable(*Module, T, false,
-                                          llvm::GlobalValue::InternalLinkage,
-                                          C, "__jove_section_" + suffix);
-      if (!Sect.w)
-        GV->setConstant(true);
-
-      ++j;
-
-      const unsigned actualSize = DL.getTypeAllocSize(T);
-      assert(actualSize >= Sect.Size);
-      trailingBytes = actualSize - Sect.Size;
-
-      if (options.IsVerbose() && trailingBytes > 0)
-        llvm::errs() << llvm::formatv("{0} trailing bytes for {1}\n",
-                                      trailingBytes, Sect.Name);
-
-      if (!LaidOut.HeadGV) {
-        GV->setAlignment(llvm::Align(WordBytes()));
-        LaidOut.HeadGV = GV;
-      } else {
-        GV->setAlignment(llvm::Align(1));
-      }
-
-      GV->setSection(CurrSectName);
-
-      LaidOut.GVVec.emplace_back(GV, Sect.Size + trailingBytes);
-    }
-
-    SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
-        LaidOut.HeadGV, SectsGlobal->getType()));
-
-    ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
-        LaidOut.HeadGV, ConstSectsGlobal->getType()));
-
-    assert(SectsGlobal->use_empty());
-    assert(ConstSectsGlobal->use_empty());
-
-    SectsGlobal->eraseFromParent();
-    ConstSectsGlobal->eraseFromParent();
-
-    SectsGlobal = nullptr;
-    ConstSectsGlobal = nullptr;
-
-    if (_coff.rsrcSectIdx == NumSections - 1) { /* XXX .jove_po must exist */
-      auto *GV = new llvm::GlobalVariable(
-          *Module, WordType(), false,
-          llvm::GlobalValue::InternalLinkage,
-          llvm::Constant::getNullValue(WordType()),
-          "__jove_space_" + std::to_string(j));
-
-      GV->setConstant(true);
-      GV->setSection(".jove_po");
-
-      ReferenceInNoDCEFunc(GV);
-    }
   }
 
   //
@@ -5042,32 +5087,69 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         false);
   }
 
+  boost::unordered_flat_map<llvm::GlobalObject *, unsigned> GVVecToIdxMap;
+
+  for (unsigned i = 0; i < this->LaidOut.Vec.size(); ++i) {
+    const auto &x = this->LaidOut.Vec.at(i);
+
+    GVVecToIdxMap.emplace(std::get<1>(x), i);
+  }
+
   //
   // Global Ctors/Dtors
   //
   // XXX this should go somewhere else
   for (section_t &Sect : SectTable) {
-    if (!Sect._elf.initArray && !Sect._elf.finiArray)
+    const bool InInitArray = Sect._elf.initArray;
+    const bool InFiniArray = Sect._elf.finiArray;
+    if (!InInitArray && !InFiniArray)
       continue;
 
-    assert(!(Sect._elf.initArray && Sect._elf.finiArray));
+    aassert(InInitArray ^ InFiniArray);
 
     for (const auto &pair : Sect.Stuff.Constants) {
       llvm::Constant *C = pair.second;
       llvm::Function *F = nullptr;
 
       llvm::ConstantInt *matched_Addend = nullptr;
+      llvm::Value *matched_Value1 = nullptr;
+
       if (llvm::PatternMatch::match(
               C, llvm::PatternMatch::m_Add(
                      llvm::PatternMatch::m_PtrToInt(
-                         llvm::PatternMatch::m_Specific(SectionsTop())),
+                         llvm::PatternMatch::m_Value(matched_Value1)),
                      llvm::PatternMatch::m_ConstantInt(matched_Addend)))) {
+        auto *const GObj = llvm::dyn_cast<llvm::GlobalObject>(matched_Value1);
+        if (!GObj) {
+          WithColor::error()
+              << llvm::formatv("wtf? {0} found in {1} array\n", *matched_Value1,
+                               InInitArray ? "init" : "fini");
+          continue;
+        }
+
         assert(matched_Addend);
-        taddr_t off = matched_Addend->getValue().getZExtValue();
-        taddr_t FileAddr = off + SectsStartAddr;
+        const taddr_t off = matched_Addend->getValue().getZExtValue();
+
+        taddr_t Addr = off + SectsStartAddr;
+        if (GObj == SectionsTop()) {
+          ;
+        } else if (GVVecToIdxMap.contains(GObj)) {
+          auto it = GVVecToIdxMap.find(GObj);
+          assert(it != GVVecToIdxMap.end());
+          Addr += std::get<3>(this->LaidOut.Vec.at((*it).second));
+        } else {
+          WithColor::error()
+              << llvm::formatv("wtf? {0} found in {1} array\n", *matched_Value1,
+                               InInitArray ? "init" : "fini");
+          continue;
+        }
+
+        if (options.IsVeryVerbose())
+          llvm::errs() << llvm::formatv("found {0:x} in {1} array\n", Addr,
+                                        InInitArray ? "init" : "fini");
 
         auto &Binary = jv.Binaries.at(BinaryIndex);
-        const function_t &f = function_at_address(Binary, FileAddr);
+        const function_t &f = function_at_address(Binary, Addr);
 
         if (!f.IsABI) {
           WithColor::error() << llvm::formatv(
@@ -5740,16 +5822,13 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
         llvm::ArrayType *ElemTy = llvm::ArrayType::get(WordType(), 2);
 
         std::vector<llvm::Constant *> constantTable;
-        constantTable.resize(LaidOut.GVVec.size());
+        constantTable.resize(this->LaidOut.Vec.size());
 
         std::transform(
-            LaidOut.GVVec.begin(),
-            LaidOut.GVVec.end(), constantTable.begin(),
-            [&](const auto &pair) -> llvm::Constant * {
-              llvm::GlobalVariable *GV;
-              unsigned ExpectedSize;
-
-              std::tie(GV, ExpectedSize) = pair;
+            this->LaidOut.Vec.begin(),
+            this->LaidOut.Vec.end(), constantTable.begin(),
+            [&](const auto &tup) -> llvm::Constant * {
+              const auto &[Ty, GV, ExpectedSize, off] = tup;
 
               std::array<llvm::Constant *, 2> _constantTable = {
                   {llvm::ConstantExpr::getPtrToInt(GV, WordType()),
@@ -5771,7 +5850,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_laid_out_sections_count"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.getInt32(LaidOut.GVVec.size()));
+        IRB.CreateRet(IRB.getInt32(this->LaidOut.Vec.size()));
       }, !options.ForCBE);
 
   fillInFunctionBody(
@@ -7498,8 +7577,8 @@ int llvm_t<MT, MinSize>::ForceSectVarsNotConstant(void) {
   // an alternative solution to this is to simply use a linker script, but,
   // doing so would complicate an otherwise simple situation.
   //
-  for (const auto &x : LaidOut.GVVec)
-    x.first->setConstant(false);
+  for (const auto &x : this->LaidOut.Vec)
+    std::get<1>(x)->setConstant(false);
 
   return 0;
 }

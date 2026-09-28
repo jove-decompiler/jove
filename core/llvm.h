@@ -117,6 +117,8 @@ struct section_t {
 
   bool w = true;
 
+  unsigned j = ~0; /* XXX */
+
   struct {
     bool initArray = false;
     bool finiArray = false;
@@ -412,8 +414,17 @@ class llvm_t {
 
   struct {
     llvm::GlobalVariable *HeadGV = nullptr;
-    std::vector<std::pair<llvm::GlobalVariable *, unsigned>> GVVec;
+    std::vector<std::tuple<
+      llvm::Type *,
+      llvm::GlobalVariable *,
+      unsigned, // expected size
+      uint64_t  // offset from SectsStartAddr
+    >> Vec; /* sorted by offset */
   } LaidOut;
+
+  bool LayingOut(void) const {
+    return options.LayOutSections; /* FIXME CBE? */
+  }
 
   unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
@@ -477,6 +488,7 @@ private:
   int ProcessBinaryTLSSymbols(void);
   int LocateHooks(void);
   int CreateTLSModGlobal(void);
+  template <bool LayOutSections>
   int CreateSectionGlobalVariables(void);
   int CreatePossibleTramps(void);
   int CreateFunctionTable(void);
@@ -592,15 +604,42 @@ private:
 
   llvm::Constant *SectionPointer(uint64_t Addr) {
     auto &Binary = jv.Binaries.at(BinaryIndex);
+    auto &x = state.for_binary(Binary);
+
+    const auto SectsStartAddr = x.SectsStartAddr;
+
+    assert(Addr >= SectsStartAddr);
 
 #if 0 /* we could do this... */
     if (Binary.IsExecutable && !Binary.IsPIC)
       return llvm::ConstantInt::get(WordType(), Addr);
 #endif
 
-    int64_t off =
-        static_cast<int64_t>(Addr) -
-        static_cast<int64_t>(state.for_binary(Binary).SectsStartAddr);
+    const uint64_t off = Addr - x.SectsStartAddr;
+    if (LaidOut.HeadGV) {
+      auto it = std::upper_bound(
+          LaidOut.Vec.begin(),
+          LaidOut.Vec.end(), off,
+          [](uint64_t off, const auto &x) {
+            return off < std::get<3>(x);
+          });
+
+      if (it == LaidOut.Vec.begin())
+        die("address precedes laid-out sections");
+
+      --it;
+
+      auto &[_, GV, size, GVOff] = *it;
+
+      uint64_t intraOff = off - GVOff;
+
+      if (intraOff >= size)
+        die("address not covered by laid-out global");
+
+      return llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(GV, WordType()),
+          llvm::ConstantInt::get(WordType(), intraOff));
+    }
 
     return llvm::ConstantExpr::getAdd(
         llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
@@ -838,9 +877,12 @@ private:
     V->setName(V->getName() + "_old");
   }
 
-  void old(llvm::Value *V) {
-    if (V)
+  bool old(llvm::Value *V) {
+    if (V) {
       old_nocheck(V);
+      return true;
+    }
+    return false;
   }
 
   void dead_nocheck(llvm::GlobalValue *GV) {
