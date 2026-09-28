@@ -1208,8 +1208,10 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
 
   if (options.IsVerbose())
-    llvm::errs() << llvm::formatv("jove llvm -o {0} --binary-index {1}\n", bcfp,
-                                  std::to_string(BIdx));
+    llvm::errs() << llvm::formatv("jove llvm -o {0} --binary-index {1}{2}{3}\n",
+                                  bcfp, std::to_string(BIdx),
+                                  options.IsVeryVerbose() ? " -vv" : "",
+                                  (!options.IsVeryVerbose() && options.IsVerbose()) ? " -v" : "");
 
   if (options.Daemonize) {
     auto &request_wfd = x.Daemon.request_wfd;
