@@ -21,11 +21,11 @@ struct InvalidateTool : public JVTool<ToolKind::Standard> {
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Blocks("blocks", cl::desc("Invalidate block analyses."),
-                 cl::cat(JoveCategory)),
+                 cl::init(true), cl::cat(JoveCategory)),
           BlocksAlias("b", cl::desc("Alias for -blocks."), cl::aliasopt(Blocks),
                       cl::cat(JoveCategory)),
           Functions("functions", cl::desc("Invalidate function analyses."),
-                    cl::cat(JoveCategory)),
+                    cl::init(true), cl::cat(JoveCategory)),
           FunctionsAlias("f", cl::desc("Alias for -functions."),
                          cl::aliasopt(Functions), cl::cat(JoveCategory)) {}
 
