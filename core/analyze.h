@@ -56,13 +56,9 @@ struct analyzer_t {
   jv_file_t &jv_file;
   jv_t &jv;
 
-  jv_state_t<binary_state_t, function_state_t, void,
-    AreWeMT, /* MultiThreaded */
-    true,    /* LazyInitialization */
-    false,    /* Eager */
-    true,    /* BoundsChecking */
-    true,    /* SubjectToChange */
-    MT, MinSize> state;
+  jv_state_t<binary_state_t, function_state_t, void, MT, MinSize,
+    DefaultLvl0StateOpts | StateOpt::Eager,
+    DefaultLvl1StateOpts | StateOpt::Eager> state;
 
   using cg_t = call_graph_builder_t<MT, MinSize>;
 

@@ -226,7 +226,7 @@ class llvm_t {
 
     llvm::BasicBlock *B = nullptr;
 
-    basic_block_state_t(const auto &b, auto bb_t) {}
+    basic_block_state_t(const auto &b, auto bb) {}
   };
 
   struct function_state_t {
@@ -269,13 +269,15 @@ class llvm_t {
     }
   };
 
-  jv_state_t<binary_state_t, function_state_t, basic_block_state_t,
-             AreWeMT, /* MultiThreaded */
-             true,  /* LazyInitialization */
-             false,  /* Eager */
-             true, /* BoundsChecking */
-             true, /* SubjectToChange */
-             MT, MinSize> state;
+  jv_state_t<
+    binary_state_t,
+    function_state_t,
+    basic_block_state_t,
+    MT, MinSize,
+                      StateOpt::LazyInitialization,
+    StateOpt::Eager | StateOpt::LazyInitialization,
+    StateOpt::Eager
+    > state;
 
   using section_properties_set_t =
       unordered_set<section_properties_t, section_hasher>;

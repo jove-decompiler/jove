@@ -114,6 +114,8 @@ public:
   std_atomic_unique_ptr(const std_atomic_unique_ptr &) = delete;
   std_atomic_unique_ptr &operator=(const std_atomic_unique_ptr &) = delete;
 
+  T &operator*(void) const { return *ptr.load(std::memory_order_relaxed); }
+
   ~std_atomic_unique_ptr() {
     delete ptr.load(std::memory_order_relaxed);
   }
@@ -157,6 +159,8 @@ public:
 
   atomic_unique_ptr(const atomic_unique_ptr &) = delete;
   atomic_unique_ptr &operator=(const atomic_unique_ptr &) = delete;
+
+  T &operator*(void) const { return *ptr.load(boost::memory_order_relaxed); }
 
   ~atomic_unique_ptr() {
     delete ptr.load(boost::memory_order_relaxed);

@@ -92,7 +92,7 @@ public:
       ComputeArgs compute_args,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
-      before_exec_t before_exec = [](const char **, const char **) -> void {}) {
+      process::before_exec_t before_exec = [](const char **, const char **) -> void {}) {
     using namespace std::placeholders;
 
     return jove::RunExecutable(
@@ -109,7 +109,7 @@ public:
       ComputeEnvs compute_envs,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
-      before_exec_t before_exec = [](const char **, const char **) -> void {}) {
+      process::before_exec_t before_exec = [](const char **, const char **) -> void {}) {
     using namespace std::placeholders;
 
     return jove::RunExecutable(
@@ -138,7 +138,7 @@ public:
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
       const RunToolExtraArgs &Extra = RunToolExtraArgs(),
-      before_exec_t before_exec = [](const char **, const char **) {}) {
+      process::before_exec_t before_exec = [](const char **, const char **) {}) {
     using namespace std::placeholders;
 
     if (Extra.sudo.On) {
@@ -186,7 +186,7 @@ public:
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
       const RunToolExtraArgs &Extra = RunToolExtraArgs(),
-      before_exec_t before_exec = [](const char **, const char **) {}) {
+      process::before_exec_t before_exec = [](const char **, const char **) {}) {
     using namespace std::placeholders;
 
     if (Extra.sudo.On) {
@@ -265,8 +265,8 @@ public:
   locator_t &locator() { return loc; }
 
 private:
-  void on_exec(before_exec_t before_exec, const char **argv, const char **envp);
-  void on_exec_tool(before_exec_t before_exec, const char **argv, const char **envp);
+  void on_exec(process::before_exec_t before_exec, const char **argv, const char **envp);
+  void on_exec_tool(process::before_exec_t before_exec, const char **argv, const char **envp);
   void persist_tool_options(std::function<void(const std::string &)> Arg);
   std::string path_to_jove(void);
 
@@ -308,7 +308,7 @@ struct BaseJVTool : public Tool {
   static std::string cow_copy_if_possible(const std::string &filename);
 };
 
-enum class ToolKind { Standard, CopyOnWrite };
+enum class ToolKind { Standard, SingleThreaded, CopyOnWrite };
 
 constexpr bool IsToolKindCopyOnWrite(ToolKind Kind) {
   return Kind == ToolKind::CopyOnWrite;
@@ -355,17 +355,8 @@ struct StatefulJVTool : public JVTool<Kind> {
                 "if !CoW then must be subject to change");
 
   using state_t =
-      jv_state_t<
-        BinaryStateT,
-        FunctionStateT,
-        BBStateT,
-        MultiThreaded,
-        LazyInitialization,
-        Eager,
-        BoundsChecking,
-        SubjectToChange,
-        JVTool<Kind>::IsToolMT,
-        JVTool<Kind>::IsToolMinSize>;
+      jv_state_t<BinaryStateT, FunctionStateT, BBStateT,
+                 JVTool<Kind>::IsToolMT, JVTool<Kind>::IsToolMinSize>;
 
   state_t state;
 

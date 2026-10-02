@@ -121,17 +121,16 @@ void InitTool::parse_loaded_objects(const std::string &rtld_stdout,
   }
 }
 
-template <bool MT, bool MinSize>
-static void init_binaries(unsigned N, jv_file_t &,
-                          ip_binary_table_t<MT, MinSize> &Binaries) {
-  Binaries.len_.store(N, boost::memory_order_relaxed);
-  for (unsigned i = 0; i < N; ++i)
+template <typename T, size_t N>
+static void init_binaries(unsigned N_, jv_file_t &, table_t<T, N> &Binaries) {
+  Binaries.len_.store(N_, boost::memory_order_relaxed);
+  for (unsigned i = 0; i < N_; ++i)
     Binaries[i].Idx = static_cast<binary_index_t>(i);
 }
 
-template <bool MT, bool MinSize>
+template <typename T, typename Alloc, bool MT, bool MinSize, bool PointUnique>
 static void init_binaries(unsigned N, jv_file_t &jv_file,
-                          ip_binary_deque_t<MT, MinSize> &Binaries) {
+                          ip_deque<T, Alloc, MT, MinSize, PointUnique> &Binaries) {
   auto e_lck = Binaries.exclusive_access();
 
   assert(Binaries.container().empty());

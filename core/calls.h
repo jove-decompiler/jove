@@ -29,13 +29,19 @@ struct call_graph_builder_t {
     function_state_t(auto &, auto &) noexcept {}
   };
 
-  jv_state_t<void, function_state_t, void,
+#if 0
     AreWeMT,
     false, /* LazyInitialization */
     true, /* Eager */
     true, /* BoundsChecking */
     true, /* SubjectToChange */
-    MT, MinSize> state;
+#endif
+
+  jv_state_t<void, function_state_t, void, MT, MinSize,
+  DefaultLvl0StateOpts,
+  DefaultLvl1StateOpts | StateOpt::Eager,
+  DefaultLvl1StateOpts
+  > state;
 
   call_graph_builder_t(const jv_t &) noexcept;
   call_graph_builder_t() = delete;

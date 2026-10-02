@@ -268,9 +268,7 @@ protected:
 
   using BBState = std::conditional_t<Caching, basic_block_state_t, void>;
 
-  jv_state_t<binary_state_t, void, BBState, false, Lazy, false, true, true, MT,
-             MinSize>
-      state;
+  jv_state_t<binary_state_t, void, BBState, MT, MinSize> state;
 
   const unsigned PageSize;
   const bool IsCOFF;

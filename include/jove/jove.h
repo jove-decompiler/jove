@@ -1212,7 +1212,7 @@ struct AddOptions_t : public VerboseThing {
   bool SjLj = true;
 };
 
-template <bool MT, bool MinSize>
+template <bool MT, bool MinSize, bool PointUnique>
 using ip_binary_deque_t =
     ip_deque<binary_base_t<MT, MinSize>,
              boost::interprocess::private_node_allocator<
@@ -1322,7 +1322,16 @@ struct jv_base_t {
   explicit jv_base_t() = delete;
   explicit jv_base_t(const jv_base_t &) = delete;
   jv_base_t &operator=(const jv_base_t &) = delete;
-  jv_base_t &operator=(jv_base_t &&) = delete;
+
+  template <bool MT2, bool MinSize2>
+  jv_base_t &operator=(jv_base_t<MT2, MinSize2> &&other) {
+    this->Binaries         = std::move(other.Binaries);
+    this->psm              = std::move(other.get_segment_manager());
+    this->Analysis         = std::move(other.Analysis);
+    this->hash_to_binary   = std::move(other.hash_to_binary);
+    this->cached_hashes    = std::move(other.cached_hashes);
+    this->name_to_binaries = std::move(other.name_to_binaries);
+  }
 
   ~jv_base_t() noexcept = default;
 

@@ -2,6 +2,10 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
+template <bool Contiguous, typename T>
+using VecOrDeque =
+    std::conditional_t<Contiguous, std::vector<T>, std::deque<T>>;
+
 static constexpr bool IsTSAN =
 #ifdef JOVE_TSAN
     true
@@ -16,8 +20,7 @@ typedef jv_file_t::segment_manager segment_manager_t;
 template <typename T>
 using ip_unique_ptr = boost::interprocess::managed_unique_ptr<T, jv_file_t>::type;
 
-typedef boost::interprocess::allocator<void, segment_manager_t>
-    ip_void_allocator_t;
+typedef boost::interprocess::allocator<void, segment_manager_t> ip_void_allocator_t;
 
 //
 // mutexes & locks
