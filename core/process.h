@@ -36,7 +36,6 @@ static inline void no_args(std::function<void(const char *)> Arg) {
   Arg(""); /* prevent "NULL argv" complaints in dmesg */
 }
 static inline void no_envs(std::function<void(const char *)>) {}
-}
 
 //
 // This function is called *right before* the call to execve(2). Aim to avoid
@@ -75,13 +74,14 @@ constexpr ExecOpt &operator|=(ExecOpt &a, ExecOpt b) noexcept { return a = a | b
 template <ExecOpt Set, ExecOpt Flag>
 inline constexpr bool has_flag_v =
     (to_underlying(Set) & to_underlying(Flag)) != 0;
+}
 
 [[nodiscard]] int WaitForProcessToExit(pid_t);
 
 //
 // Running an executable (the big function)
 //
-template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
+template <process::ExecOpt Opts = process::ExecOpt::DedupEnvByKey,
           typename ComputeArgs,
           typename ComputeEnvs>
 [[nodiscard]] pid_t RunExecutable(
@@ -90,25 +90,27 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
     ComputeEnvs compute_envs,
     const std::string &stdout_path = std::string(),
     const std::string &stderr_path = std::string(),
-    before_exec_t before_exec = [](const char **, const char **) {}) {
+    process::before_exec_t before_exec = [](const char **, const char **) {}) {
+  using namespace process;
+
   boost::container::slist<std::string> sl;
 
   std::vector<const char *> arg_vec;
   std::vector<const char *> env_vec;
 
   struct {
-    std::conditional_t<has_flag_v<Opts, ExecOpt::DedupEnvExact>,
+    std::conditional_t<process::has_flag_v<Opts, ExecOpt::DedupEnvExact>,
                        boost::unordered_flat_set<std::string_view>,
                        std::monostate>
         envs;
   } _dedup_env_exact;
 
   struct {
-    std::conditional_t<has_flag_v<Opts, ExecOpt::DedupEnvByKey>,
+    std::conditional_t<process::has_flag_v<Opts, ExecOpt::DedupEnvByKey>,
                        boost::container::slist<std::string>,
                        std::monostate>
         keyl;
-    std::conditional_t<has_flag_v<Opts, ExecOpt::DedupEnvByKey>,
+    std::conditional_t<process::has_flag_v<Opts, ExecOpt::DedupEnvByKey>,
                        boost::unordered_flat_set<std::string_view>,
                        std::monostate>
         keys;
@@ -126,15 +128,15 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
   //
   // envp
   //
-  if constexpr (has_flag_v<Opts, ExecOpt::InheritParentEnv>) {
+  if constexpr (process::has_flag_v<Opts, ExecOpt::InheritParentEnv>) {
     for (char **envp = environ; envp && *envp; ++envp) {
       char *const env = *envp;
 
       env_vec.push_back(env);
 
-      if constexpr (has_flag_v<Opts, ExecOpt::DedupEnvExact>) {
+      if constexpr (process::has_flag_v<Opts, ExecOpt::DedupEnvExact>) {
         _dedup_env_exact.envs.insert(env);
-      } else if constexpr (has_flag_v<Opts, ExecOpt::DedupEnvByKey>) {
+      } else if constexpr (process::has_flag_v<Opts, ExecOpt::DedupEnvByKey>) {
         if (char *eqp = strchr(env, '=')) {
           auto &keyl = _dedup_env_by_key.keyl;
           auto &keys = _dedup_env_by_key.keys;
@@ -156,7 +158,7 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
 
     auto undo = [&](void) -> void { sl.pop_front(); };
 
-    if constexpr (has_flag_v<Opts, ExecOpt::DedupEnvExact>) {
+    if constexpr (process::has_flag_v<Opts, ExecOpt::DedupEnvExact>) {
       auto &envs = _dedup_env_exact.envs;
 
       if (envs.contains(sl.front())) {
@@ -165,7 +167,7 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
       }
 
       envs.insert(sl.front());
-    } else if constexpr (has_flag_v<Opts, ExecOpt::DedupEnvByKey>) {
+    } else if constexpr (process::has_flag_v<Opts, ExecOpt::DedupEnvByKey>) {
       auto eq = sl.front().find('=');
       if (eq != std::string::npos) {
         auto &keyl = _dedup_env_by_key.keyl;
@@ -278,7 +280,7 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
   // redirect standard output and/or standard error, if desired.
   //
   int AppendOrTrunc =
-      has_flag_v<Opts, ExecOpt::AppendRedirects> ? O_APPEND : O_TRUNC;
+      process::has_flag_v<Opts, ExecOpt::AppendRedirects> ? O_APPEND : O_TRUNC;
 
   if (!stdout_path.empty()) {
     scoped_fd fd(sys::retry_eintr(::open, stdout_path.c_str(),
@@ -294,7 +296,7 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
       robust::dup2(fd.get(), STDERR_FILENO);
   }
 
-  if constexpr (has_flag_v<Opts, ExecOpt::CloseStdin>) {
+  if constexpr (process::has_flag_v<Opts, ExecOpt::CloseStdin>) {
     scoped_fd fd(sys::retry_eintr(::open, "/dev/null", O_RDONLY, 0));
     if (fd)
       robust::dup2(fd.get(), STDIN_FILENO);
@@ -327,7 +329,7 @@ template <ExecOpt Opts = ExecOpt::DedupEnvByKey,
   __builtin_unreachable();
 }
 
-template <ExecOpt Opts = ExecOpt::None, typename... Args>
+template <process::ExecOpt Opts = process::ExecOpt::None, typename... Args>
 [[nodiscard]] static inline int RunExecutableToExit(Args &&...args) {
   pid_t pid = RunExecutable(std::forward<Args>(args)...);
   return WaitForProcessToExit(pid);
@@ -336,13 +338,13 @@ template <ExecOpt Opts = ExecOpt::None, typename... Args>
 void InitWithEnviron(std::function<void(const char *)> Env);
 
 // convenient for when environ should simply be inherited
-template <ExecOpt Opts = ExecOpt::DedupEnvExact, typename ComputeArgs>
+template <process::ExecOpt Opts = process::ExecOpt::DedupEnvExact, typename ComputeArgs>
 [[nodiscard]] static inline pid_t RunExecutable(
     const std::string &exe_path,
     ComputeArgs compute_args,
     const std::string &stdout_path = std::string(),
     const std::string &stderr_path = std::string(),
-    before_exec_t before_exec = [](const char **, const char **) {}) {
+    process::before_exec_t before_exec = [](const char **, const char **) {}) {
   return RunExecutable<Opts>(exe_path, compute_args, InitWithEnviron,
                              stdout_path, stderr_path, before_exec);
 }

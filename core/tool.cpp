@@ -308,7 +308,7 @@ void Tool::print_command(const char **argv) {
   HumanOut() << '\n';
 }
 
-void Tool::on_exec(before_exec_t before_exec, const char **argv, const char **envp) {
+void Tool::on_exec(process::before_exec_t before_exec, const char **argv, const char **envp) {
   if (IsVerbose()) {
     print_command_environment(envp);
     print_command(argv);
@@ -317,7 +317,7 @@ void Tool::on_exec(before_exec_t before_exec, const char **argv, const char **en
   before_exec(argv, envp);
 }
 
-void Tool::on_exec_tool(before_exec_t before_exec, const char **argv, const char **envp) {
+void Tool::on_exec_tool(process::before_exec_t before_exec, const char **argv, const char **envp) {
   if (IsVerbose()) {
     print_command_environment(envp);
     HumanOut() << path_to_jove() << ' ';
