@@ -1,8 +1,9 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 0e294eb5..bfd287bd 100644
+index 7c9c7f9b..c31f0441 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -42,39 +42,40 @@ target_link_libraries(boost_graph
+@@ -41,39 +41,40 @@ target_link_libraries(boost_graph
+     Boost::optional
      Boost::parameter
      Boost::preprocessor
      Boost::property_map
@@ -12,7 +13,6 @@ index 0e294eb5..bfd287bd 100644
      Boost::serialization
      Boost::smart_ptr
      Boost::spirit
-     Boost::static_assert
      Boost::throw_exception
      Boost::tti
      Boost::tuple
@@ -44,78 +44,54 @@ index 0e294eb5..bfd287bd 100644
  
  endif()
 diff --git a/include/boost/graph/adj_list_serialize.hpp b/include/boost/graph/adj_list_serialize.hpp
-index 85f7e2ed..28bdfa63 100644
+index c9abfb32..1cc81454 100644
 --- a/include/boost/graph/adj_list_serialize.hpp
 +++ b/include/boost/graph/adj_list_serialize.hpp
-@@ -53,78 +53,82 @@ namespace serialization
- 
-         // assign indices to vertices
-         std::map< Vertex, int > indices;
-         int num = 0;
-         BGL_FORALL_VERTICES_T(v, graph, Graph)
-         {
-             indices[v] = num++;
-             ar << serialization::make_nvp(
-                 "vertex_property", get(vertex_all_t(), graph, v));
-         }
- 
-         // write edges
-         BGL_FORALL_EDGES_T(e, graph, Graph)
-         {
-             ar << serialization::make_nvp("u", indices[source(e, graph)]);
-             ar << serialization::make_nvp("v", indices[target(e, graph)]);
-             ar << serialization::make_nvp(
-                 "edge_property", get(edge_all_t(), graph, e));
-         }
- 
-+#if 0
-         ar << serialization::make_nvp(
-             "graph_property", get_property(graph, graph_all_t()));
-+#endif
-     }
- 
-     template < class Archive, class OEL, class VL, class D, class VP, class EP,
-         class GP, class EL >
+@@ -81,56 +81,58 @@ namespace serialization
      inline void load(
          Archive& ar, boost::adjacency_list< OEL, VL, D, VP, EP, GP, EL >& graph,
          const unsigned int /* file_version */
      )
      {
-         typedef adjacency_list< OEL, VL, D, VP, EP, GP, EL > Graph;
-         typedef typename graph_traits< Graph >::vertex_descriptor Vertex;
-         typedef typename graph_traits< Graph >::edge_descriptor Edge;
+         using Graph = adjacency_list< OEL, VL, D, VP, EP, GP, EL >;
+         using Vertex = typename graph_traits< Graph >::vertex_descriptor;
+         using Edge = typename graph_traits< Graph >::edge_descriptor;
+         using VertexSizeType = typename graph_traits< Graph >::vertices_size_type;
  
-         unsigned int V;
+         VertexSizeType V;
          ar >> BOOST_SERIALIZATION_NVP(V);
-         unsigned int E;
+         
+         VertexSizeType E;
          ar >> BOOST_SERIALIZATION_NVP(E);
  
          std::vector< Vertex > verts(V);
-         int i = 0;
+         size_t i = 0;
          while (V-- > 0)
          {
--            Vertex v = add_vertex(graph);
-+            Vertex v = add_vertex(graph, graph.m_vertices.get_allocator().get_segment_manager());
+-            const auto v = add_vertex(graph);
++            const auto v = add_vertex(graph, graph.m_vertices.get_allocator().get_segment_manager() /* FIXME */);
              verts[i++] = v;
              ar >> serialization::make_nvp(
                  "vertex_property", get(vertex_all_t(), graph, v));
          }
+         
          while (E-- > 0)
          {
-             int u;
-             int v;
+             Vertex u;
+             Vertex v;
              ar >> BOOST_SERIALIZATION_NVP(u);
              ar >> BOOST_SERIALIZATION_NVP(v);
+ 
              Edge e;
              bool inserted;
              boost::tie(e, inserted) = add_edge(verts[u], verts[v], graph);
              ar >> serialization::make_nvp(
                  "edge_property", get(edge_all_t(), graph, e));
          }
-+#if 0
++
++        if (graph.m_property)
          ar >> serialization::make_nvp(
              "graph_property", get_property(graph, graph_all_t()));
-+#endif
      }
  
      template < class Archive, class OEL, class VL, class D, class VP, class EP,
@@ -482,7 +458,7 @@ index 113143a7..7c750c54 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index 5358fdba..9fbab2c6 100644
+index 9a0c29bd..010d5f3e 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
 @@ -323,40 +323,60 @@ namespace detail
@@ -590,7 +566,7 @@ index 5358fdba..9fbab2c6 100644
      {
          for (vertices_size_type i = 0; i < num_vertices; ++i)
              add_vertex(static_cast< Derived& >(*this));
-@@ -1900,47 +1921,47 @@ public:
+@@ -1900,68 +1921,68 @@ public:
          // Copy the edges by adding each edge and copying its
          // property object.
          edge_iterator ei, ei_end;
@@ -629,10 +605,12 @@ index 5358fdba..9fbab2c6 100644
      return v;
  }
  // O(1)
- template < class Derived, class Config, class Base >
+-template < class Derived, class Config, class Base >
++template < class Derived, class Config, class Base, class... _AllocArg >
  inline typename Config::vertex_descriptor add_vertex(
      const typename Config::vertex_property_type& p,
-     adj_list_impl< Derived, Config, Base >& g_)
+-    adj_list_impl< Derived, Config, Base >& g_)
++    adj_list_impl< Derived, Config, Base >& g_, _AllocArg&&... AllocArg)
  {
      typedef typename Config::vertex_descriptor vertex_descriptor;
      Derived& g = static_cast< Derived& >(g_);
@@ -641,6 +619,28 @@ index 5358fdba..9fbab2c6 100644
          return *v;
  
      typedef typename Config::stored_vertex stored_vertex;
+-    stored_vertex* v = new stored_vertex(p);
++    stored_vertex* v = new stored_vertex(p, std::forward<_AllocArg>(AllocArg)...);
+     typename Config::StoredVertexList::iterator pos;
+     bool inserted;
+     boost::tie(pos, inserted) = boost::graph_detail::push(g.m_vertices, v);
+     v->m_position = pos;
+     g.added_vertex(v);
+     return v;
+ }
+ // O(1)
+ template < class Derived, class Config, class Base >
+ inline void remove_vertex(typename Config::vertex_descriptor u,
+     adj_list_impl< Derived, Config, Base >& g_)
+ {
+     typedef typename Config::stored_vertex stored_vertex;
+     Derived& g = static_cast< Derived& >(g_);
+     g.removing_vertex(
+         u, boost::graph_detail::iterator_stability(g_.m_vertices));
+     stored_vertex* su = (stored_vertex*)u;
+     g.m_vertices.erase(su->m_position);
+     delete su;
+ }
 @@ -2103,41 +2124,45 @@ public:
      typedef typename Config::edge_descriptor edge_descriptor;
      typedef typename Config::out_edge_iterator out_edge_iterator;
@@ -688,47 +688,7 @@ index 5358fdba..9fbab2c6 100644
      template < class EdgeIterator >
      inline vec_adj_list_impl(
          vertices_size_type num_vertices, EdgeIterator first, EdgeIterator last)
-@@ -2167,120 +2192,124 @@ public:
-     //    protected:
-     inline boost::integer_range< vertex_descriptor > vertex_set() const
-     {
-         return boost::integer_range< vertex_descriptor >(0, m_vertices.size());
-     }
-     inline OutEdgeList& out_edge_list(vertex_descriptor v)
-     {
-         return m_vertices[v].m_out_edges;
-     }
-     inline const OutEdgeList& out_edge_list(vertex_descriptor v) const
-     {
-         return m_vertices[v].m_out_edges;
-     }
-     inline void copy_impl(const vec_adj_list_impl& x_)
-     {
-         const Graph& x = static_cast< const Graph& >(x_);
-         // Copy the stored vertex objects by adding each vertex
-         // and copying its property object.
-         for (vertices_size_type i = 0; i < num_vertices(x); ++i)
-         {
--            vertex_descriptor v = add_vertex(*this);
-+            vertex_descriptor v = add_vertex(*this, x_.m_vertices.get_allocator());
-             m_vertices[v].m_property = x.m_vertices[i].m_property;
-         }
-         // Copy the edges by adding each edge and copying its
-         // property object.
- #ifdef BOOST_NO_CXX17_STRUCTURED_BINDINGS
-         edge_iterator ei, ei_end;
-         for (boost::tie(ei, ei_end) = edges(x); ei != ei_end; ++ei)
- #else // Silences -Wmaybe-uninitialized in adj_list_edge_iterator::operator++().
-         for (auto [ei, ei_end] = edges(x); ei != ei_end; ++ei)
- #endif
-         {
-             edge_descriptor e;
-             bool inserted;
-             boost::tie(e, inserted)
-                 = add_edge(source(*ei, x), target(*ei, x), *this);
-             *((edge_property_type*)e.m_eproperty)
-                 = *((edge_property_type*)(*ei).m_eproperty);
-         }
+@@ -2206,81 +2231,83 @@ public:
      }
      typename Config::EdgeContainer m_edges;
      StoredVertexList m_vertices;
@@ -753,7 +713,7 @@ index 5358fdba..9fbab2c6 100644
 +template < class Graph, class Config, class Base, class... _AllocArg >
  inline typename Config::vertex_descriptor add_vertex(
 -    vec_adj_list_impl< Graph, Config, Base >& g_)
-+    vec_adj_list_impl< Graph, Config, Base >& g_, _AllocArg&&... AllocArg)
++    vec_adj_list_impl< Graph, Config, Base >& g_, _AllocArg &&...AllocArg)
  {
      Graph& g = static_cast< Graph& >(g_);
      auto const added_descriptor = g.m_vertices.size();
@@ -763,10 +723,12 @@ index 5358fdba..9fbab2c6 100644
      return added_descriptor;
  }
  
- template < class Graph, class Config, class Base >
+-template < class Graph, class Config, class Base >
++template < class Graph, class Config, class Base, class... _AllocArg >
  inline typename Config::vertex_descriptor add_vertex(
      const typename Config::vertex_property_type& p,
-     vec_adj_list_impl< Graph, Config, Base >& g_)
+-    vec_adj_list_impl< Graph, Config, Base >& g_)
++    vec_adj_list_impl< Graph, Config, Base >& g_, _AllocArg &&...AllocArg)
  {
      typedef typename Config::vertex_descriptor vertex_descriptor;
      Graph& g = static_cast< Graph& >(g_);
@@ -774,7 +736,8 @@ index 5358fdba..9fbab2c6 100644
          = g.vertex_by_property(get_property_value(p, vertex_bundle)))
          return *v;
      auto const added_descriptor = g.m_vertices.size();
-     g.m_vertices.emplace_back(p);
+-    g.m_vertices.emplace_back(p);
++    g.m_vertices.emplace_back(p, std::forward<_AllocArg>(AllocArg)...);
      g.added_vertex(added_descriptor);
      return added_descriptor;
  }
@@ -794,8 +757,6 @@ index 5358fdba..9fbab2c6 100644
 +#if 0
      if (x >= num_vertices(g_))
          g_.m_vertices.resize(x + 1);
-+#else
-+    assert(x < num_vertices(g_));
 +#endif
      adj_list_helper< Config, Base >& g = g_;
      return add_edge(u, v, p, g);
@@ -805,7 +766,7 @@ index 5358fdba..9fbab2c6 100644
      typename Config::vertex_descriptor u, typename Config::vertex_descriptor v,
      vec_adj_list_impl< Graph, Config, Base >& g_)
  {
-     typename Config::edge_property_type p;
+     typename Config::edge_property_type p {};
      return add_edge(u, v, p, g_);
  }
  
@@ -817,7 +778,7 @@ index 5358fdba..9fbab2c6 100644
      typedef typename Config::directed_category Cat;
      Graph& g = static_cast< Graph& >(g_);
      g.removing_vertex(
-@@ -2349,42 +2378,47 @@ namespace detail
+@@ -2349,42 +2376,47 @@ namespace detail
              typedef typename VertexList::iterator vertex_iterator;
  
              // EdgeContainer and StoredEdge
@@ -866,7 +827,7 @@ index 5358fdba..9fbab2c6 100644
              typedef typename OutEdgeIterTraits::difference_type OutEdgeIterDiff;
  
              typedef out_edge_iter< OutEdgeIter, vertex_descriptor,
-@@ -2413,82 +2447,89 @@ namespace detail
+@@ -2413,83 +2445,95 @@ namespace detail
              typedef typename EdgeIterTraits::iterator_category EdgeIterCat;
              typedef typename EdgeIterTraits::difference_type EdgeIterDiff;
  
@@ -887,9 +848,11 @@ index 5358fdba..9fbab2c6 100644
              struct seq_stored_vertex
              {
                  seq_stored_vertex() {}
+-                seq_stored_vertex(const VertexProperty& p) : m_property(p) {}
 +                template<class... _AllocArg>
-+                seq_stored_vertex(_AllocArg&&... AllocArg) : m_property(std::forward<_AllocArg>(AllocArg)...), m_out_edges(std::forward<_AllocArg>(AllocArg)...) {}
-                 seq_stored_vertex(const VertexProperty& p) : m_property(p) {}
++                seq_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
++                template<class... _AllocArg>
++                seq_stored_vertex(const VertexProperty& p, _AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_property(p) {}
                  OutEdgeList m_out_edges;
                  VertexProperty m_property;
                  typename SeqStoredVertexList::iterator m_position;
@@ -897,9 +860,11 @@ index 5358fdba..9fbab2c6 100644
              struct bidir_seq_stored_vertex
              {
 -                bidir_seq_stored_vertex() {}
+-                bidir_seq_stored_vertex(const VertexProperty& p) : m_property(p)
 +                template<class... _AllocArg>
-+                bidir_seq_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...)  {}
-                 bidir_seq_stored_vertex(const VertexProperty& p) : m_property(p)
++                bidir_seq_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
++                template<class... _AllocArg>
++                bidir_seq_stored_vertex(const VertexProperty& p, _AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(p)
                  {
                  }
                  OutEdgeList m_out_edges;
@@ -910,9 +875,11 @@ index 5358fdba..9fbab2c6 100644
              struct rand_stored_vertex
              {
 -                rand_stored_vertex() {}
+-                rand_stored_vertex(const VertexProperty& p) : m_property(p) {}
 +                template<class... _AllocArg>
 +                rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
-                 rand_stored_vertex(const VertexProperty& p) : m_property(p) {}
++                template<class... _AllocArg>
++                rand_stored_vertex(const VertexProperty& p, _AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_property(p) {}
 +                rand_stored_vertex() = default;
                  OutEdgeList m_out_edges;
                  VertexProperty m_property;
@@ -920,10 +887,13 @@ index 5358fdba..9fbab2c6 100644
              struct bidir_rand_stored_vertex
              {
 -                bidir_rand_stored_vertex() {}
+-                bidir_rand_stored_vertex(const VertexProperty& p)
+-                : m_property(p)
 +                template<class... _AllocArg>
 +                bidir_rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
-                 bidir_rand_stored_vertex(const VertexProperty& p)
-                 : m_property(p)
++                template<class... _AllocArg>
++                bidir_rand_stored_vertex(const VertexProperty& p, _AllocArg&&... AllocArg)
++                : m_property(p), m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...)
                  {
                  }
                  OutEdgeList m_out_edges;
@@ -938,9 +908,11 @@ index 5358fdba..9fbab2c6 100644
              struct stored_vertex : public StoredVertex
              {
 -                stored_vertex() {}
+-                stored_vertex(const VertexProperty& p) : StoredVertex(p) {}
 +                template<class... _AllocArg>
 +                stored_vertex(_AllocArg&&... AllocArg) : StoredVertex(std::forward<_AllocArg>(AllocArg)...) {}
-                 stored_vertex(const VertexProperty& p) : StoredVertex(p) {}
++                template<class... _AllocArg>
++                stored_vertex(const VertexProperty& p, _AllocArg&&... AllocArg) : StoredVertex(p, std::forward<_AllocArg>(AllocArg)...) {}
              };
  
              typedef typename container_gen< VertexListS, stored_vertex >::type
@@ -960,6 +932,7 @@ index 5358fdba..9fbab2c6 100644
              adj_list_impl< Graph, config, DirectedHelper > >::type type;
      };
  
+ } // namespace detail
 diff --git a/include/boost/graph/detail/set_adaptor.hpp b/include/boost/graph/detail/set_adaptor.hpp
 index 487d3be2..3156db80 100644
 --- a/include/boost/graph/detail/set_adaptor.hpp

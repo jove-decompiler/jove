@@ -75,9 +75,8 @@ set(JOVE_TOOL_FLAGS
 
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
   "-DBOOST_UNORDERED_DISABLE_REENTRANCY_CHECK"
-  "-DBOOST_STACKTRACE_USE_BACKTRACE"
-  "-DBOOST_STACKTRACE_STATIC_LINK"
 # "-DBOOST_ENABLE_ASSERT_HANDLER"
+  "-DBOOST_STACKTRACE_LINK"
 
 # "-DTBB_USE_ASSERT=1"
 # "-DBOOST_DISABLE_ASSERTS"
@@ -105,6 +104,23 @@ set(JOVE_TOOL_FLAGS
   "-Wno-missing-template-arg-list-after-template-kw"
   "-Wno-gnu-label-as-value"
 )
+
+set(JOVE_NO_BOOST_BACKTRACE FALSE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
+  if(JOVE_STATIC_BUILD)
+    # lld's --wrap is broken on mips (FIXME)
+    set(JOVE_NO_BOOST_BACKTRACE TRUE)
+  endif()
+endif()
+
+if(JOVE_NO_BOOST_BACKTRACE)
+  list(APPEND JOVE_TOOL_FLAGS "-DBOOST_STACKTRACE_USE_NOOP")
+else()
+  list(APPEND JOVE_TOOL_FLAGS "-DBOOST_STACKTRACE_USE_BACKTRACE")
+  if(JOVE_STATIC_BUILD)
+    list(APPEND JOVE_TOOL_FLAGS "-DBOOST_STACKTRACE_STATIC_LINK")
+  endif()
+endif()
 
 set(JOVE_ALL_TARGETS
   i386
@@ -273,15 +289,17 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
       Boost::icl
       Boost::lockfree
       Boost::scope
-#     Boost::stacktrace
-#     Boost::stacktrace_from_exception
+      Boost::stacktrace
+      Boost::stacktrace_from_exception
   )
 
+  if(JOVE_NO_BOOST_BACKTRACE)
   target_link_libraries(jove-${arch} PRIVATE
     -Wl,--push-state,--whole-archive
-    ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_backtrace.a
+    ${CMAKE_BINARY_DIR}/llvm/lib/libboost_stacktrace_noop.a
     -Wl,--pop-state
   )
+  endif()
 
   if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$") # [no threads] (FIXME) # lld's --wrap is broken on mips (FIXME)
     if(JOVE_STATIC_BUILD)

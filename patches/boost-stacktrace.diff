@@ -1,8 +1,8 @@
 diff --git a/src/from_exception.cpp b/src/from_exception.cpp
-index 366ba28..00d55d6 100644
+index bc0c2a6..eff20e5 100644
 --- a/src/from_exception.cpp
 +++ b/src/from_exception.cpp
-@@ -227,79 +227,94 @@ static bool is_libcpp_runtime() noexcept {
+@@ -217,79 +217,94 @@ static bool is_libcpp_runtime() noexcept {
  #else
  
  static bool is_libcpp_runtime() noexcept { return false; }
@@ -23,10 +23,10 @@ index 366ba28..00d55d6 100644
    return exception_begin_gcc_ptr(ptr)->reserve;
  }
  
-+#ifdef BOOST_STATIC_EXECUTABLE
-+extern "C"
-+void* __real___cxa_allocate_exception(size_t thrown_size);
-+#endif
++#ifdef BOOST_STATIC_EXECUTABLE                                                  
++extern "C"                                                                      
++void* __real___cxa_allocate_exception(size_t thrown_size);                      
++#endif                                                                          
 +
  extern "C" BOOST_SYMBOL_EXPORT
 +#ifdef BOOST_STATIC_EXECUTABLE
@@ -91,9 +91,9 @@ index 366ba28..00d55d6 100644
  extern "C" BOOST_SYMBOL_EXPORT
  void __cxa_decrement_exception_refcount(void *thrown_object) throw() {
    BOOST_ASSERT(is_libcpp_runtime());
-   if (!thrown_object) {
-     return;
-   }
  
-   static const auto orig_decrement_refcount = []() {
-     void* const ptr = ::dlsym(RTLD_NEXT, "__cxa_decrement_exception_refcount");
+ #if !defined(BOOST_STACKTRACE_LIBCXX_RUNTIME_MAY_CAUSE_MEMORY_LEAK) && defined(BOOST_HAS_THREADS)
+   static const char* leaks_are_fine = std::getenv("BOOST_STACKTRACE_LIBCXX_RUNTIME_MAY_CAUSE_MEMORY_LEAK");
+   if (!leaks_are_fine || leaks_are_fine[0] != '1') {
+         const char* const warning =
+             "\n\n"
