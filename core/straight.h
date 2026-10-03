@@ -5,30 +5,39 @@ namespace jove {
 
 struct infinite_loop_exception {};
 
-template <bool DoNotGoFurther, bool InfiniteLoopThrow, bool MT, bool MinSize,
-          unsigned Verbosity = 0>
+template <typename BinaryTy>
+using bbprop_for_binary_t =
+    std::conditional_t<std::is_const_v<BinaryTy>,
+                       const bbprop_t,
+                       bbprop_t>;
+
+template <bool DoNotGoFurther,
+          bool InfiniteLoopThrow,
+          bool MT, bool MinSize,
+          unsigned Verbosity = 0,
+          typename BinaryTy>
 inline std::pair<basic_block_index_t, bool>
-StraightLineGo(binary_base_t<MT, MinSize> &b,
+StraightLineGo(BinaryTy &b,
                basic_block_index_t Res,
                taddr_t GoNoFurther = 0,
-    std::function<basic_block_index_t(bbprop_t &, basic_block_index_t)> on_final_block = [](bbprop_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
-    std::function<void(bbprop_t &, basic_block_index_t)> on_block = [](bbprop_t &, basic_block_index_t) -> void {}) {
+    std::function<basic_block_index_t(bbprop_for_binary_t<BinaryTy> &, basic_block_index_t)> on_final_block = [](bbprop_for_binary_t<BinaryTy> &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
+    std::function<void(bbprop_for_binary_t<BinaryTy> &, basic_block_index_t)> on_block = [](bbprop_for_binary_t<BinaryTy> &, basic_block_index_t) -> void {}) {
   using bb_t = binary_base_t<MT, MinSize>::bb_t;
 
   auto &ICFG = b.Analysis.ICFG;
 
-  std::reference_wrapper<bbprop_t> the_bbprop =
+  std::reference_wrapper<bbprop_for_binary_t<BinaryTy>> the_bbprop =
       ICFG[basic_block_of_index(Res, b)];
 
   basic_block_index_t ResSav = Res;
   for ((void)({
-         bbprop_t &bbprop = the_bbprop.get();
+         bbprop_for_binary_t<BinaryTy> &bbprop = the_bbprop.get();
 
          if constexpr (MT) {
            if (!bbprop.pub.is.test(boost::memory_order_acquire))
-             (void)bbprop.pub.shared_access<MT>();
+             (void)bbprop.pub.template shared_access<MT>();
          }
-         bbprop.lock_sharable<MT>(); /* don't change on us */
+         bbprop.template lock_sharable<MT>(); /* don't change on us */
 
          on_block(bbprop, Res);
          0;
@@ -55,20 +64,20 @@ StraightLineGo(binary_base_t<MT, MinSize> &b,
          ResSav = Res;
 
          bb_t newbb = basic_block_of_index(Res, b);
-         bbprop_t &new_bbprop = ICFG[newbb];
+         bbprop_for_binary_t<BinaryTy> &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
          if constexpr (MT) {
            if (!new_bbprop.pub.is.test(boost::memory_order_acquire))
-             bbprop_t::pub_t::shared_lock_guard<MT>(new_bbprop.pub.mtx);
+             new_bbprop.pub.template shared_access<MT>();
          }
-         new_bbprop.lock_sharable<MT>(); /* don't change on us */
+         new_bbprop.template lock_sharable<MT>(); /* don't change on us */
 
          on_block(new_bbprop, Res);
          0;
        })) {
     bb_t bb = basic_block_of_index(Res, b);
-    bbprop_t &bbprop = the_bbprop.get();
+    bbprop_for_binary_t<BinaryTy> &bbprop = the_bbprop.get();
 
     const auto Addr = bbprop.Addr;
     const auto Size = bbprop.Size;
@@ -98,8 +107,8 @@ StraightLineGo(binary_base_t<MT, MinSize> &b,
            *
            **/
           unlikely(GoNoFurther >= Addr && GoNoFurther < Addr + Size)) {
-        bbprop_t::shared_lock_guard<MT> s_lck_bb(
-            bbprop.mtx, boost::interprocess::accept_ownership);
+        typename bbprop_for_binary_t<BinaryTy>::template shared_lock_guard<MT>
+            s_lck_bb(bbprop.mtx, boost::interprocess::accept_ownership);
         return std::make_pair(
             on_final_block(bbprop, basic_block_of_index(Res, b)), true);
       }
@@ -172,8 +181,8 @@ StraightLineGo(binary_base_t<MT, MinSize> &b,
       break;
     }
 
-    bbprop_t::shared_lock_guard<MT> s_lck_bb(
-        bbprop.mtx, boost::interprocess::accept_ownership);
+    typename bbprop_for_binary_t<BinaryTy>::template shared_lock_guard<MT>
+        s_lck_bb(bbprop.mtx, boost::interprocess::accept_ownership);
     return std::make_pair(on_final_block(bbprop, basic_block_of_index(Res, b)),
                           false);
   }

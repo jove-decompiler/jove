@@ -1,10 +1,10 @@
 #pragma once
 #if (defined(__x86_64__) || defined(__i386__)) &&                              \
     (defined(TARGET_X86_64) || defined(TARGET_I386))
+#include "straight.h"
 #include "B.h"
 #include "augmented_raw_syscalls.h"
 #include "explore.h"
-#include "jove/jove.h"
 #include "locator.h"
 #include "objdump.h"
 #include "perf.h"
@@ -1392,10 +1392,10 @@ protected:
 
   template <bool InfiniteLoopThrow = false>
   std::pair<basic_block_index_t, bool> StraightLineUntilSlow(
-      const binary_t &b,
+      binary_t &b,
       basic_block_index_t From,
       taddr_t GoNoFurther,
-      std::function<basic_block_index_t(const bbprop_t &, basic_block_index_t)> on_final_block = [](const bbprop_t &, basic_block_index_t Res) -> basic_block_index_t {
+      std::function<basic_block_index_t(bbprop_t &, basic_block_index_t)> on_final_block = [](const bbprop_t &, basic_block_index_t Res) -> basic_block_index_t {
         return Res;
       }) {
     return StraightLineGo<true, InfiniteLoopThrow, MT, MinSize, Verbosity>(
@@ -1403,9 +1403,9 @@ protected:
   }
 
   template <bool InfiniteLoopThrow = false>
-  basic_block_index_t StraightLineSlow(const binary_t &b,
+  basic_block_index_t StraightLineSlow(binary_t &b,
                                        basic_block_index_t From,
-                                       std::function<basic_block_index_t(const bbprop_t &, basic_block_index_t)> on_final_block = [](const bbprop_t &, basic_block_index_t Res) -> basic_block_index_t {
+                                       std::function<basic_block_index_t(const bbprop_t &, basic_block_index_t)> on_final_block = [](bbprop_t &, basic_block_index_t Res) -> basic_block_index_t {
         return Res;
       }) {
     return StraightLineGo<false, InfiniteLoopThrow, MT, MinSize, Verbosity>(
@@ -1564,10 +1564,13 @@ protected:
     ({
       auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
+      bb_t      fr_bb     = basic_block_at_address(FrTermAddr, fr_b);
+      bbprop_t &fr_bbprop = fr_ICFG[fr_bb];
+
       const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
 
       TermType = Term.Type;
-      Term_indirect_jump_IsLj = Term._indirect_jump.IsLj;
+      Term_indirect_jump_IsLj = fr_bbprop.Lj;
     });
 
     bb_t to_bb = basic_block_starting_at_address(ToAddr, to_b);
