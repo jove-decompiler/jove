@@ -1212,7 +1212,7 @@ struct AddOptions_t : public VerboseThing {
   bool SjLj = true;
 };
 
-template <bool MT, bool MinSize, bool PointUnique>
+template <bool MT, bool MinSize>
 using ip_binary_deque_t =
     ip_deque<binary_base_t<MT, MinSize>,
              boost::interprocess::private_node_allocator<
