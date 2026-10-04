@@ -1377,7 +1377,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
                                       Caller.BIdx,
                                       Caller.BBIdx,
                                       Callee.BIdx,
-                                      Callee.FIdx);
+                                      Callee.FIdx).str();
 
         ___recovering___();
         return Recovery->RecoverDynamicTarget(Caller.BIdx,
@@ -1409,7 +1409,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
           HumanOut() << llvm::formatv("RecoverBasicBlock({0}, {1}, {2})\n",
                                       IndBr.BIdx,
                                       IndBr.BBIdx,
-                                      taddr2str(Addr, false));
+                                      taddr2str(Addr, false)).str();
 
         ___recovering___();
         return Recovery->RecoverBasicBlock(IndBr.BIdx,
@@ -1448,7 +1448,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
               IndCall.BIdx,
               IndCall.BBIdx,
               Callee.BIdx,
-              Callee.Addr);
+              Callee.Addr).str();
 
         ___recovering___();
         return Recovery->RecoverFunctionAtAddress(IndCall.BIdx,
@@ -1488,7 +1488,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
               IndCall.BIdx,
               IndCall.BBIdx,
               Callee.BIdx,
-              Callee.Offset);
+              Callee.Offset).str();
 
         ___recovering___();
         return Recovery->RecoverFunctionAtOffset(IndCall.BIdx,
@@ -1514,7 +1514,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
         if (IsVerbose())
           HumanOut() << llvm::formatv("RecoverABI({0}, {1})\n",
                                       NewABI.BIdx,
-                                      NewABI.FIdx);
+                                      NewABI.FIdx).str();
         ___recovering___();
         return Recovery->RecoverABI(NewABI.BIdx,
                                     NewABI.FIdx);
@@ -1537,7 +1537,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
         if (IsVerbose())
           HumanOut() << llvm::formatv("Returns({0}, {1})\n",
                                       Call.BIdx,
-                                      Call.BBIdx);
+                                      Call.BBIdx).str();
 
         ___recovering___();
         return Recovery->Returns(Call.BIdx,
@@ -1559,7 +1559,7 @@ int RunTool::FifoChild(const char *const fifo_path) {
         }
 
         if (IsVerbose())
-          HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n", Path);
+          HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n", Path).str();
 
         ___recovering___();
         return Recovery->RecoverForeignBinary(Path.c_str());
@@ -1576,16 +1576,16 @@ int RunTool::FifoChild(const char *const fifo_path) {
       std::string message;
       block_signals([&] { message = do_recover(); });
 
+      //
+      // an empty message here means: recover ran, but found nothing new.
+      //
       if (!message.empty()) {
-        //
-        // an empty message here means: recover ran, but found nothing new.
-        //
         HumanOut() << message << '\n';
       }
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
-          e.what());
+          e.what()).str();
       break;
     }
   }
