@@ -225,6 +225,13 @@ int analyzer_t<MT, MinSize>::analyze_blocks(
     WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
                                        c == 1 ? "" : "s");
 
+  //
+  // if libs are foreign, we won't necessarily see all the dynamic targets in
+  // those libraries, period. bootstrap might give us those targets, or it might
+  // not. therefore, unless told otherwise, do the following: assume that any
+  // function call which crosses binaries could lead to code for which we have
+  // *not* seen all the targets for.
+  //
   if (options.Conservative >= 1)
     for_each_function_if(
         maybe_par_unseq, jv, [](function_t &f) { return f.IsABI; },
@@ -439,7 +446,6 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     }
   }
 
-#if 0
   if (IsABI) {
     //
     // for ABI's, if we need a return register whose index > 0, then we will
@@ -447,14 +453,10 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     //
     std::vector<unsigned> glbv;
     explode_tcg_global_set(glbv, f.Analysis.rets);
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
-             std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
-    });
 
     auto rit = std::accumulate(
         glbv.begin(), glbv.end(), CallConvRetArray.crend(),
-        [](CallConvArgArrayTy::const_reverse_iterator res, unsigned glb) {
+        [](CallConvRetArrayTy::const_reverse_iterator res, unsigned glb) {
           return std::min(res, std::find(CallConvRetArray.crbegin(),
                                          CallConvRetArray.crend(), glb));
         });
@@ -465,7 +467,6 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
         f.Analysis.rets.set(CallConvRetArray[i]);
     }
   }
-#endif
 
   //
   // for ABI's, if we need a register parameter whose index > 0, then we will
