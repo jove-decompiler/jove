@@ -154,8 +154,10 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           Conservative(
               "conservative",
               cl::desc(
-                  "1 => assume any arg registers could be live for ABI calls."),
-              cl::cat(JoveCategory), cl::init(1)),
+                  "1 => assume any arg registers could be live for ABI calls."
+                  "This is the default in --foreign-libs mode, since we may "
+                  "not see all the targets."),
+              cl::cat(JoveCategory)),
 
           Precision("precision", cl::value_desc(">=0"), cl::init(0),
                     cl::cat(JoveCategory)),
@@ -469,6 +471,8 @@ int LoopTool::Run(void) {
     recompiler_options.name = opts.name;                                          \
   } while (false)
 
+  if (opts.Conservative.getNumOccurrences() == 0)
+    opts.Conservative = opts.ForeignLibs ? 1 : 0;
 
   PROPOGATE_OPTION(Daemonize);
   PROPOGATE_OPTION(Conservative);
