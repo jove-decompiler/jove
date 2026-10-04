@@ -25,9 +25,9 @@ cmake -G Ninja \
       -D ENABLE_POSIX_RUNTIME=OFF \
       -D ENABLE_SYSTEM_TESTS=OFF \
       -D ENABLE_UNIT_TESTS=OFF \
-      -D ENABLE_KLEE_ASSERTS=ON \
       -D ENABLE_DOCS=OFF \
-      -D ENABLE_KLEE_ASSERTS=$(shell $llconfig --assertion-mode) \
+      -D "LLVM_ENABLE_ASSERTIONS=$(shell $llconfig --assertion-mode)" \
+      -D "ENABLE_KLEE_ASSERTS=$(shell $llconfig --assertion-mode)" \
       -D LLVM_ENABLE_EH=OFF \
       -D LLVM_ENABLE_LTO=THIN \
       -D LLVM_USE_LINKER=lld \
