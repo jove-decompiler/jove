@@ -133,7 +133,7 @@ int AnalyzeTool::Run(void) {
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
-    analyzer_options.PinnedEnvGlbs.set(idx);
+    tcg_global_set_set(analyzer_options.PinnedEnvGlbs, idx);
   }
 
   analyzer_options.VerbosityLevel = GetVerbosityLevel();

@@ -212,7 +212,7 @@ static bool AnalyzeHelper(const llvm::Function &F,
       return;
     }
 
-    bits.set(tcg_global_by_offset_lookup_table[off]);
+    tcg_global_set_set(bits, tcg_global_by_offset_lookup_table[off]);
   };
 
   llvm::Function::const_arg_iterator arg_it = F.arg_begin();
@@ -400,7 +400,7 @@ const tcg_helper_t &tcg_helpers_t::lookup(TCGHelperInfo &Info,
     // special-case syscall function (FIXME?)
     //
     Helper.Analysis.InGlbs = SyscallArgs;
-    Helper.Analysis.InGlbs.set(tcg_syscall_nr_index);
+    tcg_global_set_set(Helper.Analysis.InGlbs, tcg_syscall_nr_index);
     Helper.Analysis.OutGlbs = SyscallRets;
     Helper.Analysis.Simple = true; /* force */
   } else {
@@ -490,9 +490,14 @@ bool AnalyzeBasicBlock(B::ref Bin,
 
   TCG.set_binary(Bin);
 
-  bbprop.Analysis.live.use.reset();
-  bbprop.Analysis.live.def.reset();
-  bbprop.Analysis.reach.def.reset();
+  tcg_global_set_reset(bbprop.Analysis.live.use);
+  tcg_global_set_reset(bbprop.Analysis.live.def);
+#ifdef TCG_BITSET
+  tcg_global_set_reset(bbprop.Analysis.live.out.Set);
+#else
+  bbprop.Analysis.live.out.store(0, boost::memory_order_relaxed);
+#endif
+  tcg_global_set_reset(bbprop.Analysis.reach.def);
 
   unsigned size = 0;
   jove::terminator_info_t T;
@@ -510,7 +515,7 @@ bool AnalyzeBasicBlock(B::ref Bin,
     QTAILQ_FOREACH(op, &s->ops, link) {
       TCGOpcode opc = op->opc;
 
-      tcg_global_set_t iglbs, oglbs;
+      tcg_global_set_t iglbs{0}, oglbs{0};
 
       int nb_oargs, nb_iargs;
       if (opc == INDEX_op_call) {
@@ -543,7 +548,7 @@ bool AnalyzeBasicBlock(B::ref Bin,
         if (glb_idx == tcg_env_index)
           continue;
 
-        iglbs.set(glb_idx);
+        tcg_global_set_set(iglbs, glb_idx);
       }
 
       for (int i = 0; i < nb_oargs; ++i) {
@@ -555,7 +560,7 @@ bool AnalyzeBasicBlock(B::ref Bin,
         if (glb_idx == tcg_env_index)
           continue;
 
-        oglbs.set(glb_idx);
+        tcg_global_set_set(oglbs, glb_idx);
       }
 
       bbprop.Analysis.live.use |= (iglbs & ~bbprop.Analysis.live.def);
@@ -6199,7 +6204,7 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
                        glbv.end(),
                        argsToPass.begin(),
                        [&](unsigned glb) -> llvm::Value * {
-                         if (CallConvArgs.test(glb)) {
+                         if (tcg_global_set_test(CallConvArgs, glb)) {
                            unsigned Idx = std::distance(
                                CallConvArgArray.begin(),
                                std::find(CallConvArgArray.begin(),
@@ -6256,7 +6261,7 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
                 llvm::StoreInst *SI = IRB.CreateStore(
                     ReturnedSP, BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-              } else if (CallConvRets.test(glb)) {
+              } else if (tcg_global_set_test(CallConvRets, glb)) {
                  unsigned Idx = std::distance(
                      CallConvRetArray.begin(),
                      std::find(CallConvRetArray.begin(),
@@ -7839,7 +7844,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   auto set = [&](llvm::Value *V, unsigned glb) -> void {
     assert(glb != tcg_env_index);
 
-    if (unlikely(PinnedEnvGlbs.test(glb))) {
+    if (unlikely(tcg_global_set_test(PinnedEnvGlbs, glb))) {
       llvm::StoreInst *SI =
           IRB.CreateStore(V, BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
@@ -7868,7 +7873,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 #endif
     }
 
-    if (unlikely(PinnedEnvGlbs.test(glb))) {
+    if (unlikely(tcg_global_set_test(PinnedEnvGlbs, glb))) {
       llvm::LoadInst *LI = IRB.CreateLoad(
           TypeOfTCGGlobal(glb), BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
@@ -8409,7 +8414,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       // store globals which are not passed as parameters to env
       //
       tcg_global_set_t glbs(args & ~CallConvArgs);
-      glbs.reset(tcg_stack_pointer_index);
+      tcg_global_set_reset(glbs, tcg_stack_pointer_index);
 
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, glbs);
@@ -8421,7 +8426,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       }
 
 #if defined(TARGET_X86_64)
-      if (args.test(tcg_rax_index))
+      if (tcg_global_set_test(args, tcg_rax_index))
         store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
 #endif
 
@@ -9279,7 +9284,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
               // store globals which are not passed as parameters to env
               //
               tcg_global_set_t glbs(DetermineFunctionArgs(callee) & ~CallConvArgs);
-              glbs.reset(tcg_stack_pointer_index);
+              tcg_global_set_reset(glbs, tcg_stack_pointer_index);
 
               std::vector<unsigned> glbv;
               explode_tcg_global_set(glbv, glbs);
@@ -9807,7 +9812,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     unsigned idx = temp_idx(ts);
     if (ts->kind == TEMP_GLOBAL) {
-      if (unlikely(PinnedEnvGlbs.test(idx)))
+      if (unlikely(tcg_global_set_test(PinnedEnvGlbs, idx)))
         return BuildCPUStatePointer(IRB, GetEnv(IRB), idx);
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);

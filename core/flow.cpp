@@ -31,8 +31,8 @@ void livenessComputeFixpoint(flow_graph_t &G,
   // liveness analysis
   //
   for (flow_vertex_t V : Vertices) {
-    G[V].IN.reset();
-    G[V].OUT.reset();
+    tcg_global_set_reset(G[V].IN);
+    tcg_global_set_reset(G[V].OUT);
   }
 
   bool change;
@@ -70,8 +70,8 @@ void reachingComputeFixpoint(flow_graph_t &G,
   // reaching definitions
   //
   for (flow_vertex_t V : Vertices) {
-    G[V].IN.reset();
-    G[V].OUT.reset();
+    tcg_global_set_reset(G[V].IN);
+    tcg_global_set_reset(G[V].OUT);
   }
 
   bool change;

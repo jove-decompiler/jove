@@ -131,6 +131,7 @@ struct binary_base_t;
 #include "jove/table.h.inc"
 #include "jove/addr_intvl.h.inc"
 #include "jove/ip.h.inc"
+#include "jove/safe.h.inc"
 
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
@@ -243,20 +244,22 @@ struct bb_analysis_t {
   struct {
     /* let def_B be the set of variables defined (i.e. definitely */
     /* assigned values) in B prior to any use of that variable in B */
-    tcg_global_set_t def;
+    tcg_global_set_t def{0};
 
     /* let use_B be the set of variables whose values may be used in B */
     /* prior to any definition of the variable */
-    tcg_global_set_t use;
+    tcg_global_set_t use{0};
 
     // the set of registers whose values are still needed after this block
     // finishes.
-    tcg_global_set_t out;
+    std::conditional_t<tcg_bitset, SafeTCGGlobalSet,
+                       ip_atomic<tcg_global_set_t>>
+        out;
   } live;
 
   struct {
     /* the set of globals assigned values in B */
-    tcg_global_set_t def;
+    tcg_global_set_t def{0};
   } reach;
 
   ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
@@ -274,8 +277,16 @@ struct bb_analysis_t {
   }
 
   bb_analysis_t(const bb_analysis_t &other) noexcept
-      : live(other.live),
-        reach(other.reach) {
+      : live{.def = other.live.def,
+             .use = other.live.use,
+#ifdef TCG_BITSET
+             .out = other.live.out
+#endif
+            },
+        reach{.def = other.reach.def} {
+#ifndef TCG_BITSET
+    this->live.out.store(other.live.out.load(boost::memory_order_relaxed));
+#endif
     if (other.Stale.test(boost::memory_order_relaxed))
       this->Stale.test_and_set(boost::memory_order_relaxed);
     else
@@ -283,8 +294,16 @@ struct bb_analysis_t {
   }
 
   bb_analysis_t(bb_analysis_t &&other) noexcept
-      : live(other.live),
-        reach(other.reach) {
+      : live{.def = other.live.def,
+             .use = other.live.use,
+#ifdef TCG_BITSET
+             .out = other.live.out
+#endif
+            },
+        reach{.def = other.reach.def} {
+#ifndef TCG_BITSET
+    this->live.out.store(other.live.out.load(boost::memory_order_relaxed));
+#endif
     if (other.Stale.test(boost::memory_order_relaxed))
       this->Stale.test_and_set(boost::memory_order_relaxed);
     else
@@ -295,8 +314,14 @@ struct bb_analysis_t {
     if (this == &other)
       return *this;
 
-    live = other.live;
-    reach = other.reach;
+    this->live.def = other.live.def;
+    this->live.use = other.live.use;
+#ifdef TCG_BITSET
+    this->live.out = other.live.out;
+#else
+    this->live.out.store(other.live.out.load(boost::memory_order_relaxed));
+#endif
+    this->reach.def = other.reach.def;
 
     if (other.Stale.test(boost::memory_order_relaxed))
       this->Stale.test_and_set(boost::memory_order_relaxed);
@@ -307,8 +332,14 @@ struct bb_analysis_t {
   }
 
   bb_analysis_t &operator=(const bb_analysis_t &other) noexcept {
-    live = other.live;
-    reach = other.reach;
+    this->live.def = other.live.def;
+    this->live.use = other.live.use;
+#ifdef TCG_BITSET
+    this->live.out = other.live.out;
+#else
+    this->live.out.store(other.live.out.load(boost::memory_order_relaxed));
+#endif
+    this->reach.def = other.reach.def;
 
     if (other.Stale.test(boost::memory_order_relaxed))
       this->Stale.test_and_set(boost::memory_order_relaxed);
@@ -651,8 +682,7 @@ using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 struct function_analysis_t {
   boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
 
-  tcg_global_set_t args;
-  tcg_global_set_t rets;
+  tcg_global_set_t args{0}, rets{0};
 
   ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
 

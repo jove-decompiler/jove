@@ -11,12 +11,12 @@ namespace jove {
 struct flow_vertex_properties_t {
   const bb_analysis_t *Analysis = nullptr;
 
-  tcg_global_set_t IN, OUT;
+  tcg_global_set_t IN{0}, OUT{0};
 };
 
 struct flow_edge_properties_t {
   struct {
-    tcg_global_set_t mask = ~tcg_global_set_t();
+    tcg_global_set_t mask = ~tcg_global_set_t{0};
   } reach;
 };
 

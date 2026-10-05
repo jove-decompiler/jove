@@ -222,7 +222,7 @@ class llvm_t {
   };
 
   struct basic_block_state_t {
-    tcg_global_set_t IN, OUT;
+    tcg_global_set_t IN{0}, OUT{0};
 
     llvm::BasicBlock *B = nullptr;
 

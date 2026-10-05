@@ -112,6 +112,5 @@ constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
 #else
 #error
 #endif
-                ;
 
 constexpr unsigned MaxInstLen = THE_MAX_INST_LEN;

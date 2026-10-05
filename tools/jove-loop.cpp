@@ -461,7 +461,7 @@ int LoopTool::Run(void) {
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
-    recompiler_options.PinnedEnvGlbs.set(idx);
+    tcg_global_set_set(recompiler_options.PinnedEnvGlbs, idx);
   }
 
   ConfigureVerbosity(recompiler_options);

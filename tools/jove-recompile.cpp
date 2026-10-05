@@ -191,7 +191,7 @@ int RecompileTool::Run(void) {
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
-    options.PinnedEnvGlbs.set(idx);
+    tcg_global_set_set(options.PinnedEnvGlbs, idx);
   }
 
   ConfigureVerbosity(options);

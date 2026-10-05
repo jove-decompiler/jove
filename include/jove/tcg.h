@@ -65,16 +65,85 @@
 #ifdef __cplusplus
 #include <vector>
 #include <cstring>
+#include <bit>
 
 namespace jove {
 
+using in_const_tcg_global_set_t =
+    std::conditional_t<tcg_bitset,
+                       const tcg_global_set_t & /* pass by reference */,
+                       const tcg_global_set_t   /* pass by value */>;
+
+static inline bool tcg_global_set_is_none(in_const_tcg_global_set_t set) {
+#ifdef TCG_BITSET
+  return set.none();
+#else
+  return set == 0u;
+#endif
+}
+
+static inline unsigned tcg_global_set_count(in_const_tcg_global_set_t set) {
+#ifdef TCG_BITSET
+  return set.count();
+#else
+  return std::popcount(set);
+#endif
+}
+
+static inline void tcg_global_set_reset(tcg_global_set_t &set) {
+#ifdef TCG_BITSET
+  set.reset();
+#else
+  set = 0;
+#endif
+}
+
+static inline void tcg_global_set_set(tcg_global_set_t &set, unsigned idx) {
+#ifdef TCG_BITSET
+  set.set(idx);
+#else
+  set |= (tcg_global_set_t{1} << idx);
+#endif
+}
+
+static inline bool tcg_global_set_test(in_const_tcg_global_set_t set, unsigned idx) {
+#ifdef TCG_BITSET
+  return set.test(idx);
+#else
+  return !!(set & (tcg_global_set_t {1} << idx));
+#endif
+}
+
+static inline void tcg_global_set_reset(tcg_global_set_t &set, unsigned idx) {
+#ifdef TCG_BITSET
+  set.reset(idx);
+#else
+  set &= ~(tcg_global_set_t{1} << idx);
+#endif
+}
+
+static inline std::string tcg_global_set_to_string(in_const_tcg_global_set_t set) {
+#ifdef TCG_BITSET
+  return set.to_string();
+#else
+  std::string res(tcg_num_globals, '0');
+
+  for (unsigned i = 0; i < tcg_num_globals; ++i)
+    if (tcg_global_set_test(set, i))
+      res[tcg_num_globals - 1 - i] = '1';
+
+  return res;
+#endif
+}
+
 static inline void explode_tcg_global_set(std::vector<unsigned> &out,
-                                          tcg_global_set_t glbs) {
-  if (glbs.none())
+                                          in_const_tcg_global_set_t glbs) {
+  if (tcg_global_set_is_none(glbs))
     return;
 
-  out.reserve(glbs.count());
+  out.reserve(tcg_global_set_count(glbs));
 
+#ifdef TCG_BITSET
   constexpr bool FitsInUnsignedLongLong =
       tcg_num_globals <= sizeof(unsigned long long) * 8;
 
@@ -93,8 +162,17 @@ static inline void explode_tcg_global_set(std::vector<unsigned> &out,
          glb = glbs._Find_next(glb))
       out.push_back(glb);
   }
+#else
+  tcg_global_set_t x(glbs);
+
+#pragma clang loop unroll_count(8)
+  while (x) {
+    unsigned bit = std::countr_zero(x);
+    out.push_back(bit);
+    x &= x - 1;
+  }
+#endif
 }
 
 }
-
 #endif

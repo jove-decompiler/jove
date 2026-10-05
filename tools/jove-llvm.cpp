@@ -224,8 +224,8 @@ int LLVMTool::Run(void) {
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
-    analyzer_options.PinnedEnvGlbs.set(idx);
-    options.PinnedEnvGlbs.set(idx);
+    tcg_global_set_set(analyzer_options.PinnedEnvGlbs, idx);
+    tcg_global_set_set(options.PinnedEnvGlbs, idx); /* FIXME */
   }
 
   ConfigureVerbosity(analyzer_options);

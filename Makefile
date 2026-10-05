@@ -504,6 +504,11 @@ ccopy: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
        $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu.tcg.copy.h) \
        $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_ARCH)/qemu.tcg.copy.$(t).h)
 
+.PHONY: clean-tcg-constants
+clean-tcg-constants:
+	find $(BINDIR) -name 'tcgconstants.h' -delete
+	find $(BINDIR) -name 'tcgconstants.*.h' -delete
+
 .PHONY: clean-qemu
 clean-qemu:
 	find $(BINDIR) -name 'env.copy.h' -delete

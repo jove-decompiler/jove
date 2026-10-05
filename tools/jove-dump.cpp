@@ -259,7 +259,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
                 Writer.printList("def", descv);
               } else {
-                Writer.printString("def", ICFG[bb].Analysis.live.def.to_string());
+                Writer.printString("def", tcg_global_set_to_string(ICFG[bb].Analysis.live.def));
               }
             }
 
@@ -278,7 +278,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
                 Writer.printList("use", descv);
               } else {
-                Writer.printString("use", ICFG[bb].Analysis.live.use.to_string());
+                Writer.printString("use", tcg_global_set_to_string(ICFG[bb].Analysis.live.use));
               }
             }
           }
@@ -301,7 +301,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
                 Writer.printList("def", descv);
               } else {
-                Writer.printString("def", ICFG[bb].Analysis.reach.def.to_string());
+                Writer.printString("def", tcg_global_set_to_string(ICFG[bb].Analysis.reach.def));
               }
             }
           }
@@ -413,7 +413,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
               Writer.printList("Args", descv);
             } else {
-              Writer.printString("Args", f.Analysis.args.to_string());
+              Writer.printString("Args", tcg_global_set_to_string(f.Analysis.args));
             }
           }
 
@@ -432,7 +432,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
               Writer.printList("Rets", descv);
             } else {
-              Writer.printString("Rets", f.Analysis.rets.to_string());
+              Writer.printString("Rets", tcg_global_set_to_string(f.Analysis.rets));
             }
           }
 

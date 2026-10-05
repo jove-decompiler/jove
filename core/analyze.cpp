@@ -390,7 +390,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     // all non-ABI functions will be passed the stack pointer.
     //
     if (!IsABI)
-      f.Analysis.args.set(tcg_stack_pointer_index);
+      tcg_global_set_set(f.Analysis.args, tcg_stack_pointer_index);
 
 #if 0
     //
@@ -405,7 +405,15 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
                     bbvec.end(),
                     [&](bb_t bb) {
                       flow_vertex_t V = Orig2CopyMap.get()[bb];
-                      ICFG[bb].Analysis.live.out = G[V].OUT;
+                      const tcg_global_set_t set = G[V].OUT;
+                      auto &dst = ICFG[bb].Analysis.live.out;
+
+                      if constexpr (tcg_bitset) {
+                        auto e_lck = dst.template exclusive_access<MT>();
+                        dst.Set |= set;
+                      } else {
+                        dst.fetch_or(set, boost::memory_order_relaxed);
+                      }
                     });
     }
 
@@ -415,7 +423,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
       assert(!exitVertices.empty());
 
     if (exitVertices.empty()) {
-      f.Analysis.rets.reset();
+      tcg_global_set_reset(f.Analysis.rets);
     } else {
       //
       // registers defined on every function exit, excluding non-return and
@@ -442,7 +450,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
       // all non-ABI functions with an exit block will return the stack pointer.
       //
       if (!IsABI)
-        f.Analysis.rets.set(tcg_stack_pointer_index);
+        tcg_global_set_set(f.Analysis.rets, tcg_stack_pointer_index);
     }
   }
 
@@ -464,7 +472,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     if (rit != CallConvRetArray.crend()) {
       unsigned idx = std::distance(CallConvRetArray.cbegin(), rit.base()) - 1;
       for (unsigned i = 0; i <= idx; ++i)
-        f.Analysis.rets.set(CallConvRetArray[i]);
+        tcg_global_set_set(f.Analysis.rets, CallConvRetArray[i]);
     }
   }
 
@@ -486,7 +494,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
     if (rit != CallConvArgArray.crend()) {
       unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
       for (unsigned i = 0; i <= idx; ++i)
-        f.Analysis.args.set(CallConvArgArray[i]);
+        tcg_global_set_set(f.Analysis.args, CallConvArgArray[i]);
     }
   }
   return 0;
@@ -980,8 +988,7 @@ template <bool MT, bool MinSize>
 std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>>
 analyzer_t<MT, MinSize>::DynTargetsSummary(
     const DynTargets_t<MT, MinSize> &DynTargets, bool IsABI) {
-  tcg_global_set_t args;
-  tcg_global_set_t rets;
+  tcg_global_set_t args{0}, rets{0};
 
   if (!DynTargets.ForEachWhile([&](const dynamic_target_t &X) {
         function_t &callee = function_of_target(X, jv);
@@ -1016,7 +1023,7 @@ analyzer_t<MT, MinSize>::refine_analyses(void) {
     if (!f.Analysis.hasCaller())
       return;
 
-    tcg_global_set_t live_after_calls;
+    tcg_global_set_t live_after_calls{0};
 
     f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
       block_t caller_block = block_for_caller_in_binary(caller, b, jv);
@@ -1026,7 +1033,16 @@ analyzer_t<MT, MinSize>::refine_analyses(void) {
 
       auto &caller_ICFG = caller_b.Analysis.ICFG;
 
-      live_after_calls |= caller_ICFG[caller_bb].Analysis.live.out;
+      auto &src = caller_ICFG[caller_bb].Analysis.live.out;
+      tcg_global_set_t live_out;
+      if constexpr (tcg_bitset) {
+        auto s_lck = src.template exclusive_access<MT>();
+        live_out = src.Set;
+      } else {
+        live_out = src.load(boost::memory_order_relaxed);
+      }
+
+      live_after_calls |= live_out;
     });
 
     f.Analysis.rets &= live_after_calls;

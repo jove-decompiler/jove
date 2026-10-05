@@ -22,7 +22,7 @@ struct SafeLLVMContext;
 struct tcg_helper_analysis_t {
   int EnvArgNo = -1;
   bool Simple = false;
-  tcg_global_set_t InGlbs, OutGlbs;
+  tcg_global_set_t InGlbs{0}, OutGlbs{0};
 };
 
 struct tcg_helper_t {
