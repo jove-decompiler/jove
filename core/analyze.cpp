@@ -1036,7 +1036,7 @@ analyzer_t<MT, MinSize>::refine_analyses(void) {
       auto &src = caller_ICFG[caller_bb].Analysis.live.out;
       tcg_global_set_t live_out;
       if constexpr (tcg_bitset) {
-        auto s_lck = src.template exclusive_access<MT>();
+        auto s_lck = src.template shared_access<MT>();
         live_out = src.Set;
       } else {
         live_out = src.load(boost::memory_order_relaxed);
