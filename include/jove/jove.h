@@ -262,7 +262,7 @@ struct bb_analysis_t {
   ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
 
   bb_analysis_t() noexcept {
-    this->Stale.test_and_set(boost::memory_order_relaxed);
+    this->Invalidate();
   }
 
   bb_analysis_t(tcg_global_set_t live_def,
@@ -270,7 +270,7 @@ struct bb_analysis_t {
                 tcg_global_set_t reach_def) noexcept
       : live{.def = live_def, .use = live_use},
         reach{.def = reach_def} {
-    this->Stale.test_and_set(boost::memory_order_relaxed);
+    this->Invalidate();
   }
 
   bb_analysis_t(const bb_analysis_t &other) noexcept
