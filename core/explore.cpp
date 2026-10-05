@@ -364,6 +364,11 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     }
   }
 
+  //
+  // if a bbprop_t was created with MT=false, we won't do the following. if that
+  // indeed happened, and move construction changes to MT=1, the locks will
+  // be promptly unlocked in the move constructor of binary_analysis_t.
+  //
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
   bbprop_t::pub_t::exclusive_lock_guard<MT> e_lck_bb_pub(
       bbprop.pub.mtx, boost::interprocess::accept_ownership);

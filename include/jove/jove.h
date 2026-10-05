@@ -135,7 +135,7 @@ struct binary_base_t;
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
 
-  explicit allocates_basic_block_t () noexcept = default;
+  explicit allocates_basic_block_t() noexcept = default; /* for serialization */
 
   // allocates (creates) new basic block in binary, stores index
   template <bool MT, bool MinSize>
@@ -518,7 +518,17 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
                           binary_base_t<MT, MinSize> &);
 
   explicit bbprop_t() = delete;
-  explicit bbprop_t(segment_manager_t *psm) noexcept : psm(psm) {}
+  explicit bbprop_t(segment_manager_t *psm) noexcept : psm(psm) {
+    //
+    // this happens regardless of !MT
+    //
+    bool success;
+    success = this->pub.mtx.try_lock();
+    aassert(success && "allocates_basic_block_t: BUG1");
+
+    success = this->mtx.try_lock();
+    aassert(success && "allocates_basic_block_t: BUG2");
+  }
 
   explicit bbprop_t(bbprop_t &&other) noexcept = default;
   bbprop_t &operator=(bbprop_t &&other) noexcept = default;
@@ -926,6 +936,7 @@ private:
   void move_stuff(void) noexcept;
   void move_callers(void) noexcept;
   void move_dyn_targets(void) noexcept;
+  void toggle_block_locks(void) noexcept;
 };
 
 template <bool MT, bool MinSize>
@@ -1099,16 +1110,6 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT, MinSize> &b,
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
   bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
-  bbprop.Analysis.Invalidate();
-
-  if constexpr (MT) {
-    bool success;
-    success = bbprop.pub.mtx.try_lock();
-    aassert(success && "allocates_basic_block_t: BUG1");
-
-    success = bbprop.mtx.try_lock();
-    aassert(success && "allocates_basic_block_t: BUG2");
-  }
 
   store = Idx;
   BBIdx = Idx;

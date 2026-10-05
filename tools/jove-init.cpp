@@ -256,7 +256,7 @@ int InitTool::Run(void) {
                                             GetVerbosityLevel());
   auto worker =
       [&](unsigned BIdx) -> void {
-        binary_base_t<false, IsToolMinSize> b(jv_file, BIdx);
+        binary_base_t<false /* !MT */, IsToolMinSize> b(jv_file, BIdx);
 
         //
         // Name

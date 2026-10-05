@@ -8,9 +8,11 @@ void binary_analysis_t<MT, MinSize>::move_stuff(void) noexcept {
 #ifdef JOVE_NO_TBB
   move_dyn_targets();
   move_callers();
+  toggle_block_locks();
 #else
   oneapi::tbb::parallel_invoke([&](void) -> void { move_dyn_targets(); },
-                               [&](void) -> void { move_callers(); });
+                               [&](void) -> void { move_callers(); },
+                               [&](void) -> void { toggle_block_locks(); });
 #endif
 }
 
@@ -102,6 +104,21 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
 
     pOtherCallers->~OtherCallers_t();
     sm.deallocate(pOtherCallers);
+  });
+}
+
+template <bool MT, bool MinSize>
+void binary_analysis_t<MT, MinSize>::toggle_block_locks(void) noexcept {
+  if (!MT)
+    return;
+
+  for_each_basic_block_in_binary(maybe_par_unseq, *this, [&](bb_t bb) {
+    bbprop_t &bbprop = this->ICFG[bb];
+
+    bbprop_t::pub_t::exclusive_lock_guard<MT> e_lck_bb_pub(
+        bbprop.pub.mtx, boost::interprocess::accept_ownership);
+    bbprop_t::exclusive_lock_guard<MT> e_lck_bb(
+        bbprop.mtx, boost::interprocess::accept_ownership);
   });
 }
 
