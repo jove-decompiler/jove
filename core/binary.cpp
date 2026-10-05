@@ -157,6 +157,7 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
 
     ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
 
+    basic_block_index_t BBIdx = index_of_basic_block_at_address(TermAddr, *this);
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
     std::for_each(maybe_par_unseq,
                   SuccFIdxVec.cbegin(),
@@ -164,7 +165,7 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
                     bbprop.insertDynTarget(index_of_binary(*this, jv),
                                            {index_of_binary(*this, jv), FIdx}, jv);
                   });
-    bbprop.InvalidateAnalyses(jv, *this);
+    bbprop.InvalidateFunctionAnalyses(jv, *this, BBIdx);
   }
 
   return true;

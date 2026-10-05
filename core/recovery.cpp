@@ -79,12 +79,14 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallerBIdx, CallerBBIdx);
   assert(TermAddr);
 
+  basic_block_index_t BBIdx = invalid_basic_block_index;
   bb_t bb;
 
   bool Ambig = ({
     auto s_lck = CallerBinary.BBMap.shared_access();
 
-    bb = basic_block_at_address(TermAddr, CallerBinary);
+    BBIdx = index_of_basic_block_at_address(TermAddr, CallerBinary);
+    bb = basic_block_of_index(BBIdx, ICFG);
 
     bool isNewTarget =
         ICFG[bb].insertDynTarget(CallerBIdx, {CalleeBIdx, CalleeFIdx}, jv);
@@ -100,7 +102,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
         TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
 
   callee.Analysis.Invalidate();
-  ICFG[bb].InvalidateAnalyses(jv, CallerBinary);
+  ICFG[bb].InvalidateFunctionAnalyses(jv, CallerBinary, BBIdx);
 
 #if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
@@ -148,18 +150,20 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndBrBIdx, IndBrBBIdx);
 
   bb_t bb;
+  basic_block_index_t BBIdx = invalid_basic_block_index;
 
   bool isNewTarget = ({
     auto s_lck = b.BBMap.shared_access();
 
-    bb = basic_block_at_address(TermAddr, b);
+    BBIdx = index_of_basic_block_at_address(TermAddr, b);
+    bb = basic_block_of_index(BBIdx, b);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
     ICFG.add_edge(bb, basic_block_of_index(TargetBBIdx, ICFG)).second;
   });
 
   if (isNewTarget)
-    ICFG[bb].InvalidateAnalyses(jv, b);
+    ICFG[bb].InvalidateFunctionAnalyses(jv, b, BBIdx);
 
   return (fmt(__ANSI_GREEN "%s(goto) %s -> %s" __ANSI_NORMAL_COLOR)
           % (isNewTarget ? "" : __ANSI_NORMAL_COLOR)
@@ -194,12 +198,14 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
   bb_t bb;
+  basic_block_index_t BBIdx = invalid_basic_block_index;
 
   bool Ambig = false;
   const bool isNewTarget = ({
     auto s_lck = CallerBinary.BBMap.shared_access();
 
-    bb = basic_block_at_address(TermAddr, CallerBinary);
+    BBIdx = index_of_basic_block_at_address(TermAddr, CallerBinary);
+    bb = basic_block_of_index(BBIdx, CallerBinary);
 
     const bool res =
         ICFG[bb].insertDynTarget(IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv);
@@ -215,7 +221,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
       CallerBinary.FixAmbiguousIndirectJump(
           TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
 
-    ICFG[bb].InvalidateAnalyses(jv, CallerBinary);
+    ICFG[bb].InvalidateFunctionAnalyses(jv, CallerBinary, BBIdx);
   }
 
 #if 0
@@ -305,7 +311,8 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
   {
     auto s_lck = b.BBMap.shared_access();
 
-    bb_t bb = basic_block_at_address(TermAddr, b);
+    basic_block_index_t BBIdx = index_of_basic_block_at_address(TermAddr, b);
+    bb_t bb = basic_block_of_index(BBIdx, b);
     auto &bbprop = ICFG[bb];
 
     bool isCall = bbprop.Term.Type == TERMINATOR::CALL;
@@ -326,7 +333,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
         isNewTarget;
 
     if (isNewTarget)
-      bbprop.InvalidateAnalyses(jv, b);
+      bbprop.InvalidateFunctionAnalyses(jv, b, BBIdx);
   };
 
   (void)isNewTarget; /* FIXME */

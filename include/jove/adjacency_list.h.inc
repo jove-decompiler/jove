@@ -229,9 +229,16 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
                                             vertex_descriptor V2) {
     auto s_lck = this->shared_access();
 
+    if (V1 == V2) {
     VERT_EXCLUSIVE_ACCESS(L, container()[V1].mtx);
 
     return boost::add_edge(V1, V2, container());
+    } else {
+    VERT_EXCLUSIVE_ACCESS(L, container()[V1].mtx);
+    VERT_EXCLUSIVE_ACCESS(L, container()[V2].mtx);
+
+    return boost::add_edge(V1, V2, container());
+    }
   }
 
   template <bool L = true>

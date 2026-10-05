@@ -2993,7 +2993,9 @@ void BootstrapTool::DropPrivileges(void) {
 
 void BootstrapTool::invalidate_block(bbprop_t &bbprop,
                                      binary_t &binary) {
+#ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
   bbprop.InvalidateAnalyses(this->jv, binary);
+#endif
 }
 
 void arch_put_breakpoint(void *code) {

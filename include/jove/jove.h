@@ -514,8 +514,9 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
   template <bool MT, bool MinSize>
-  void InvalidateAnalyses(jv_base_t<MT, MinSize> &,
-                          binary_base_t<MT, MinSize> &);
+  void InvalidateFunctionAnalyses(jv_base_t<MT, MinSize> &,
+                          binary_base_t<MT, MinSize> &,
+                          basic_block_index_t);
 
   explicit bbprop_t() = delete;
   explicit bbprop_t(segment_manager_t *psm) noexcept : psm(psm) {}
@@ -540,7 +541,7 @@ ip_adjacency_list<MT,
                   true /* PointUnique */,
                   boost::setS_ip,     /* OutEdgeList */
                   boost::dequeS_ip,   /* VertexList */
-                  boost::directedS,   /* Directed */
+                  boost::bidirectional_simpleS, /* Directed */
                   bbprop_t,           /* VertexProperties */
                   boost::no_property, /* EdgeProperties */
                   boost::no_property, /* GraphProperties */
