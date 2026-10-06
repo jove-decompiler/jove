@@ -633,8 +633,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 
       auto UseSummary =
           [&](const std::pair<tcg_global_set_t, tcg_global_set_t> &Summary) -> void {
-        bb_analysis_t &TheAnalysis =
-            G[boost::graph_bundle].extra.emplace_front();
+        bb_analysis_t &TheAnalysis = *G[boost::graph_bundle].extra.emplace();
 
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = Summary;
 
@@ -699,8 +698,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
           }
 #if 0
           } else { /* we've already analyzed! */
-            bb_analysis_t &TheAnalysis =
-                G[boost::graph_bundle].extra.emplace_front();
+            bb_analysis_t &TheAnalysis = *G[boost::graph_bundle].extra.emplace();
             TheAnalysis.live.use = callee.Analysis.args;
             TheAnalysis.reach.def = callee.Analysis.rets;
 
@@ -813,8 +811,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
         }
       }
           } else { /* we've already analyzed! */
-            bb_analysis_t &TheAnalysis =
-                G[boost::graph_bundle].extra.emplace_front();
+            bb_analysis_t &TheAnalysis = *G[boost::graph_bundle].extra.emplace();
             TheAnalysis.live.use = callee.Analysis.args;
             TheAnalysis.reach.def = callee.Analysis.rets;
 
@@ -875,8 +872,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 
       auto UseSummary =
           [&](const std::pair<tcg_global_set_t, tcg_global_set_t> &Summary) -> void {
-        bb_analysis_t &TheAnalysis =
-            G[boost::graph_bundle].extra.emplace_front();
+        bb_analysis_t &TheAnalysis = *G[boost::graph_bundle].extra.emplace();
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = Summary;
 
         flow_vertex_t dummyV = boost::add_vertex(G);
