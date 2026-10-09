@@ -1,10 +1,9 @@
 #ifndef JOVE_SYS_H
 #define JOVE_SYS_H
 
-#if !defined(JOVE_SYS_ATTR)
-#error
-#endif
+#include "jove_sys.pre.h.inc"
 
+#if 0
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
@@ -42,6 +41,7 @@ enum landlock_rule_type {
   LANDLOCK_RULE_NET_PORT,
 };
 typedef unsigned short		umode_t;
+#endif
 
 #define __SYSCALL_CLOBBERS "memory", "cc", "r11", "rcx"
 
@@ -59,8 +59,9 @@ typedef unsigned short		umode_t;
     return _ret;                                                               \
   }
 
-#define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1) {                        \
+#define ___SYSCALL1(nr, nm, t1, a1)                                           \
+  __HEADER(1)                                                                  \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(__PARAM(1, t1) a1) {            \
     uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
@@ -75,8 +76,11 @@ typedef unsigned short		umode_t;
     return _ret;                                                               \
   }
 
-#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2) {                 \
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                  \
+  __HEADER(2)                                                                  \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2) {                                                     \
     uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
@@ -92,8 +96,12 @@ typedef unsigned short		umode_t;
     return _ret;                                                               \
   }
 
-#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {          \
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                         \
+  __HEADER(3)                                                                  \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2,                                                       \
+      __PARAM(3, t3) a3) {                                                     \
     uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
@@ -110,8 +118,13 @@ typedef unsigned short		umode_t;
     return _ret;                                                               \
   }
 
-#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {   \
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                \
+  __HEADER(4)                                                                  \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2,                                                       \
+      __PARAM(3, t3) a3,                                                       \
+      __PARAM(4, t4) a4) {                                                     \
     uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
@@ -131,8 +144,13 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,     \
-                                              t5 a5) {                         \
+  __HEADER(5)                                                                  \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2,                                                       \
+      __PARAM(3, t3) a3,                                                       \
+      __PARAM(4, t4) a4,                                                       \
+      __PARAM(5, t5) a5) {                                                     \
     uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
@@ -154,8 +172,14 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,     \
-                                              t5 a5, t6 a6) {                  \
+  __HEADER(6)                                                                  \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2,                                                       \
+      __PARAM(3, t3) a3,                                                       \
+      __PARAM(4, t4) a4,                                                       \
+      __PARAM(5, t5) a5,                                                       \
+      __PARAM(6, t6) a6) {                                                     \
     uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
@@ -181,5 +205,5 @@ typedef unsigned short		umode_t;
 
 #include "syscalls.inc.h"
 
-#undef JOVE_SYS_ATTR
+#include "jove_sys.post.h.inc"
 #endif /* JOVE_SYS_H */

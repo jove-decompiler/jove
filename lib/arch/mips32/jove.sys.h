@@ -7,9 +7,6 @@
 
 #include "jove_sys.h"
 
-#include <stddef.h>
-#include <sys/mman.h>
-
 static uintptr_t _mmap_rw_anonymous_private_memory(size_t len) {
   return _jove_sys_mips_mmap(0x0, len, PROT_READ | PROT_WRITE,
                              MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);

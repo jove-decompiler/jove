@@ -3,9 +3,6 @@
 #include "jove.sys.h" /* for _jove_sys_futex() */
 
 #include <stdatomic.h>
-#include <stdint.h>
-
-#include <linux/futex.h> /* for FUTEX_WAIT / FUTEX_WAKE */
 
 typedef _Atomic uint32_t futex_t;
 

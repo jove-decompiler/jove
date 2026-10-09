@@ -1,10 +1,9 @@
 #ifndef JOVE_SYS_H
 #define JOVE_SYS_H
 
-#if !defined(JOVE_SYS_ATTR)
-#error
-#endif
+#include "jove_sys.pre.h.inc"
 
+#if 0
 #include <sys/types.h>
 //#include <sys/stat.h>
 #include <sys/vfs.h>
@@ -43,6 +42,7 @@ typedef unsigned long cap_user_header_t; /* XXX */
 #ifndef __user
 #define __user
 #endif
+#endif
 
 #define __SYSCALL_CLOBBERS "$1", "$3", "$10", "$11", "$12", "$13", \
           "$14", "$15", "$24", "$25", "hi", "lo", "memory"
@@ -56,8 +56,8 @@ typedef unsigned long cap_user_header_t; /* XXX */
   static JOVE_SYS_ATTR int64_t _jove_sys_##nm(void) {                          \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a3 asm("$7");                                           \
+    register uint64_t __v0 asm("$2");                                          \
+    register uint64_t __a3 asm("$7");                                          \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
@@ -75,12 +75,13 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1) {                         \
+  __HEADER(1)                                                                  \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(__PARAM(1, t1) a1) {             \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a0 asm("$4") = (long)a1;                                \
-    register int64_t __a3 asm("$7");                                           \
+    register uint64_t __v0 asm("$2");                                          \
+    register uint64_t __a0 asm("$4") = (uint64_t)a1;                           \
+    register uint64_t __a3 asm("$7");                                          \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
@@ -98,13 +99,16 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2) {                  \
+  __HEADER(2)                                                                  \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2) {                                                     \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a0 asm("$4") = (long)a1;                                \
-    register int64_t __a1 asm("$5") = (long)a2;                                \
-    register int64_t __a3 asm("$7");                                           \
+    register uint64_t __v0 asm("$2");                                          \
+    register uint64_t __a0 asm("$4") = (uint64_t)a1;                           \
+    register uint64_t __a1 asm("$5") = (uint64_t)a2;                           \
+    register uint64_t __a3 asm("$7");                                          \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
@@ -122,14 +126,18 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {           \
+  __HEADER(3)                                                                  \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm( \
+      __PARAM(1, t1) a1,                                                             \
+      __PARAM(2, t2) a2,                                                             \
+      __PARAM(3, t3) a3) {                                                           \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a0 asm("$4") = (long)a1;                                \
-    register int64_t __a1 asm("$5") = (long)a2;                                \
-    register int64_t __a2 asm("$6") = (long)a3;                                \
-    register int64_t __a3 asm("$7");                                           \
+    register uint64_t __v0 asm("$2");                                           \
+    register uint64_t __a0 asm("$4") = (uint64_t)a1;                                \
+    register uint64_t __a1 asm("$5") = (uint64_t)a2;                                \
+    register uint64_t __a2 asm("$6") = (uint64_t)a3;                                \
+    register uint64_t __a3 asm("$7");                                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
@@ -147,14 +155,19 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {    \
+  __HEADER(4)                                                                  \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2,                                                       \
+      __PARAM(3, t3) a3,                                                       \
+      __PARAM(4, t4) a4) {                                                     \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a0 asm("$4") = (long)a1;                                \
-    register int64_t __a1 asm("$5") = (long)a2;                                \
-    register int64_t __a2 asm("$6") = (long)a3;                                \
-    register int64_t __a3 asm("$7") = (long)a4;                                \
+    register uint64_t __v0 asm("$2");                                          \
+    register uint64_t __a0 asm("$4") = (uint64_t)a1;                           \
+    register uint64_t __a1 asm("$5") = (uint64_t)a2;                           \
+    register uint64_t __a2 asm("$6") = (uint64_t)a3;                           \
+    register uint64_t __a3 asm("$7") = (uint64_t)a4;                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
@@ -172,16 +185,21 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
-                                              t5 a5) {                         \
+  __HEADER(5)                                                                  \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,   \
+      __PARAM(2, t2) a2,   \
+      __PARAM(3, t3) a3,   \
+      __PARAM(4, t4) a4,   \
+      __PARAM(5, t5) a5) { \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a0 asm("$4") = (long)a1;                                \
-    register int64_t __a1 asm("$5") = (long)a2;                                \
-    register int64_t __a2 asm("$6") = (long)a3;                                \
-    register int64_t __a3 asm("$7") = (long)a4;                                \
-    register int64_t __a4 asm("$8") = (long)a5;                                \
+    register uint64_t __v0 asm("$2");                                          \
+    register uint64_t __a0 asm("$4") = (uint64_t)a1;                           \
+    register uint64_t __a1 asm("$5") = (uint64_t)a2;                           \
+    register uint64_t __a2 asm("$6") = (uint64_t)a3;                           \
+    register uint64_t __a3 asm("$7") = (uint64_t)a4;                           \
+    register uint64_t __a4 asm("$8") = (uint64_t)a5;                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
@@ -199,17 +217,23 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
-                                              t5 a5, t6 a6) {                  \
+  __HEADER(6)                                                                  \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(                                 \
+      __PARAM(1, t1) a1,                                                       \
+      __PARAM(2, t2) a2,                                                       \
+      __PARAM(3, t3) a3,                                                       \
+      __PARAM(4, t4) a4,                                                       \
+      __PARAM(5, t5) a5,                                                       \
+      __PARAM(6, t6) a6) {                                                     \
     register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register int64_t __v0 asm("$2");                                           \
-    register int64_t __a0 asm("$4") = (long)a1;                                \
-    register int64_t __a1 asm("$5") = (long)a2;                                \
-    register int64_t __a2 asm("$6") = (long)a3;                                \
-    register int64_t __a3 asm("$7") = (long)a4;                                \
-    register int64_t __a4 asm("$8") = (long)a5;                                \
-    register int64_t __a5 asm("$9") = (long)a6;                                \
+    register uint64_t __v0 asm("$2");                                          \
+    register uint64_t __a0 asm("$4") = (uint64_t)a1;                           \
+    register uint64_t __a1 asm("$5") = (uint64_t)a2;                           \
+    register uint64_t __a2 asm("$6") = (uint64_t)a3;                           \
+    register uint64_t __a3 asm("$7") = (uint64_t)a4;                           \
+    register uint64_t __a4 asm("$8") = (uint64_t)a5;                           \
+    register uint64_t __a5 asm("$9") = (uint64_t)a6;                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
@@ -229,5 +253,5 @@ typedef unsigned long cap_user_header_t; /* XXX */
 
 #include "syscalls.inc.h"
 
-#undef JOVE_SYS_ATTR
+#include "jove_sys.post.h.inc"
 #endif /* JOVE_SYS_H */

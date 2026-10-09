@@ -1,10 +1,9 @@
 #ifndef JOVE_SYS_H
 #define JOVE_SYS_H
 
-#if !defined(JOVE_SYS_ATTR)
-#error
-#endif
+#include "jove_sys.pre.h.inc"
 
+#if 0
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
@@ -48,6 +47,7 @@ enum landlock_rule_type {
   LANDLOCK_RULE_NET_PORT,
 };
 typedef unsigned short		umode_t;
+#endif
 
 #ifndef __user
 #define __user
@@ -67,7 +67,9 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(t1 a1) {                         \
+  __HEADER(1)                                                                  \
+  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1) { \
     int32_t retval;                                                            \
                                                                                \
     uint32_t _nr = nr;                                                         \
@@ -83,7 +85,10 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(t1 a1, t2 a2) {                  \
+  __HEADER(2)                                                                  \
+  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+      __PARAM(1, t1) a1,   \
+      __PARAM(2, t2) a2) {                  \
     int32_t retval;                                                            \
                                                                                \
     uint32_t _nr = nr;                                                         \
@@ -100,7 +105,11 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {           \
+  __HEADER(3)                                                                  \
+  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+      __PARAM(1, t1) a1,   \
+      __PARAM(2, t2) a2,   \
+      __PARAM(3, t3) a3) { \
     int32_t retval;                                                            \
                                                                                \
     uint32_t _nr = nr;                                                         \
@@ -118,7 +127,12 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {    \
+  __HEADER(4)                                                                  \
+  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+      __PARAM(1, t1) a1,   \
+      __PARAM(2, t2) a2,   \
+      __PARAM(3, t3) a3,   \
+      __PARAM(4, t4) a4) { \
     int32_t retval;                                                            \
                                                                                \
     uint32_t _nr = nr;                                                         \
@@ -137,8 +151,13 @@ typedef unsigned short		umode_t;
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
-                                              t5 a5) {                         \
+  __HEADER(5)                                                                  \
+  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,   \
+      __PARAM(2, t2) a2,   \
+      __PARAM(3, t3) a3,   \
+      __PARAM(4, t4) a4,   \
+      __PARAM(5, t5) a5) { \
     int32_t retval;                                                            \
                                                                                \
     uint32_t _nr = nr;                                                         \
@@ -162,8 +181,15 @@ typedef unsigned short		umode_t;
 // is because the sixth argument is in ebp.
 //
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  __HEADER(6)                                                                  \
   static JOVE_SYS_ATTR __attribute__((naked))                                  \
-  int32_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6) {           \
+  int32_t _jove_sys_##nm(\
+      __PARAM(1, t1) a1,                                                             \
+      __PARAM(2, t2) a2,                                                             \
+      __PARAM(3, t3) a3,                                                             \
+      __PARAM(4, t4) a4,                                                             \
+      __PARAM(5, t5) a5,                                                             \
+      __PARAM(6, t6) a6) {                                                           \
     asm volatile("pushl %%ebp\n"                                               \
                  "pushl %%ebx\n"                                               \
                  "pushl %%edi\n"                                               \
@@ -193,5 +219,5 @@ typedef unsigned short		umode_t;
 
 #include "syscalls.inc.h"
 
-#undef JOVE_SYS_ATTR
+#include "jove_sys.post.h.inc"
 #endif /* JOVE_SYS_H */

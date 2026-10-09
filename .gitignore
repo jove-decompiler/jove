@@ -9,6 +9,7 @@ tags
 /bin/*/*.tmp
 /bin/*/asm-offsets-*.h
 /bin/*/linux.copy.h
+/bin/*/linux.copy.clear.h.inc
 /bin/*/tcgconstants.h
 /bin/*/tcgconstants.*.h
 /bin/*/env.copy.h

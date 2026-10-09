@@ -6,10 +6,12 @@
 
 #include "jove.mutex.h"
 
+#if 0
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/uio.h>
 #include <linux/limits.h> /* ARG_MAX and PATH_MAX */
+#endif
 
 #ifndef JOVE_TRACK_ALLOCATIONS
 #define JOVE_TRACK_ALLOCATION(beg, len, desc) do {} while (false)

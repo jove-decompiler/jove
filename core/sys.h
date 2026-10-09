@@ -1,4 +1,9 @@
 #pragma once
+#ifdef __cplusplus
+#include <cstdint>
+#else
+#include <stdint.h>
+#endif
 
 #ifdef JOVE_SYS_ATTR
 #error
@@ -9,6 +14,8 @@
 #ifdef JOVE_SYS_H
 #error
 #endif
+
+#define JOVE_SYSCALL_NO_PARAM_TYPES
 
 #if defined(__x86_64__)
 #define JOVE_SYS_PATH "arch/x86_64/jove_sys.h"

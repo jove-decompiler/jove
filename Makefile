@@ -57,6 +57,8 @@ runtime_cflags = -std=gnu11 \
                  -Weverything \
                  -Werror-implicit-function-declaration \
                  -Werror=return-type \
+                 -Wno-gnu-auto-type \
+                 -Wno-gnu-empty-struct \
                  -Wno-declaration-after-statement \
                  -Wno-unsafe-buffer-usage \
                  -Wno-reserved-macro-identifier \
@@ -72,6 +74,7 @@ runtime_cflags = -std=gnu11 \
                  -Wno-macro-redefined \
                  -Wno-c++-compat \
                  -Wno-padded \
+                 -Wno-documentation-unknown-command \
                  -O3 \
                  -g \
                  -ggdb \
@@ -357,10 +360,7 @@ linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
 
 i386_LINUX_CARBON_EXTRACT_PARAMS := -f arch/x86/lib/string_32.c
 
-linux_carbon_extract_params = -f lib/jove.c \
-                              -f lib/string.c \
-                              -f lib/bsearch.c \
-                              $($(1)_LINUX_CARBON_EXTRACT_PARAMS)
+linux_carbon_extract_params = -f lib/jove.c
 
 define target_template
 
@@ -396,6 +396,7 @@ $(BINDIR)/$(1)/helpers/win/%.bc: | $(BINDIR)/$(1)/qemu-$(1).bitcode.cut
 $(BINDIR)/$(1)/helpers/%.c:
 	@mkdir -p $(BINDIR)/$(1)/helpers
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) --notfound-empty helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) -o $$@
+	@printf '%s\n\n' '#define CONFIG_USER_ONLY' | cat - $$@ > $$@.tmp && mv $$@.tmp $$@
 
 .PHONY: check-helper-$(1)-%
 check-helper-$(1)-%: $(BINDIR)/$(1)/helpers/linux/%.bc
@@ -461,18 +462,18 @@ $(BINDIR)/$(1)/softfpu-win.o: $(call softfpu_bitcode,$(1),linux)
 	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
-	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) --sys-code -n ____copyme_jove $(call linux_carbon_extract_params,$(1)) > $$@
+	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) --sys-code -n ____copyme_jove --flatten $(call linux_carbon_extract_params,$(1)) -o $$@ --clear-inc $(BINDIR)/$(1)/linux.copy.clear.h.inc
 
 $(BINDIR)/$(1)/env.copy.h:
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n ____copyme_env > $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) --sys-code -n ____copyme_env -o $$@
 
 $(BINDIR)/$(1)/qemu.tcg.copy.h:
-	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n --flatten ____copyme_tcg >> $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n --flatten ____copyme_tcg -o $$@
+	@printf '%s\n\n' '#define CONFIG_USER_ONLY' | cat - $$@ > $$@.tmp && mv $$@.tmp $$@
 
 $(BINDIR)/$(HOST_ARCH)/qemu.tcg.copy.$(1).h:
-	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten ____copyme_tcg >> $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten ____copyme_tcg -o $$@
+	@printf '%s\n\n' '#define CONFIG_USER_ONLY' | cat - $$@ > $$@.tmp && mv $$@.tmp $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@.tmp && mv $$@.tmp $$@

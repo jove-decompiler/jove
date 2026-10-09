@@ -5,7 +5,9 @@
 // * linux/hashtable.h
 // * linux/list.h
 //
+#define __KERNEL__
 #include "linux.copy.h" /* this should come first */
+#undef __KERNEL__
 
 #include <stdint.h>
 #include <stdbool.h>

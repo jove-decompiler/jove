@@ -1,7 +1,5 @@
 #include "jove.common.h"
 
-#include "env.h"
-
 typedef uint64_t jove_thunk_return_t;
 
 #include "jove.c.inc"

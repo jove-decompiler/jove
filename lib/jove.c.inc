@@ -2,6 +2,8 @@
 #include "jove.util.c.inc"
 #include "jove.recover.h"
 
+#include "env.h"
+
 DECLARE_JOVE_RT_THREAD_GLOBAL(struct CPUArchState, env)
 
 #ifdef JOVE_MT
@@ -31,6 +33,10 @@ extern uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES];
 static ptrdiff_t __jove_foreign_function_tables_bias[_JOVE_MAX_BINARIES];
 
 extern DECLARE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
+
+#ifndef NULL
+#error
+#endif
 
 static DEFINE_HASHTABLE(__jove_trampolines_pending, 9);
 
