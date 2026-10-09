@@ -46,13 +46,43 @@ index 1ab2c4be3b66..19a21fcce7a0 100644
  obj-$(CONFIG_TEST_LKM) += test_module.o
 diff --git a/lib/jove.c b/lib/jove.c
 new file mode 100644
-index 000000000000..d52cc54a6473
+index 000000000000..113855d7368e
 --- /dev/null
 +++ b/lib/jove.c
-@@ -0,0 +1,378 @@
+@@ -0,0 +1,661 @@
 +#include <linux/list.h>
 +#include <linux/hashtable.h>
 +#include <linux/string.h>
++#include <linux/bsearch.h>
++#include <linux/signal_types.h>
++#include <linux/signal.h>
++#include <linux/capability.h>
++#include <linux/aio.h>
++#include <linux/key.h>
++#include <linux/quotaops.h>
++#include <linux/landlock.h>
++#include <linux/mman.h>
++#include <linux/futex.h>
++#include <linux/signal_types.h>
++#include <linux/uio.h>
++#include <linux/errno.h>
++#include <linux/fcntl.h>
++#include <linux/stat.h>
++#include <linux/limits.h>
++#include <linux/types.h>
++#include <asm/ucontext.h>
++#include <linux/fs.h>
++
++#if defined(__x86_64__)
++#include <asm/fpu/xstate.h>
++#elif defined(__i386__)
++#include <linux/time32.h>
++#endif
++
++
++#define STDIN_FILENO  0
++#define STDOUT_FILENO 1
++#define STDERR_FILENO 2
 +
 +struct our_hashtable_test_entry {
 +	int key;
@@ -77,13 +107,266 @@ index 000000000000..d52cc54a6473
 +	struct hlist_node list;
 +};
 +
++#if defined(_____T) || \
++    defined(_____C)
++#error
++#endif
++
++#define _____T(NAME) do { NAME ______x;(void)______x; } while (0);
++#define _____C(NAME) do { (void)(NAME); } while (0);
++
 +static __used void ____copyme_jove(void **p)
 +{
++#if defined(__x86_64__)
++    _____T(union fpregs_state)
++#elif defined(__i386__)
++    _____T(old_time32_t)
++#endif
++    _____T(siginfo_t)
++    _____T(cap_user_header_t)
++    _____T(cap_user_data_t)
++    _____T(stack_t)
++    _____T(aio_context_t)
++    _____T(key_serial_t)
++    _____T(qid_t)
++    _____T(enum landlock_rule_type)
++    _____T(struct iovec)
++
++#ifdef __SIZEOF_INT128__
++    _____T(__s128)
++    _____T(__u128)
++#endif
++
++    _____T(__le16)
++    _____T(__be16)
++    _____T(__le32)
++    _____T(__be32)
++    _____T(__le64)
++    _____T(__be64)
++    _____T(__aligned_u64)
++    _____T(__aligned_s64)
++    _____T(__aligned_be64)
++    _____T(__aligned_le64)
++    _____T(struct sigaction)
++    _____T(struct ucontext)
++    _____T(struct sigaction)
++    _____T(sigset_t)
++    _____T(__kernel_old_time_t)
++    _____T(struct __kernel_timespec)
++    _____T(rwf_t)
++    _____T(old_sigset_t)
++#ifdef __mips__
++    _____T(old_time32_t)
++#endif
++
++    _____C(PROT_READ)
++    _____C(PROT_WRITE)
++    _____C(PROT_NONE)
++    _____C(MAP_PRIVATE)
++    _____C(MAP_SHARED)
++    _____C(MAP_ANONYMOUS)
++    _____C(FUTEX_WAIT)
++    _____C(FUTEX_WAKE)
++    _____C(SIGABRT)
++    _____C(SIGHUP)
++    _____C(SIGINT)
++    _____C(SIGQUIT)
++    _____C(SIGILL)
++    _____C(SIGTRAP)
++    _____C(SIGABRT)
++//  _____C(SIGEMT)
++    _____C(SIGFPE)
++    _____C(SIGKILL)
++    _____C(SIGBUS)
++    _____C(SIGSEGV)
++    _____C(SIGSYS)
++    _____C(SIGPIPE)
++    _____C(SIGALRM)
++    _____C(SIGTERM)
++    _____C(SIGURG)
++    _____C(SIGSTOP)
++    _____C(SIGTSTP)
++    _____C(SIGCONT)
++    _____C(SIGCHLD)
++    _____C(SIGTTIN)
++    _____C(SIGTTOU)
++    _____C(SIGIO)
++    _____C(SIGXCPU)
++    _____C(SIGXFSZ)
++    _____C(SIGVTALRM)
++    _____C(SIGPROF)
++    _____C(SIGWINCH)
++//  _____C(SIGINFO)
++    _____C(SIGUSR1)
++    _____C(SIGUSR2)
++    _____C(STDIN_FILENO)
++    _____C(STDOUT_FILENO)
++    _____C(STDERR_FILENO)
++    _____C(EPERM)
++    _____C(ENOENT)
++    _____C(ESRCH)
++    _____C(EINTR)
++    _____C(EIO)
++    _____C(ENXIO)
++    _____C(E2BIG)
++    _____C(ENOEXEC)
++    _____C(EBADF)
++    _____C(ECHILD)
++    _____C(EAGAIN)
++    _____C(ENOMEM)
++    _____C(EACCES)
++    _____C(EFAULT)
++    _____C(ENOTBLK)
++    _____C(EBUSY)
++    _____C(EEXIST)
++    _____C(EXDEV)
++    _____C(ENODEV)
++    _____C(ENOTDIR)
++    _____C(EISDIR)
++    _____C(EINVAL)
++    _____C(ENFILE)
++    _____C(EMFILE)
++    _____C(ENOTTY)
++    _____C(ETXTBSY)
++    _____C(EFBIG)
++    _____C(ENOSPC)
++    _____C(ESPIPE)
++    _____C(EROFS)
++    _____C(EMLINK)
++    _____C(EPIPE)
++    _____C(EDOM)
++    _____C(ERANGE)
++    _____C(O_ACCMODE)
++    _____C(O_RDONLY)
++    _____C(O_WRONLY)
++    _____C(O_RDWR)
++    _____C(O_CREAT)
++    _____C(O_EXCL)
++    _____C(O_NOCTTY)
++    _____C(O_TRUNC)
++    _____C(O_APPEND)
++    _____C(O_NONBLOCK)
++    _____C(O_DSYNC)
++    _____C(O_DIRECT)
++    _____C(O_LARGEFILE)
++    _____C(O_DIRECTORY)
++    _____C(O_NOFOLLOW)
++    _____C(O_NOATIME)
++    _____C(O_CLOEXEC)
++    _____C(O_SYNC)
++    _____C(O_PATH)
++    _____C(O_TMPFILE)
++    _____C(S_IRWXUGO)
++    _____C(S_IRWXU|S_IRWXG|S_IRWXO)
++    _____C(S_IALLUGO)
++    _____C(S_ISUID|S_ISGID|S_ISVTX|S_IRWXUGO)
++    _____C(S_IRUGO)
++    _____C(S_IRUSR|S_IRGRP|S_IROTH)
++    _____C(S_IWUGO)
++    _____C(S_IWUSR|S_IWGRP|S_IWOTH)
++    _____C(S_IXUGO)
++    _____C(S_IXUSR|S_IXGRP|S_IXOTH)
++    _____C(PROT_READ)
++    _____C(PROT_WRITE)
++    _____C(PROT_EXEC)
++    _____C(PROT_SEM)
++    _____C(PROT_NONE)
++    _____C(PROT_GROWSDOWN)
++    _____C(PROT_GROWSUP)
++    _____C(MAP_TYPE)
++    _____C(MAP_FIXED)
++    _____C(MAP_ANONYMOUS)
++//  _____C(_MAP_HASSEMAPHORE)
++//  _____C(_MAP_INHERIT)
++//  _____C(_MAP_UNALIGNED)
++    _____C(MAP_GROWSDOWN)
++    _____C(MAP_DENYWRITE)
++    _____C(MAP_EXECUTABLE)
++    _____C(MAP_LOCKED)
++    _____C(MAP_NORESERVE)
++    _____C(MAP_POPULATE)
++    _____C(MAP_NONBLOCK)
++    _____C(MAP_STACK)
++    _____C(MAP_HUGETLB)
++    _____C(MAP_FIXED_NOREPLACE)
++    _____C(MS_ASYNC)
++    _____C(MS_SYNC)
++    _____C(MS_INVALIDATE)
++    _____C(MCL_CURRENT)
++    _____C(MCL_FUTURE)
++    _____C(MCL_ONFAULT)
++    _____C(MLOCK_ONFAULT)
++    _____C(MADV_NORMAL)
++    _____C(MADV_RANDOM)
++    _____C(MADV_SEQUENTIAL)
++    _____C(MADV_WILLNEED)
++//  _____C(MADV_SPACEAVAIL)
++    _____C(MADV_DONTNEED)
++    _____C(MADV_FREE)
++    _____C(MADV_REMOVE)
++    _____C(MADV_DONTFORK)
++    _____C(MADV_DOFORK)
++    _____C(MADV_MERGEABLE)
++    _____C(MADV_UNMERGEABLE)
++    _____C(MADV_HUGEPAGE)
++    _____C(MADV_NOHUGEPAGE)
++    _____C(MADV_DONTDUMP)
++    _____C(MADV_DODUMP)
++    _____C(MADV_WIPEONFORK)
++    _____C(MADV_KEEPONFORK)
++    _____C(MADV_COLD)
++    _____C(MADV_PAGEOUT)
++    _____C(MADV_POPULATE_READ)
++    _____C(MADV_POPULATE_WRITE)
++    _____C(MADV_DONTNEED_LOCKED)
++    _____C(MADV_COLLAPSE)
++    _____C(MADV_GUARD_INSTALL)
++    _____C(MADV_GUARD_REMOVE)
++    _____C(NGROUPS_MAX)
++    _____C(ARG_MAX)
++    _____C(LINK_MAX)
++    _____C(MAX_CANON)
++    _____C(MAX_INPUT)
++    _____C(NAME_MAX)
++    _____C(PATH_MAX)
++    _____C(PIPE_BUF)
++    _____C(XATTR_NAME_MAX)
++    _____C(XATTR_SIZE_MAX)
++    _____C(XATTR_LIST_MAX)
++    _____C(RTSIG_MAX)
++    _____C(SA_ONSTACK)
++    _____C(SA_RESTART)
++    _____C(SA_NOCLDSTOP)
++    _____C(SA_NODEFER)
++    _____C(SA_RESETHAND)
++    _____C(SA_NOCLDWAIT)
++    _____C(SA_SIGINFO)
++    _____C(SA_ONESHOT)
++    _____C(SA_RESETHAND)
++    _____C(SA_NOMASK)
++    _____C(SA_NODEFER)
++    _____C(MINSIGSTKSZ)
++    _____C(SIGSTKSZ)
++    _____C(SIG_BLOCK)
++    _____C(SIG_UNBLOCK)
++    _____C(SIG_SETMASK)
++
++#undef _____T
++#undef _____C
++
++#if 0
 +	(void)&strlen;
 +	(void)&strcpy;
 +	(void)&strcmp;
 +	(void)&strchr;
 +	(void)&strcat;
++    (void)&bsearch;
++#endif
++    (void)((struct sigaction *)NULL);
++    (void)((struct k_sigaction *)NULL);
++#ifdef CONFIG_OLD_SIGACTION
++    (void)((struct old_sigaction *)NULL);
++#endif
 +{
 +	/* Test the different ways of initialising a hashtable. */
 +	DEFINE_HASHTABLE(hash1, 2);
