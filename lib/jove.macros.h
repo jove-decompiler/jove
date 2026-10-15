@@ -7,10 +7,10 @@
 
 #include <stdbool.h>
 
-#ifdef NULL
-#undef NULL
+#ifdef NULLUP
+#error
 #endif
-#define NULL ((uintptr_t *)0)
+#define NULLUP ((uintptr_t *)0)
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
