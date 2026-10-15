@@ -2,7 +2,8 @@
 #include "jove.macros.h"
 #include "jove.sys.h" /* for _jove_sys_futex() */
 
-#include <stdatomic.h>
+#if 0
+//#include <stdatomic.h>
 
 typedef _Atomic uint32_t futex_t;
 
@@ -40,3 +41,4 @@ static _UNUSED void _mutex_unlock(mutex_t *mtx) {
   /* wake up one waiting thread */
   _futex_wake(mtx, 1);
 }
+#endif

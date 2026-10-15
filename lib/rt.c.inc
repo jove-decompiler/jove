@@ -26,11 +26,11 @@ _EXPORT uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES] = {
 
 _EXPORT DEFINE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
-static mutex_t to_free_lock = JOVE_MUTEX_INIT;
+static DEFINE_JOVE_SPINLOCK(to_free_lock);
 static uintptr_t to_free[16];
 
 static void _jove_free_stack_later(uintptr_t stack) {
-  _mutex_lock(&to_free_lock);
+  _jove_spin_lock(to_free_lock);
 
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
@@ -38,7 +38,7 @@ static void _jove_free_stack_later(uintptr_t stack) {
 
     to_free[i] = stack;
 
-    _mutex_unlock(&to_free_lock);
+    _jove_spin_unlock(to_free_lock);
     return;
   }
 
@@ -667,11 +667,6 @@ static void dump_detailed_ucontext(struct ucontext *, siginfo_t *);
 
 #define ____ptr_to____(name,init) typeof(*(init)) *const name = (init)
 
-#ifdef NULL
-#undef NULL
-#endif
-#define NULL ((uintptr_t *)0)
-
 void _jove_rt_signal_handler(int sig, siginfo_t *si, struct ucontext *uctx) {
   const struct _entered_t entered _CLEANUP(_jove_clear_entered) =
       _jove_entered(&_sighandler_reentered);
@@ -735,7 +730,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, struct ucontext *uctx) {
 #elif defined(__aarch64__)
                  &uctx->uc_mcontext.regs[30]
 #else
-                 NULL
+                 NULLUP
 #endif
   );
 
@@ -743,7 +738,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, struct ucontext *uctx) {
 #if defined(__mips64) || defined(__mips__)
                  &uctx->uc_mcontext.sc_regs[25]
 #else
-                 NULL
+                 NULLUP
 #endif
   );
 
@@ -753,7 +748,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, struct ucontext *uctx) {
 #if defined(__mips64) || defined(__mips__)
                  &__jove_env.active_tc.gpr[25]
 #else
-                 NULL
+                 NULLUP
 #endif
   );
 
@@ -824,7 +819,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, struct ucontext *uctx) {
   // no time like the present
   //
   {
-    _mutex_lock(&to_free_lock);
+    _jove_spin_lock(to_free_lock);
 
     for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
       if (to_free[i] == 0)
@@ -834,7 +829,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, struct ucontext *uctx) {
       to_free[i] = 0;
     }
 
-    _mutex_unlock(&to_free_lock);
+    _jove_spin_unlock(to_free_lock);
   }
 
   const uintptr_t saved_pc = *pc_ptr;

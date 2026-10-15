@@ -5,6 +5,7 @@
 #include "jove.sys.h"
 
 #include "jove.mutex.h"
+#include "jove.spin.h"
 
 #if 0
 #include <errno.h>
@@ -681,12 +682,13 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
 static _UNUSED char *_get_environ(unsigned *np) {
   static jove_buffer_t _envs = {0};
   static unsigned _n = 0;
-  static mutex_t _mtx = JOVE_MUTEX_INIT;
+
+  static DEFINE_RAW_SPINLOCK(_lock);
 
   char *res = NULL;
   unsigned n = 0u;
 
-  _mutex_lock(&_mtx);
+  _jove_spin_lock(_lock);
 
   res = _envs.ptr;
   n = _n;
@@ -700,7 +702,7 @@ static _UNUSED char *_get_environ(unsigned *np) {
     _n = n;
   }
 
-  _mutex_unlock(&_mtx);
+  _jove_spin_unlock(_lock);
 
   _ASSERT(res);
   _ASSERT(n);

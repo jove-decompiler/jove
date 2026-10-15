@@ -10,7 +10,7 @@
 static struct jove_allocation_t alloc_arr[1024];
 static struct jove_allocation_t *allocp = &alloc_arr[0];
 
-static mutex_t alloc_list_lock = JOVE_MUTEX_INIT;
+static DEFINE_RAW_SPINLOCK(alloc_list_lock);
 static struct hlist_head alloc_list = HLIST_HEAD_INIT;
 
 _EXPORT void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc) {
@@ -19,7 +19,7 @@ _EXPORT void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc) {
   if (allocp >= &alloc_arr[ARRAY_SIZE(alloc_arr)])
     return; /* out of memory */
 
-  _mutex_lock(&alloc_list_lock);
+  _jove_spin_lock(alloc_list_lock);
 
   p = allocp++;
   p->beg = beg;
@@ -28,14 +28,14 @@ _EXPORT void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc) {
 
   hlist_add_head(&p->hlist, &alloc_list);
 
-  _mutex_unlock(&alloc_list_lock);
+  _jove_spin_unlock(alloc_list_lock);
 }
 
 _EXPORT void _jove_rt_track_free(uintptr_t beg, size_t len) {
   struct jove_allocation_t *cur;
   struct hlist_node *tmp_node;
 
-  _mutex_lock(&alloc_list_lock);
+  _jove_spin_lock(alloc_list_lock);
 
   hlist_for_each_entry_safe(cur, tmp_node, &alloc_list, hlist) {
     if (cur->beg == beg) {
@@ -44,7 +44,7 @@ _EXPORT void _jove_rt_track_free(uintptr_t beg, size_t len) {
     }
   }
 
-  _mutex_unlock(&alloc_list_lock);
+  _jove_spin_unlock(alloc_list_lock);
 }
 
 _EXPORT const char *_jove_rt_description_for_alloc(uintptr_t beg) {
@@ -53,7 +53,7 @@ _EXPORT const char *_jove_rt_description_for_alloc(uintptr_t beg) {
 
   const char *res = NULL;
 
-  _mutex_lock(&alloc_list_lock);
+  _jove_spin_lock(alloc_list_lock);
 
   hlist_for_each_entry_safe(cur, tmp_node, &alloc_list, hlist) {
     if (cur->beg == beg) {
@@ -62,7 +62,7 @@ _EXPORT const char *_jove_rt_description_for_alloc(uintptr_t beg) {
     }
   }
 
-  _mutex_unlock(&alloc_list_lock);
+  _jove_spin_unlock(alloc_list_lock);
 
   return res;
 }
