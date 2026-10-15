@@ -46,10 +46,10 @@ typedef unsigned short		umode_t;
 #define __SYSCALL_CLOBBERS "memory", "cc", "r11", "rcx"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(void) {                         \
-    uint64_t _ret;                                                             \
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(void) {                         \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -61,12 +61,12 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                           \
   __HEADER(1)                                                                  \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(__PARAM(1, t1) a1) {            \
-    uint64_t _ret;                                                             \
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(__PARAM(1, t1) a1) {            \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
-    uint64_t _a1 = (uint64_t)a1;                                               \
+    unsigned long _a1 = (unsigned long)a1;                                               \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -78,15 +78,15 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                  \
   __HEADER(2)                                                                  \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2) {                                                     \
-    uint64_t _ret;                                                             \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
-    uint64_t _a1 = (uint64_t)a1;                                               \
-    uint64_t _a2 = (uint64_t)a2;                                               \
+    unsigned long _a1 = (unsigned long)a1;                                               \
+    unsigned long _a2 = (unsigned long)a2;                                               \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -98,17 +98,17 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                         \
   __HEADER(3)                                                                  \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3) {                                                     \
-    uint64_t _ret;                                                             \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
-    uint64_t _a1 = (uint64_t)a1;                                               \
-    uint64_t _a2 = (uint64_t)a2;                                               \
-    uint64_t _a3 = (uint64_t)a3;                                               \
+    unsigned long _a1 = (unsigned long)a1;                                               \
+    unsigned long _a2 = (unsigned long)a2;                                               \
+    unsigned long _a3 = (unsigned long)a3;                                               \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -120,19 +120,19 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                \
   __HEADER(4)                                                                  \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3,                                                       \
       __PARAM(4, t4) a4) {                                                     \
-    uint64_t _ret;                                                             \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
-    uint64_t _a1 = (uint64_t)a1;                                               \
-    uint64_t _a2 = (uint64_t)a2;                                               \
-    uint64_t _a3 = (uint64_t)a3;                                               \
-    uint64_t _a4 = (uint64_t)a4;                                               \
+    unsigned long _a1 = (unsigned long)a1;                                               \
+    unsigned long _a2 = (unsigned long)a2;                                               \
+    unsigned long _a3 = (unsigned long)a3;                                               \
+    unsigned long _a4 = (unsigned long)a4;                                               \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "syscall\n"                                                   \
@@ -145,21 +145,21 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   __HEADER(5)                                                                  \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3,                                                       \
       __PARAM(4, t4) a4,                                                       \
       __PARAM(5, t5) a5) {                                                     \
-    uint64_t _ret;                                                             \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
-    uint64_t _a1 = (uint64_t)a1;                                               \
-    uint64_t _a2 = (uint64_t)a2;                                               \
-    uint64_t _a3 = (uint64_t)a3;                                               \
-    uint64_t _a4 = (uint64_t)a4;                                               \
-    uint64_t _a5 = (uint64_t)a5;                                               \
+    unsigned long _a1 = (unsigned long)a1;                                               \
+    unsigned long _a2 = (unsigned long)a2;                                               \
+    unsigned long _a3 = (unsigned long)a3;                                               \
+    unsigned long _a4 = (unsigned long)a4;                                               \
+    unsigned long _a5 = (unsigned long)a5;                                               \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "movq %6, %%r8\n"                                             \
@@ -173,23 +173,23 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   __HEADER(6)                                                                  \
-  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3,                                                       \
       __PARAM(4, t4) a4,                                                       \
       __PARAM(5, t5) a5,                                                       \
       __PARAM(6, t6) a6) {                                                     \
-    uint64_t _ret;                                                             \
+    unsigned long _ret;                                                             \
                                                                                \
-    uint64_t _nr = nr;                                                         \
+    unsigned long _nr = nr;                                                         \
                                                                                \
-    uint64_t _a1 = (uint64_t)a1;                                               \
-    uint64_t _a2 = (uint64_t)a2;                                               \
-    uint64_t _a3 = (uint64_t)a3;                                               \
-    uint64_t _a4 = (uint64_t)a4;                                               \
-    uint64_t _a5 = (uint64_t)a5;                                               \
-    uint64_t _a6 = (uint64_t)a6;                                               \
+    unsigned long _a1 = (unsigned long)a1;                                               \
+    unsigned long _a2 = (unsigned long)a2;                                               \
+    unsigned long _a3 = (unsigned long)a3;                                               \
+    unsigned long _a4 = (unsigned long)a4;                                               \
+    unsigned long _a5 = (unsigned long)a5;                                               \
+    unsigned long _a6 = (unsigned long)a6;                                               \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "movq %6, %%r8\n"                                             \
