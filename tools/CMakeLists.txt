@@ -33,25 +33,7 @@ llvm_map_components_to_libnames(llvm_libs
 )
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-  if(EXISTS "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
-    set(BACKTRACE_HEADER "/usr/lib/gcc/x86_64-linux-gnu/12/include/backtrace.h")
-  else()
-    set(BACKTRACE_HEADER "/usr/lib/gcc-cross/x86_64-linux-gnu/12/include/backtrace.h")
-  endif()
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/aarch64-linux-gnu/12/include/backtrace.h")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86")
-  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/i686-linux-gnu/12/include/backtrace.h")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mipsel")
-  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/mipsel-linux-gnu/12/include/backtrace.h")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips64el")
-  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/mips64el-linux-gnuabi64/12/include/backtrace.h")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips")
-  set(BACKTRACE_HEADER "/usr/lib/gcc-cross/mips-linux-gnu/12/include/backtrace.h")
-else()
-  message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
-endif()
+set(BACKTRACE_HEADER "${JOVE_SRC_DIR}/libbacktrace/backtrace.h")
 
 target_compile_definitions(boost_stacktrace_backtrace PRIVATE
   "BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<${BACKTRACE_HEADER}>"
