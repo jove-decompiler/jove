@@ -16,22 +16,7 @@ export build_scripts_path MAX_RETRIES PARALLEL_JOBS
 . "$build_scripts_path/paths.sh"
 . "$build_scripts_path/retry.sh"
 
-
-hostarch=$(dpkg --print-architecture)
-
-case "$hostarch" in
-  amd64)
-    hostarch=x86_64
-    ;;
-  arm64)
-    hostarch=aarch64
-    ;;
-  *)
-    echo "build architecture ($hostarch) is unsupported." >&2
-    exit 1
-    ;;
-esac
-
+hostarch=$("$build_scripts_path/../hostarch.sh")
 export hostarch
 
 all_archs=("$hostarch")
