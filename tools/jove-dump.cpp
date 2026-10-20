@@ -111,7 +111,7 @@ typedef boost::format fmt;
 
 void DumpTool::dumpDecompilation(const jv_t &jv) {
   if (opts.Symbolize)
-    symbolizer = std::make_unique<symbolizer_t>(locator(), opts.Addr2Line);
+    symbolizer = std::make_unique<symbolizer_t>(jv, locator(), opts.Addr2Line);
 
   if (opts.TCGGlobalNames)
     TCG = std::make_unique<tiny_code_generator_t>();

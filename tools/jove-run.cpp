@@ -218,7 +218,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<symbolizer_t> symbolizer;
   std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> Explorer;
-  std::unique_ptr<CodeRecovery<IsToolMT, IsToolMinSize>> Recovery;
+  std::unique_ptr<recoverer_t> Recovery;
 
   struct {
     std::unique_ptr<loop::shared_mapping_t> mapping;
@@ -508,10 +508,10 @@ int RunTool::DoRun(void) {
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     if (opts.Symbolize)
-      symbolizer = std::make_unique<symbolizer_t>(locator(), true);
+      symbolizer = std::make_unique<symbolizer_t>(jv, locator(), true);
     Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
         jv_file, jv, *disas, *tcg, GetVerbosityLevel());
-    Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(
+    Recovery = std::make_unique<recoverer_t>(
         jv_file, jv, *Explorer,
         symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);
 

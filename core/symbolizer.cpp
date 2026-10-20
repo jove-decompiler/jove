@@ -13,8 +13,9 @@ namespace jove {
 
 typedef boost::format fmt;
 
-symbolizer_t::symbolizer_t(locator_t &locator, bool Addr2Line)
-  : locator(locator), Addr2Line(Addr2Line) {
+template <bool MT, bool MinSize>
+symbolizer_base_t<MT, MinSize>::symbolizer_base_t(const jv_t &jv, locator_t &locator, bool Addr2Line)
+  : locator(locator), Addr2Line(Addr2Line), state(jv) {
   llvm::symbolize::LLVMSymbolizer::Options Opts;
   Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
   Opts.UseSymbolTable = false;
@@ -24,13 +25,75 @@ symbolizer_t::symbolizer_t(locator_t &locator, bool Addr2Line)
   Symbolizer = std::make_unique<llvm::symbolize::LLVMSymbolizer>(Opts);
 }
 
-symbolizer_t::~symbolizer_t() {}
+template <bool MT, bool MinSize>
+symbolizer_base_t<MT, MinSize>::~symbolizer_base_t() {}
 
 template <bool MT, bool MinSize>
-std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
-                                    uint64_t Addr) {
+std::string
+symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &binary,
+                                     uint64_t Addr) {
   if (!binary.is_file())
     return std::string();
+
+  auto do_addr2line = [&](void) -> std::pair<bool, std::string> {
+    std::string A2LOutput;
+    bool IsA2LOutputValid = ({
+      int pipefd[2];
+      if (::pipe(pipefd) < 0)
+        throw std::runtime_error("pipe failed: " +
+                                 std::string(strerror(errno)));
+
+      scoped_fd rfd(pipefd[0]);
+      scoped_fd wfd(pipefd[1]);
+
+      const std::string path_to_addr2line =
+          B::is_coff(state.for_binary(binary).Bin.get())
+              ? locator.mingw_addr2line(IsTarget32)
+              : locator.addr2line();
+
+      pid_t child = RunExecutable(
+          path_to_addr2line,
+          [&](auto Arg) {
+            Arg(path_to_addr2line);
+            Arg("-e");
+            Arg(binary.Name.c_str());
+            Arg((fmt("0x%" PRIx64) % Addr).str());
+          },
+          "", "",
+          [&](const char **argv, const char **envp) {
+            rfd.close();
+            (void)robust::dup2(wfd.get(), STDOUT_FILENO);
+            (void)robust::dup2(wfd.get(), STDERR_FILENO);
+            wfd.close();
+          });
+
+      BOOST_SCOPE_DEFER[&] { WaitForProcessToExit(child); };
+
+      wfd.close();
+
+      pipe_reader pipe(rfd.get());
+      A2LOutput = pipe.get();
+
+      boost::algorithm::trim_if(A2LOutput, [](char ch) -> bool {
+        return ch == ' ' || ch == '\n' || ch == '\t';
+      });
+
+      A2LOutput != "??:?" && A2LOutput != "??:0" && A2LOutput != ":?" &&
+          A2LOutput != "fake:" && A2LOutput != "fake:?";
+    });
+
+
+    return std::make_pair(IsA2LOutputValid, A2LOutput);
+  };
+
+  if (this->Addr2Line) {
+    bool IsA2LOutputValid;
+    std::string A2LOutput;
+    std::tie(IsA2LOutputValid, A2LOutput) = do_addr2line();
+
+    if (IsA2LOutputValid)
+      return A2LOutput;
+  }
 
   llvm::DILineInfo LnInfo;
   {
@@ -51,49 +114,11 @@ std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
   LnInfo = ResOrErr.get();
   }
 
-  std::string A2LOutput;
-  bool IsA2LOutputValid = ({
-    int pipefd[2];
-    if (::pipe(pipefd) < 0)
-      throw std::runtime_error("pipe failed: " + std::string(strerror(errno)));
-
-    scoped_fd rfd(pipefd[0]);
-    scoped_fd wfd(pipefd[1]);
-
-    pid_t child = RunExecutable(locator.mingw_addr2line(IsTarget32),
-                        [&](auto Arg) {
-                          Arg(locator.mingw_addr2line(IsTarget32));
-                          Arg("-e");
-                          Arg(binary.Name.c_str());
-                          Arg((fmt("0x%" PRIx64) % Addr).str());
-                        },
-                        "", "",
-                        [&](const char **argv, const char **envp) {
-                          rfd.close();
-                          (void)robust::dup2(wfd.get(), STDOUT_FILENO);
-                          (void)robust::dup2(wfd.get(), STDERR_FILENO);
-                          wfd.close();
-                        });
-
-    BOOST_SCOPE_DEFER[&] { WaitForProcessToExit(child); };
-
-    wfd.close();
-
-    pipe_reader pipe(rfd.get());
-    A2LOutput = pipe.get();
-
-    boost::algorithm::trim_if(A2LOutput, [](char ch) -> bool {
-      return ch == ' ' || ch == '\n' || ch == '\t';
-    });
-
-    A2LOutput != "??:?" &&
-    A2LOutput != "??:0" &&
-    A2LOutput != ":?" &&
-    A2LOutput != "fake:" &&
-    A2LOutput != "fake:?";
-  });
-
   if (LnInfo.FileName == llvm::DILineInfo::BadString) {
+    bool IsA2LOutputValid;
+    std::string A2LOutput;
+    std::tie(IsA2LOutputValid, A2LOutput) = do_addr2line();
+
     if (IsA2LOutputValid)
       return A2LOutput;
 
@@ -126,8 +151,9 @@ std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
 }
 
 template <bool MT, bool MinSize>
-std::string symbolizer_t::addr2desc(const binary_base_t<MT, MinSize> &binary,
-                                    uint64_t Addr) {
+std::string
+symbolizer_base_t<MT, MinSize>::addr2desc(const binary_base_t<MT, MinSize> &binary,
+                                     uint64_t Addr) {
   if (Addr == 0 || ~Addr == 0)
     return "??";
 
@@ -153,18 +179,8 @@ std::string symbolizer_t::addr2desc(const binary_base_t<MT, MinSize> &binary,
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, product)                                             \
-  template std::string                                                         \
-  symbolizer_t::addr2desc<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
-                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>(           \
-      const binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
-                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,         \
-      uint64_t Addr);                                                          \
-  template std::string                                                         \
-  symbolizer_t::addr2line<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
-                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>(           \
-      const binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
-                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,         \
-      uint64_t Addr);
+  template class symbolizer_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),   \
+                                   GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

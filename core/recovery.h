@@ -10,9 +10,10 @@ template <bool MT, bool MinSize>
 class explorer_t;
 
 template <bool MT, bool MinSize>
-class CodeRecovery {
+class recoverer_base_t {
   using jv_t = jv_base_t<MT, MinSize>;
   using binary_t = binary_base_t<MT, MinSize>;
+  using symbolizer_t = symbolizer_base_t<MT, MinSize>;
 
   using bb_t = binary_t::bb_t;
 
@@ -35,9 +36,9 @@ class CodeRecovery {
   std::string addr2str(binary_t &, taddr_t);
 
 public:
-  CodeRecovery(jv_file_t &, jv_t &, explorer_t<MT, MinSize> &,
-               boost::optional<symbolizer_t &>);
-  ~CodeRecovery();
+  recoverer_base_t(jv_file_t &, jv_t &, explorer_t<MT, MinSize> &,
+               boost::optional<symbolizer_base_t<MT, MinSize> &>);
+  ~recoverer_base_t();
 
   uint64_t AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,
                                            basic_block_index_t BBIdx);

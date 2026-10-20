@@ -5,6 +5,8 @@
 #include "process.h"
 #include "locator.h"
 #include "run.h"
+#include "symbolizer.h"
+#include "recovery.h"
 
 #include <functional>
 #include <memory>
@@ -284,6 +286,8 @@ struct BaseJVTool : public Tool {
   using binary_t = binary_base_t<MT, MinSize>;
   using icfg_t = ip_icfg_base_t<MT>;
   using bb_t = binary_t::bb_t;
+  using symbolizer_t = symbolizer_base_t<MT, MinSize>;
+  using recoverer_t = recoverer_base_t<MT, MinSize>;
 
   static constexpr bool IsToolMT = MT;
   static constexpr bool IsToolMinSize = MinSize;

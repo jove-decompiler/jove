@@ -21,17 +21,18 @@ namespace jove {
 typedef boost::format fmt;
 
 template <bool MT, bool MinSize>
-CodeRecovery<MT, MinSize>::CodeRecovery(jv_file_t &jv_file,
-                                        jv_t &jv,
-                                        explorer_t<MT, MinSize> &E,
-                                        boost::optional<symbolizer_t &> symbolizer)
+recoverer_base_t<MT, MinSize>::recoverer_base_t(
+    jv_file_t &jv_file,
+    jv_t &jv,
+    explorer_t<MT, MinSize> &E,
+    boost::optional<symbolizer_base_t<MT, MinSize> &> symbolizer)
     : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
 
 template <bool MT, bool MinSize>
-CodeRecovery<MT, MinSize>::~CodeRecovery() {}
+recoverer_base_t<MT, MinSize>::~recoverer_base_t() {}
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::addr2str(binary_t &b, taddr_t Addr) {
+std::string recoverer_base_t<MT, MinSize>::addr2str(binary_t &b, taddr_t Addr) {
   if (symbolizer) {
     std::unique_lock<std::mutex> lck(symbolizer_mtx); // XXX
     return symbolizer->addr2desc(b, Addr);
@@ -47,7 +48,7 @@ std::string CodeRecovery<MT, MinSize>::addr2str(binary_t &b, taddr_t Addr) {
 }
 
 template <bool MT, bool MinSize>
-uint64_t CodeRecovery<MT, MinSize>::AddressOfTerminatorAtBasicBlock(
+uint64_t recoverer_base_t<MT, MinSize>::AddressOfTerminatorAtBasicBlock(
     binary_index_t BIdx,
     basic_block_index_t BBIdx) {
   auto &b = jv.Binaries.at(BIdx);
@@ -63,7 +64,7 @@ uint64_t CodeRecovery<MT, MinSize>::AddressOfTerminatorAtBasicBlock(
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
+std::string recoverer_base_t<MT, MinSize>::RecoverDynamicTarget(
     binary_index_t CallerBIdx,
     basic_block_index_t CallerBBIdx,
     binary_index_t CalleeBIdx,
@@ -131,7 +132,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
+std::string recoverer_base_t<MT, MinSize>::RecoverBasicBlock(
     binary_index_t IndBrBIdx,
     basic_block_index_t IndBrBBIdx,
     uint64_t Addr) {
@@ -169,7 +170,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
+std::string recoverer_base_t<MT, MinSize>::RecoverFunctionAtAddress(
     binary_index_t IndCallBIdx,
     basic_block_index_t IndCallBBIdx,
     binary_index_t CalleeBIdx,
@@ -247,7 +248,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtOffset(
+std::string recoverer_base_t<MT, MinSize>::RecoverFunctionAtOffset(
     binary_index_t IndCallBIdx,
     basic_block_index_t IndCallBBIdx,
     binary_index_t CalleeBIdx,
@@ -261,7 +262,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtOffset(
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::RecoverABI(binary_index_t BIdx,
+std::string recoverer_base_t<MT, MinSize>::RecoverABI(binary_index_t BIdx,
                                                   function_index_t FIdx) {
   dynamic_target_t NewABI(BIdx, FIdx);
 
@@ -278,7 +279,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverABI(binary_index_t BIdx,
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
+std::string recoverer_base_t<MT, MinSize>::Returns(binary_index_t CallBIdx,
                                                basic_block_index_t CallBBIdx) {
   auto &b = jv.Binaries.at(CallBIdx);
   auto &ICFG = b.Analysis.ICFG;
@@ -338,7 +339,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
 }
 
 template <bool MT, bool MinSize>
-std::string CodeRecovery<MT, MinSize>::RecoverForeignBinary(const char *path) {
+std::string recoverer_base_t<MT, MinSize>::RecoverForeignBinary(const char *path) {
   bool IsNew;
   binary_index_t BIdx;
 
@@ -360,7 +361,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverForeignBinary(const char *path) {
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, product)                                             \
-  template class CodeRecovery<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),        \
+  template class recoverer_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),        \
                               GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 

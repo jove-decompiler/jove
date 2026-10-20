@@ -82,12 +82,12 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
   symbolizer_t symbolizer;
 
   explorer_t<IsToolMT, IsToolMinSize> Explorer;
-  CodeRecovery<IsToolMT, IsToolMinSize> Recovery;
+  recoverer_t Recovery;
 
 public:
   CodeDigger()
       : opts(JoveCategory),
-        symbolizer(locator()),
+        symbolizer(jv, locator()),
         Explorer(jv_file, jv, disas, tcg),
         Recovery(jv_file, jv, Explorer, symbolizer) {}
 
