@@ -1314,6 +1314,9 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
         if (options.LoadRelocSectionPointers)
           Arg("--load-reloc-section-pointers");
 
+        if (options.DumpPreOpt1)
+          Arg("--dump-pre-opt");
+
 #if 0
         if (!options.PinnedGlobals.empty()) {
           std::string pinned_globals_arg = "--pinned-globals=";
@@ -1416,9 +1419,11 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
     if (options.IsVerbose()) {
       WithColor::error() << llvm::formatv("jove llvm failed on {0}!\n",
                                           binary_filename);
+#if 0
       std::string stderr_contents;
       read_file_into_thing(path_to_stderr.c_str(), stderr_contents);
       llvm::errs() << stderr_contents;
+#endif
     } else {
       WithColor::error() << llvm::formatv("jove llvm failed! see {0}\n",
                                           path_to_stderr);
