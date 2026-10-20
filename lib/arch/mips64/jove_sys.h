@@ -1,3 +1,7 @@
+#ifndef __mips64
+#error
+#endif
+
 #ifndef JOVE_SYS_H
 #define JOVE_SYS_H
 
