@@ -56,10 +56,10 @@ typedef unsigned short		umode_t;
 #define __SYSCALL_CLOBBERS "memory", "cc"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(void) {                          \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR int _jove_sys_##nm(void) {                          \
+    int retval;                                                            \
                                                                                \
-    uint32_t _nr = nr;                                                         \
+    unsigned int _nr = nr;                                                         \
                                                                                \
     asm volatile("int $0x80" : "=a"(retval) : "a"(_nr) : __SYSCALL_CLOBBERS);  \
                                                                                \
@@ -68,13 +68,13 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   __HEADER(1)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR int _jove_sys_##nm(\
       __PARAM(1, t1) a1) { \
-    int32_t retval;                                                            \
+    int retval;                                                            \
                                                                                \
-    uint32_t _nr = nr;                                                         \
+    unsigned int _nr = nr;                                                         \
                                                                                \
-    uint32_t _a1 = (uint32_t)a1;                                               \
+    unsigned int _a1 = (unsigned int)a1;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -86,15 +86,15 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   __HEADER(2)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+  static JOVE_SYS_ATTR int _jove_sys_##nm( \
       __PARAM(1, t1) a1,   \
       __PARAM(2, t2) a2) {                  \
-    int32_t retval;                                                            \
+    int retval;                                                            \
                                                                                \
-    uint32_t _nr = nr;                                                         \
+    unsigned int _nr = nr;                                                         \
                                                                                \
-    uint32_t _a1 = (uint32_t)a1;                                               \
-    uint32_t _a2 = (uint32_t)a2;                                               \
+    unsigned int _a1 = (unsigned int)a1;                                               \
+    unsigned int _a2 = (unsigned int)a2;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -106,17 +106,17 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   __HEADER(3)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+  static JOVE_SYS_ATTR int _jove_sys_##nm( \
       __PARAM(1, t1) a1,   \
       __PARAM(2, t2) a2,   \
       __PARAM(3, t3) a3) { \
-    int32_t retval;                                                            \
+    int retval;                                                            \
                                                                                \
-    uint32_t _nr = nr;                                                         \
+    unsigned int _nr = nr;                                                         \
                                                                                \
-    uint32_t _a1 = (uint32_t)a1;                                               \
-    uint32_t _a2 = (uint32_t)a2;                                               \
-    uint32_t _a3 = (uint32_t)a3;                                               \
+    unsigned int _a1 = (unsigned int)a1;                                               \
+    unsigned int _a2 = (unsigned int)a2;                                               \
+    unsigned int _a3 = (unsigned int)a3;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -128,19 +128,19 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   __HEADER(4)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+  static JOVE_SYS_ATTR int _jove_sys_##nm( \
       __PARAM(1, t1) a1,   \
       __PARAM(2, t2) a2,   \
       __PARAM(3, t3) a3,   \
       __PARAM(4, t4) a4) { \
-    int32_t retval;                                                            \
+    int retval;                                                            \
                                                                                \
-    uint32_t _nr = nr;                                                         \
+    unsigned int _nr = nr;                                                         \
                                                                                \
-    uint32_t _a1 = (uint32_t)a1;                                               \
-    uint32_t _a2 = (uint32_t)a2;                                               \
-    uint32_t _a3 = (uint32_t)a3;                                               \
-    uint32_t _a4 = (uint32_t)a4;                                               \
+    unsigned int _a1 = (unsigned int)a1;                                               \
+    unsigned int _a2 = (unsigned int)a2;                                               \
+    unsigned int _a3 = (unsigned int)a3;                                               \
+    unsigned int _a4 = (unsigned int)a4;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -152,21 +152,21 @@ typedef unsigned short		umode_t;
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   __HEADER(5)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR int _jove_sys_##nm(\
       __PARAM(1, t1) a1,   \
       __PARAM(2, t2) a2,   \
       __PARAM(3, t3) a3,   \
       __PARAM(4, t4) a4,   \
       __PARAM(5, t5) a5) { \
-    int32_t retval;                                                            \
+    int retval;                                                            \
                                                                                \
-    uint32_t _nr = nr;                                                         \
+    unsigned int _nr = nr;                                                         \
                                                                                \
-    uint32_t _a1 = (uint32_t)a1;                                               \
-    uint32_t _a2 = (uint32_t)a2;                                               \
-    uint32_t _a3 = (uint32_t)a3;                                               \
-    uint32_t _a4 = (uint32_t)a4;                                               \
-    uint32_t _a5 = (uint32_t)a5;                                               \
+    unsigned int _a1 = (unsigned int)a1;                                               \
+    unsigned int _a2 = (unsigned int)a2;                                               \
+    unsigned int _a3 = (unsigned int)a3;                                               \
+    unsigned int _a4 = (unsigned int)a4;                                               \
+    unsigned int _a5 = (unsigned int)a5;                                               \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
@@ -183,7 +183,7 @@ typedef unsigned short		umode_t;
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   __HEADER(6)                                                                  \
   static JOVE_SYS_ATTR __attribute__((naked))                                  \
-  int32_t _jove_sys_##nm(\
+  int _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                             \
       __PARAM(2, t2) a2,                                                             \
       __PARAM(3, t3) a3,                                                             \
