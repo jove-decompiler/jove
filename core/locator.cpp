@@ -312,6 +312,24 @@ std::string locator_t::mingw_addr2line(bool Is32) {
   }
 }
 
+std::string locator_t::addr2line(void) {
+#if defined(TARGET_AARCH64)
+  return must_exist("/usr/bin/aarch64-unknown-linux-gnu-addr2line");
+#elif defined(TARGET_X86_64)
+  return must_exist("/usr/bin/x86_64-unknown-linux-gnu-addr2line");
+#elif defined(TARGET_I386)
+  return must_exist("/usr/bin/i686-unknown-linux-gnu-addr2line");
+#elif defined(TARGET_MIPS64)
+  return must_exist("/usr/bin/mips64el-unknown-linux-gnu-addr2line");
+#elif defined(TARGET_MIPSEL)
+  return must_exist("/usr/bin/mipsel-unknown-linux-gnu-addr2line");
+#elif defined(TARGET_MIPS)
+  return must_exist("/usr/bin/mips-unknown-linux-gnu-addr2line");
+#else
+#error
+#endif
+}
+
 std::string locator_t::vim(void) {
   return must_exist("/usr/bin/vim");
 }
