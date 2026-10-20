@@ -57,3 +57,9 @@
 [submodule "minisat"]
 	path = minisat
 	url = https://github.com/stp/minisat.git
+[submodule "libbacktrace"]
+	path = libbacktrace
+	url = https://github.com/ianlancetaylor/libbacktrace.git
+[submodule "_gmsl"]
+	path = _gmsl
+	url = https://github.com/jgrahamc/gmsl.git
