@@ -35,7 +35,7 @@
 #ifdef __cplusplus
 #define __PARAM(i, t) BOOST_PP_IIF(JOVE_SYSCALL_PARAM_TYPES,t,BOOST_PP_CAT(T,EXPANDV_(i)))
 #else
-#define __PARAM(i, t) BOOST_PP_IIF(JOVE_SYSCALL_PARAM_TYPES,t,uint64_t)
+#define __PARAM(i, t) BOOST_PP_IIF(JOVE_SYSCALL_PARAM_TYPES,t,unsigned long)
 #endif
 
 // XXX

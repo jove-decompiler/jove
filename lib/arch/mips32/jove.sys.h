@@ -7,12 +7,12 @@
 
 #include "jove_sys.h"
 
-static uintptr_t _mmap_rw_anonymous_private_memory(size_t len) {
+static unsigned long _mmap_rw_anonymous_private_memory(size_t len) {
   return _jove_sys_mips_mmap(0x0, len, PROT_READ | PROT_WRITE,
                              MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
 }
 
-static uintptr_t _mmap_rw_shared_file(int fd, size_t len) {
+static unsigned long _mmap_rw_shared_file(int fd, size_t len) {
   return _jove_sys_mips_mmap(0x0, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 }
 
