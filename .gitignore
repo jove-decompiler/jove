@@ -30,5 +30,7 @@ tags
 /bin/*/env_init.*.inc
 /bin/*/env_init.*
 /bin/*/all_helpers.mk
+/llknife/build16
+/llknife/build19
 tests/.t/*
 tests/__pycache__/*
