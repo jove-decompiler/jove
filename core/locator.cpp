@@ -113,9 +113,15 @@ std::string locator_t::builtins(bool IsCOFF) {
 #endif
   } else {
 #if defined(TARGET_AARCH64)
+  try {
+    return must_exist("/usr/lib/gcc/aarch64-unknown-linux-gnu/16/libgcc.a");
+  } catch (...) {}
     return must_exist("/usr/lib/gcc-cross/aarch64-linux-gnu/12/libgcc.a");
 #elif defined(TARGET_X86_64)
+  try {
     return must_exist("/usr/lib/gcc/x86_64-linux-gnu/12/libgcc.a");
+  } catch (...) {}
+    return must_exist("/usr/lib/gcc/x86_64-pc-linux-gnu/16/libgcc.a");
 #elif defined(TARGET_I386)
     return must_exist("/usr/lib/gcc-cross/i686-linux-gnu/12/libgcc.a");
 #elif defined(TARGET_MIPS64)
@@ -147,9 +153,15 @@ std::string locator_t::atomics(bool IsCOFF) {
 #endif
   } else {
 #if defined(TARGET_AARCH64)
+  try {
+    return must_exist("/usr/lib/gcc/aarch64-unknown-linux-gnu/16/libatomic.a");
+  } catch (...) {}
     return must_exist("/usr/lib/gcc-cross/aarch64-linux-gnu/12/libatomic.a");
 #elif defined(TARGET_X86_64)
+  try {
     return must_exist("/usr/lib/gcc/x86_64-linux-gnu/12/libatomic.a");
+  } catch (...) {}
+    return must_exist("/usr/lib/gcc/x86_64-pc-linux-gnu/16/libatomic.a");
 #elif defined(TARGET_I386)
     return must_exist("/usr/lib/gcc/x86_64-linux-gnu/12/32/libatomic.a");
 #elif defined(TARGET_MIPS64)
