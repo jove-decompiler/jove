@@ -4802,6 +4802,11 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                 "elf_expression_for_relocation: unhandled relocation {0}\n",
                 Elf.getRelocationTypeName(R.Type));
             abort();
+          } catch (...) {
+            WithColor::error() << llvm::formatv(
+                "elf_expression_for_relocation: failed @ {0:x} ({1})\n",
+                R.Offset, Elf.getRelocationTypeName(R.Type));
+            throw;
           }
 
           if (!R_C)
