@@ -273,6 +273,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
       Boost::lockfree
       Boost::scope
       Boost::stacktrace
+      Boost::atomic
   )
 
   if(JOVE_NO_BOOST_BACKTRACE)
