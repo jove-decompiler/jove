@@ -65,7 +65,7 @@ public:
       // since this may cause a reused file descriptor from another thread to be
       // closed." - close(2)
       //
-      (void)robust::close(fd);
+      (void)::close(fd);
 
       fd = -1; /* reset */
     }
