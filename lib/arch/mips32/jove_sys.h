@@ -64,9 +64,9 @@ typedef s32 old_time32_t;
 #endif
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(void) {                          \
-    register uint32_t r7 asm("$7");                                            \
-    register uint32_t r2 asm("$2");                                            \
+  static JOVE_SYS_ATTR int _jove_sys_##nm(void) {                          \
+    register unsigned int r7 asm("$7");                                            \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
                  : "=&r"(r2), "=r"(r7)                                         \
                  : "ir"(nr), "0"(r2)                                           \
@@ -76,10 +76,10 @@ typedef s32 old_time32_t;
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   __HEADER(1)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(__PARAM(1, t1) a1) {             \
-    register uint32_t r4 asm("$4") = (uint32_t)a1;                             \
-    register uint32_t r7 asm("$7");                                            \
-    register uint32_t r2 asm("$2");                                            \
+  static JOVE_SYS_ATTR int _jove_sys_##nm(__PARAM(1, t1) a1) {             \
+    register unsigned int r4 asm("$4") = (unsigned int)a1;                             \
+    register unsigned int r7 asm("$7");                                            \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
                  : "=&r"(r2), "=r"(r7)                                         \
                  : "ir"(nr), "0"(r2), "r"(r4)                                  \
@@ -89,13 +89,13 @@ typedef s32 old_time32_t;
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   __HEADER(2)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+  static JOVE_SYS_ATTR int _jove_sys_##nm( \
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2) {                                                     \
-    register uint32_t r4 asm("$4") = (uint32_t)a1;                             \
-    register uint32_t r5 asm("$5") = (uint32_t)a2;                             \
-    register uint32_t r7 asm("$7");                                            \
-    register uint32_t r2 asm("$2");                                            \
+    register unsigned int r4 asm("$4") = (unsigned int)a1;                             \
+    register unsigned int r5 asm("$5") = (unsigned int)a2;                             \
+    register unsigned int r7 asm("$7");                                            \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
                  : "=&r"(r2), "=r"(r7)                                         \
                  : "ir"(nr), "0"(r2), "r"(r4), "r"(r5)                         \
@@ -105,15 +105,15 @@ typedef s32 old_time32_t;
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   __HEADER(3)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR int _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3) {                                                     \
-    register uint32_t r4 asm("$4") = (uint32_t)a1;                             \
-    register uint32_t r5 asm("$5") = (uint32_t)a2;                             \
-    register uint32_t r6 asm("$6") = (uint32_t)a3;                             \
-    register uint32_t r7 asm("$7");                                            \
-    register uint32_t r2 asm("$2");                                            \
+    register unsigned int r4 asm("$4") = (unsigned int)a1;                             \
+    register unsigned int r5 asm("$5") = (unsigned int)a2;                             \
+    register unsigned int r6 asm("$6") = (unsigned int)a3;                             \
+    register unsigned int r7 asm("$7");                                            \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
                  : "=&r"(r2), "=r"(r7)                                         \
                  : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
@@ -123,16 +123,16 @@ typedef s32 old_time32_t;
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   __HEADER(4)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR int _jove_sys_##nm(\
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3,                                                       \
       __PARAM(4, t4) a4) {                                                     \
-    register uint32_t r4 asm("$4") = (uint32_t)a1;                             \
-    register uint32_t r5 asm("$5") = (uint32_t)a2;                             \
-    register uint32_t r6 asm("$6") = (uint32_t)a3;                             \
-    register uint32_t r7 asm("$7") = (uint32_t)a4;                             \
-    register uint32_t r2 asm("$2");                                            \
+    register unsigned int r4 asm("$4") = (unsigned int)a1;                             \
+    register unsigned int r5 asm("$5") = (unsigned int)a2;                             \
+    register unsigned int r6 asm("$6") = (unsigned int)a3;                             \
+    register unsigned int r7 asm("$7") = (unsigned int)a4;                             \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
                  : "=&r"(r2), "+r"(r7)                                         \
                  : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
@@ -142,18 +142,18 @@ typedef s32 old_time32_t;
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   __HEADER(5)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm(\
+  static JOVE_SYS_ATTR int _jove_sys_##nm(\
       __PARAM(1, t1) a1,   \
       __PARAM(2, t2) a2,   \
       __PARAM(3, t3) a3,   \
       __PARAM(4, t4) a4,   \
       __PARAM(5, t5) a5) { \
-    register uint32_t r4 asm("$4") = (uint32_t)a1;                             \
-    register uint32_t r5 asm("$5") = (uint32_t)a2;                             \
-    register uint32_t r6 asm("$6") = (uint32_t)a3;                             \
-    register uint32_t r7 asm("$7") = (uint32_t)a4;                             \
-    register uint32_t r8 asm("$8") = (uint32_t)a5;                             \
-    register uint32_t r2 asm("$2");                                            \
+    register unsigned int r4 asm("$4") = (unsigned int)a1;                             \
+    register unsigned int r5 asm("$5") = (unsigned int)a2;                             \
+    register unsigned int r6 asm("$6") = (unsigned int)a3;                             \
+    register unsigned int r7 asm("$7") = (unsigned int)a4;                             \
+    register unsigned int r8 asm("$8") = (unsigned int)a5;                             \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; "                          \
                  "addu $2,$0,%3 ; syscall ;"                                   \
                  "addu $sp,$sp,32"                                             \
@@ -165,20 +165,20 @@ typedef s32 old_time32_t;
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   __HEADER(6)                                                                  \
-  static JOVE_SYS_ATTR int32_t _jove_sys_##nm( \
+  static JOVE_SYS_ATTR int _jove_sys_##nm( \
       __PARAM(1, t1) a1,                                                       \
       __PARAM(2, t2) a2,                                                       \
       __PARAM(3, t3) a3,                                                       \
       __PARAM(4, t4) a4,                                                       \
       __PARAM(5, t5) a5,                                                       \
       __PARAM(6, t6) a6) {                                                     \
-    register uint32_t r4 asm("$4") = (uint32_t)a1;                             \
-    register uint32_t r5 asm("$5") = (uint32_t)a2;                             \
-    register uint32_t r6 asm("$6") = (uint32_t)a3;                             \
-    register uint32_t r7 asm("$7") = (uint32_t)a4;                             \
-    register uint32_t r8 asm("$8") = (uint32_t)a5;                             \
-    register uint32_t r9 asm("$9") = (uint32_t)a6;                             \
-    register uint32_t r2 asm("$2");                                            \
+    register unsigned int r4 asm("$4") = (unsigned int)a1;                             \
+    register unsigned int r5 asm("$5") = (unsigned int)a2;                             \
+    register unsigned int r6 asm("$6") = (unsigned int)a3;                             \
+    register unsigned int r7 asm("$7") = (unsigned int)a4;                             \
+    register unsigned int r8 asm("$8") = (unsigned int)a5;                             \
+    register unsigned int r9 asm("$9") = (unsigned int)a6;                             \
+    register unsigned int r2 asm("$2");                                            \
     asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; sw $9,20($sp) ; "          \
                  "addu $2,$0,%4 ; syscall ;"                                   \
                  "addu $sp,$sp,32"                                             \
