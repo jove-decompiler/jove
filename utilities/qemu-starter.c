@@ -1,5 +1,6 @@
 #include "jove.macros.h"
 
+#define JOVE_SYSCALL_NO_PARAM_TYPES
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
