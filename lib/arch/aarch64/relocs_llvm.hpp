@@ -26,8 +26,10 @@ llvm::Constant *llvm_t<MT, MinSize>::elf_expression_for_relocation(
     const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_AARCH64_RELATIVE:
-    assert(R.Addend);
-    return SectionPointer(*R.Addend);
+    if (R.Addend)
+      return SectionPointer(*R.Addend);
+    else
+      return SectionPointer(ExtractWordAtAddress(R.Offset));
 
   case llvm::ELF::R_AARCH64_GLOB_DAT:
   case llvm::ELF::R_AARCH64_JUMP_SLOT:
