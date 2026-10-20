@@ -1,5 +1,4 @@
 #pragma once
-#include <stdbool.h>
 
 struct jove_opts_t {
   struct {

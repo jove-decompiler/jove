@@ -1,6 +1,5 @@
 #include "jove.macros.h"
 
-#define JOVE_SYSCALL_NO_PARAM_TYPES
 #define JOVE_SYS_ATTR _UNUSED
 #define JOVE_CRASH_MODE 'a'
 

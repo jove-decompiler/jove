@@ -5,8 +5,6 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/stringize.hpp>
 
-#include <stdbool.h>
-
 #ifdef NULLUP
 #error
 #endif

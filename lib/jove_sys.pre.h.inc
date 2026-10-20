@@ -1,3 +1,9 @@
+#ifndef JOVE_SYSCALL_NO_PARAM_TYPES
+#define __KERNEL__
+#include "linux.copy.h"
+#undef __KERNEL__
+#endif
+
 #include <boost/preprocessor/facilities/is_empty.hpp>
 #include <boost/preprocessor/control/iif.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>

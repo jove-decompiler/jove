@@ -9,9 +9,11 @@
 #include "linux.copy.h" /* this should come first */
 #undef __KERNEL__
 
+#if 0
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#endif
 
 struct jove_function_info_t {
   uint32_t BIdx;

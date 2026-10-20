@@ -5,6 +5,9 @@
 #define JOVE_SYS_ATTR _INL _UNUSED
 #endif
 
+#ifdef JOVE_SYSCALL_NO_PARAM_TYPES
+#error
+#endif
 #include "jove_sys.h"
 
 static unsigned long _mmap_rw_anonymous_private_memory(unsigned long len) {
