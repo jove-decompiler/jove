@@ -1,3 +1,5 @@
+#ifndef JOVE_ASSERT_H
+#define JOVE_ASSERT_H
 #include "jove/likely.h"
 
 #include <stdexcept>
@@ -5,9 +7,6 @@
 #include <algorithm>
 
 #include <boost/preprocessor/stringize.hpp>
-
-#ifndef JOVE_ASSERT_H
-#define JOVE_ASSERT_H
 
 namespace jove {
 
@@ -42,6 +41,15 @@ extern "C" void __assert_fail(const char *__assertion, const char *__file,
                               unsigned int __line, const char *__function)
     __attribute__((noreturn));
 
+#endif /* JOVE_ASSERT_H*/
+
+#ifdef aassert
+#undef aassert
+#endif
+#ifdef assert
+#undef assert
+#endif
+
 /* always assert (abort)" */
 #define aasserta(cond)                                                         \
   ({                                                                           \
@@ -66,9 +74,7 @@ extern "C" void __assert_fail(const char *__assertion, const char *__file,
     (void)0;                                                                   \
   })
 #endif /* NO_JOVE_ASSERT */
-#endif /* JOVE_ASSERT_H*/
 
-#undef assert
 #ifdef NDEBUG
 #define assert(cond) ({ (void)0; })
 #else

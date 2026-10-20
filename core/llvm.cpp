@@ -78,6 +78,7 @@
 #include <signal.h>
 
 #include "jove_constants.h"
+#undef NO_JOVE_ASSERT
 #include "jove/assert.h"
 
 extern "C" {
