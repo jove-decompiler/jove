@@ -675,7 +675,7 @@ struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
 template <bool MT>
 using ip_call_graph_base_t =
     ip_adjacency_list<MT,
-                      false /* !Spin */,
+                      true /* Spin */,
                       true /* PointUnique */,
                       boost::setS_ip, /* no parallel edges! */ /* OutEdgeList */
                       boost::dequeS_ip,                        /* VertexList */
