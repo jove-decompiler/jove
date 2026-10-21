@@ -55,10 +55,11 @@ __compiletime_unreachable(void);
 
 #define UNIQUE_VAR_NAME(base) BOOST_PP_CAT(base,__COUNTER__)
 
+#define JOVE_ADDRESS_CONTAINER_OF(ptr, T, member)                              \
+  (reinterpret_cast<uintptr_t>(ptr) - __builtin_offsetof(T, member))
+
 #define JOVE_CONTAINER_OF(ptr, T, member)                                      \
-  (reinterpret_cast<T *>(reinterpret_cast<char *>(ptr) -                       \
-                         __builtin_offsetof(T, member)))
+  (reinterpret_cast<T *>(JOVE_ADDRESS_CONTAINER_OF(ptr, T, member)))
 
 #define JOVE_CONTAINER_OF_CONST(ptr, T, member)                                \
-  (reinterpret_cast<const T *>(reinterpret_cast<const char *>(ptr) -           \
-                               __builtin_offsetof(T, member)))
+  (reinterpret_cast<const T *>(JOVE_ADDRESS_CONTAINER_OF(ptr, T, member)))
