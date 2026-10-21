@@ -101,7 +101,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverDynamicTarget(
         TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
 
   callee.Analysis.Invalidate();
-  ICFG[bb].InvalidateAnalyses(jv, CallerBinary);
+  ICFG[bb].InvalidateAnalyses(jv, CallerBinary, index_of_basic_block(ICFG, bb));
 
 #if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
@@ -160,7 +160,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverBasicBlock(
   });
 
   if (isNewTarget)
-    ICFG[bb].InvalidateAnalyses(jv, b);
+    ICFG[bb].InvalidateAnalyses(jv, b, index_of_basic_block(ICFG, bb));
 
   return (fmt(__ANSI_GREEN "%s(goto) %s -> %s" __ANSI_NORMAL_COLOR)
           % (isNewTarget ? "" : __ANSI_NORMAL_COLOR)
@@ -216,7 +216,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverFunctionAtAddress(
       CallerBinary.FixAmbiguousIndirectJump(
           TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
 
-    ICFG[bb].InvalidateAnalyses(jv, CallerBinary);
+    ICFG[bb].InvalidateAnalyses(jv, CallerBinary, index_of_basic_block(ICFG, bb));
   }
 
 #if 0
@@ -327,7 +327,7 @@ std::string recoverer_base_t<MT, MinSize>::Returns(binary_index_t CallBIdx,
         isNewTarget;
 
     if (isNewTarget)
-      bbprop.InvalidateAnalyses(jv, b);
+      bbprop.InvalidateAnalyses(jv, b, index_of_basic_block(ICFG, bb));
   };
 
   (void)isNewTarget; /* FIXME */

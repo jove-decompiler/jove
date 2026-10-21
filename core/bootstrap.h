@@ -416,7 +416,9 @@ public:
   template <bool Throw = true>
   ssize_t poke(const taddr_t dst, const uint8_t *src, const size_t len);
 
+#ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
   void invalidate_block(bbprop_t &, binary_t &);
+#endif
 };
 
 }

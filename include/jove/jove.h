@@ -2,6 +2,7 @@
 #define JOVE_H
 #define IN_JOVE_H
 
+#include "jove/config.h"
 #include "jove/tcg.h"
 #ifdef __cplusplus
 #ifndef __clang__
@@ -14,6 +15,7 @@
 #include "jove/racy.h"
 #include "jove/algo.h"
 #include "jove/verbose.h"
+#include "jove/const.h"
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
@@ -546,7 +548,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
   template <bool MT, bool MinSize>
   void InvalidateAnalyses(jv_base_t<MT, MinSize> &,
-                          binary_base_t<MT, MinSize> &);
+                          binary_base_t<MT, MinSize> &,
+                          basic_block_index_t BBIdx);
 
   explicit bbprop_t() = delete;
   explicit bbprop_t(segment_manager_t *psm) noexcept : psm(psm) {
@@ -574,6 +577,12 @@ private:
   bool doInsertDynTarget(const dynamic_target_t &);
 };
 
+#ifdef JOVE_ICFG_IS_BIDIRECTIONAL
+#define ___the_icfg_directedS boost::bidirectional_simpleS
+#else
+#define ___the_icfg_directedS boost::directedS
+#endif
+
 template <bool MT>
 using ip_icfg_base_t =
 ip_adjacency_list<MT,
@@ -581,7 +590,7 @@ ip_adjacency_list<MT,
                   true /* PointUnique */,
                   boost::setS_ip,     /* OutEdgeList */
                   boost::dequeS_ip,   /* VertexList */
-                  boost::directedS,   /* Directed */
+                  ___the_icfg_directedS, /* Directed */
                   bbprop_t,           /* VertexProperties */
                   boost::no_property, /* EdgeProperties */
                   boost::no_property, /* GraphProperties */

@@ -3,7 +3,9 @@
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
+#include <boost/graph/reverse_graph.hpp>
 #include <boost/scope/defer.hpp>
+#include <boost/container/vector.hpp>
 
 namespace jove {
 
@@ -194,8 +196,6 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.template get<MT>();
 
-    auto s_lck = RCG.shared_access();
-
     std::for_each(maybe_par_unseq,
                   ParentsVec.cbegin(),
                   ParentsVec.cend(), [&](function_index_t FIdx) {
@@ -214,37 +214,90 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
 template <bool MT, bool MinSize>
 void bbprop_t::InvalidateAnalyses(jv_base_t<MT, MinSize> &jv,
-                                  binary_base_t<MT, MinSize> &b) {
-  this->Analysis.Invalidate();
+                                  binary_base_t<MT, MinSize> &b,
+                                  basic_block_index_t BBIdx) {
 
-  struct function_invalidator_t : public boost::default_dfs_visitor {
+  using ReverseGraphTy =
+      boost::reverse_graph<typename ip_icfg_base_t<MT>::type,
+                           typename ip_icfg_base_t<MT>::type &>;
+
+  struct gather_and_invalidate_t : public boost::default_dfs_visitor {
     jv_base_t<MT, MinSize> &jv;
+    const binary_index_t BIdx = invalid_binary_index;
+    boost::unordered_flat_set<dynamic_target_t> &out;
 
-    function_invalidator_t(jv_base_t<MT, MinSize> &jv) : jv(jv) {}
+    gather_and_invalidate_t(jv_base_t<MT, MinSize> &jv,
+                            const binary_index_t BIdx,
+                            boost::unordered_flat_set<dynamic_target_t> &out)
+        : jv(jv), BIdx(BIdx), out(out) {}
+
+    void discover_vertex(ReverseGraphTy::vertex_descriptor V,
+                         const ReverseGraphTy &ReverseICFG) const {
+      ReverseICFG.m_g[V].Analysis.Invalidate();
+
+      const auto &ParentsVec = ReverseICFG.m_g[V].Parents.template get<MT>();
+      std::for_each(ParentsVec.cbegin(),
+                    ParentsVec.cend(), [&](function_index_t FIdx) {
+                      out.emplace(BIdx, FIdx);
+                    });
+    }
 
     void discover_vertex(ip_call_graph_base_t<MT>::vertex_descriptor V,
                          const ip_call_graph_base_t<MT>::type &RCG) const {
       dynamic_target_t X = RCG[V].X;
-
       assert(is_dynamic_target_valid(X));
-
-      function_of_target(X, jv).Analysis.Invalidate();
+      out.insert(X);
     }
   };
 
-  function_invalidator_t invalidator(jv);
+#if 0
+  //
+  // invalidate this block...
+  //
+  this->Analysis.Invalidate();
+#endif
 
-  const auto &ParentsVec = Parents.template get<MT>();
+  boost::unordered_flat_set<dynamic_target_t> ToInvalidate;
+  gather_and_invalidate_t gather_and_invalidate(jv, index_of_binary(b), ToInvalidate);
+
+  auto &ICFG = b.Analysis.ICFG;
+
+  //
+  // .. and all others that could lead into this one are invalidated.
+  //
+  {
+    ReverseGraphTy ReverseICFG(ICFG.container());
+
+    auto s_lck = ICFG.shared_access();
+
+    std::vector<boost::default_color_type> ColorVec(boost::num_vertices(ReverseICFG.m_g));
+    auto ColorPropMap = boost::make_iterator_property_map(
+        ColorVec.begin(), boost::get(boost::vertex_index, ReverseICFG.m_g));
+
+    boost::depth_first_visit(ReverseICFG, basic_block_of_index(BBIdx, b),
+                             gather_and_invalidate, ColorPropMap);
+  }
+
+  const boost::container::vector<dynamic_target_t> ToInvalidateVec(
+      ToInvalidate.begin(),
+      ToInvalidate.end());
+
+  //
+  // every caller is also invalidated.
+  //
+  for (dynamic_target_t X : ToInvalidateVec) {
+    function_t &f = function_of_target(X, jv);
+
+    auto V = f.Analysis.ReverseCGVert(jv);
+    jv.Analysis.ReverseCallGraph.depth_first_visit(V, gather_and_invalidate);
+  }
+
   std::for_each(maybe_par_unseq,
-                ParentsVec.cbegin(),
-                ParentsVec.cend(), [&](function_index_t FIdx) {
-                  function_t &f = b.Analysis.Functions.at(FIdx);
-
+                ToInvalidate.cbegin(),
+                ToInvalidate.cend(),
+                [&](dynamic_target_t X) {
+                  function_t &f = function_of_target(X, jv);
                   f.Analysis.Invalidate();
-
-                  auto V = f.Analysis.ReverseCGVert(jv);
-
-                  jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
                 });
 }
 
@@ -270,7 +323,8 @@ void bbprop_t::InvalidateAnalyses(jv_base_t<MT, MinSize> &jv,
       jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
                 GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,                   \
       binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \
-                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);
+                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,               \
+      basic_block_index_t);
 
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 

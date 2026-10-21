@@ -79,9 +79,6 @@
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
-//#define JOVE_HAVE_MEMFD
-//#define JOVE_BOOTSTRAP_EAGER_INVALIDATION
-
 #ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
 #define eager_invalidate_block(__the_bbprop, __the_binary)                     \
   do {                                                                         \
@@ -2991,10 +2988,12 @@ void BootstrapTool::DropPrivileges(void) {
   }
 }
 
+#ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
 void BootstrapTool::invalidate_block(bbprop_t &bbprop,
                                      binary_t &binary) {
   bbprop.InvalidateAnalyses(this->jv, binary);
 }
+#endif
 
 void arch_put_breakpoint(void *code) {
 #if defined(__x86_64__) || defined(__i386__)

@@ -1,0 +1,5 @@
+#pragma once
+
+#define JOVE_ICFG_IS_BIDIRECTIONAL
+//#define JOVE_BOOTSTRAP_EAGER_INVALIDATION
+//#define JOVE_HAVE_MEMFD
