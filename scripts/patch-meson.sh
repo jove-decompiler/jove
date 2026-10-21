@@ -1,5 +1,19 @@
---- /usr/lib/python3/dist-packages/mesonbuild/compilers/mixins/clike.py	2025-03-30 14:08:12.203310750 -0700
-+++ /usr/lib/python3/dist-packages/mesonbuild/compilers/mixins/clike.py	2025-03-30 14:12:23.488573811 -0700
+#!/usr/bin/bash
+
+mapfile -t files < <(find /usr/lib -type f -name clike.py -print)
+
+if ((${#files[@]} == 0)); then
+  echo "Error: clike.py not found" >&2
+  exit 1
+elif ((${#files[@]} > 1)); then
+  printf 'Error: multiple clike.py files found:\n' >&2
+  printf '  %s\n' "${files[@]}" >&2
+  exit 1
+fi
+
+patch "${files[0]}" <<'PATCH'
+--- a
++++ b
 @@ -75,9 +75,16 @@
          # TODO: this could probably be added to the DynamicLinker instead
          if isinstance(self.compiler.linker, (GnuLikeDynamicLinkerMixin, SolarisDynamicLinker, CompCertDynamicLinker)):
@@ -17,3 +31,4 @@
                      continue
                  group_end = i
                  if group_start < 0:
+PATCH
