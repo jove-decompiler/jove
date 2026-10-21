@@ -23,6 +23,8 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 
+#include <chrono>
+
 using llvm::WithColor;
 
 namespace jove {
@@ -248,7 +250,21 @@ template <bool MT, bool MinSize>
 template <bool BottomUp>
 int analyzer_t<MT, MinSize>::analyze_functions(
     boost::optional<invalidated_t &> invalidated) {
+  std::chrono::time_point<std::chrono::high_resolution_clock> t2, t1;
+
+  if (options.IsVerbose())
+    t1 = std::chrono::high_resolution_clock::now();
+
   cg_t cg(jv);
+
+  if (options.IsVerbose()) {
+    t2 = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double> s_double = t2 - t1;
+
+    llvm::errs() << llvm::formatv("cg took {0} s\n", s_double.count());
+  }
+
   auto &CG = cg.G;
 
   const unsigned N = boost::num_vertices(CG);
