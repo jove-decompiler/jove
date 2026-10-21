@@ -294,6 +294,11 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   tb_size = tb.size;
   assert(tb_size != 0);
 
+#if 0
+  tcg_temp_ebb_reset_freed(s);
+  tcg_optimize(s);
+#endif
+
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   if (jv_ti.Type == TERMINATOR::UNCONDITIONAL_JUMP ||
       jv_ti.Type == TERMINATOR::CONDITIONAL_JUMP ||
