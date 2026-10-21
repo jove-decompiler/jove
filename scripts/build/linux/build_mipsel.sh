@@ -10,9 +10,9 @@ alter_config() {
 
 COMMON_ARGS=\
 " WERROR=0"\
-" LLVM=-19"\
-" CLANG=clang-19"\
-" LLVM_CONFIG=llvm-config-19"\
+" LLVM=1"\
+" CLANG=clang"\
+" LLVM_CONFIG=llvm-config"\
 " VF=1"\
 " V=12"
 

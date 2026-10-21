@@ -99,8 +99,8 @@ have_memfd="ON"
 cmake_args=(
   -G Ninja
   -D CMAKE_BUILD_TYPE=RelWithDebInfo
-  -D "CMAKE_C_COMPILER=$(command -v clang-19)"
-  -D "CMAKE_CXX_COMPILER=$(command -v clang++-19)"
+  -D "CMAKE_C_COMPILER=$(command -v clang)"
+  -D "CMAKE_CXX_COMPILER=$(command -v clang++)"
   -D LLVM_BUILD_TESTS=OFF
   -D LLVM_INCLUDE_TESTS=OFF
   -D LLVM_ENABLE_RTTI=ON

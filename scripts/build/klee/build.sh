@@ -16,8 +16,8 @@ llconfig="$klee_build_scripts_path/../../../llvm-project/build/llvm/bin/llvm-con
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-      -D CMAKE_C_COMPILER=$(which clang-19) \
-      -D CMAKE_CXX_COMPILER=$(which clang++-19) \
+      -D CMAKE_C_COMPILER=$(which clang) \
+      -D CMAKE_CXX_COMPILER=$(which clang++) \
       -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
       -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
       -D ENABLE_SOLVER_STP=ON \

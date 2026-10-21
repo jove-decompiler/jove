@@ -135,6 +135,11 @@ ourcflags+=(-gdwarf-4)
 extraconf=(--enable-jove)
 buildlist=()
 
+the_cc=clang
+the_cxx=clang++
+the_ar=llvm-ar
+the_ranlib=llvm-ranlib
+the_ld=ld.lld
 if [ -n "$carbon" ]; then
   extraconf=(--enable-jove-helpers --enable-lto)
 
@@ -142,6 +147,13 @@ if [ -n "$carbon" ]; then
 elif [ -n "$softfpu" ]; then
   extraconf=(--enable-jove-helpers --enable-lto)
   CLANGVER=16
+
+  build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
+  the_cc=$build_scripts_path/../../llvm-project/build/llvm/bin/clang
+  the_cxx=$build_scripts_path/../../llvm-project/build/llvm/bin/clang++
+  the_ar=$build_scripts_path/../../llvm-project/build/llvm/bin/llvm-ar
+  the_ranlib=$build_scripts_path/../../llvm-project/build/llvm/bin/llvm-ranlib
+  the_ld=$build_scripts_path/../../llvm-project/build/llvm/bin/ld.lld
 
   buildlist+=(
     "qemu-$target"
@@ -190,12 +202,6 @@ else
   )
   ourldflags+=(-no-pie)
 fi
-
-the_cc=clang-$CLANGVER
-the_cxx=clang++-$CLANGVER
-the_ar=llvm-ar-$CLANGVER
-the_ranlib=llvm-ranlib-$CLANGVER
-the_ld=ld.lld-$CLANGVER
 
 if [ -n "$cross" ]; then
   case "$arch" in
@@ -311,6 +317,10 @@ case "$arch" in
     ;;
 esac
 
+if [[ ! -f $pkg_config_libdir ]]; then
+  pkg_config_libdir=/usr/lib64/pkgconfig
+fi
+
 export PKG_CONFIG_LIBDIR="$pkg_config_libdir:/usr/share/pkgconfig"
 
 if [ ! -f build.ninja ]; then
@@ -319,4 +329,4 @@ if [ ! -f build.ninja ]; then
   ../configure "${configure_args[@]}"
 fi
 
-ninja "${buildlist[@]}"
+exec ninja "${buildlist[@]}"

@@ -5,8 +5,10 @@ include gmsl
 
 include $(JOVE_ROOT_DIR)/version.mk
 include $(JOVE_ROOT_DIR)/targets.mk
+include $(JOVE_ROOT_DIR)/config.mk
 
 get_targets_for_platform = $(ALL_$(call uc,$1)_TARGETS)
+get_the_targets_for_platform = $(filter $(THE_TARGETS),$(call get_targets_for_platform,$1))
 
 define include_target_helpers_template
 include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk
@@ -121,9 +123,9 @@ runtime_dll_ldflags = /dll \
 UTILSRCDIR := utilities
 UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.c)
 UTILS      := $(patsubst $(UTILSRCDIR)/%.c,%,$(UTILSRCS))
-UTILBINS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util)))
-UTILINCS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).inc))
-UTILDEPS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).d))
+UTILBINS   := $(foreach t,$(THE_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util)))
+UTILINCS   := $(foreach t,$(THE_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).inc))
+UTILDEPS   := $(foreach t,$(THE_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).d))
 
 # disable built-in rules
 .SUFFIXES:
@@ -133,32 +135,32 @@ all: helpers \
      runtime \
      utilities
 
-$(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(shell mkdir -p $(BINDIR)/$(t)/helpers/$(p))))
+$(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),$(shell mkdir -p $(BINDIR)/$(t)/helpers/$(p))))
 
 .PHONY: helpers
-helpers: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),helpers-$(t)-$(p)))
+helpers: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),helpers-$(t)-$(p)))
 
 .PHONY: runtime
-runtime: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),runtime-$(t)-$(p)))
+runtime: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),runtime-$(t)-$(p)))
 
 .PHONY: softfpu
-softfpu: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/softfpu-$(p).o))
+softfpu: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),$(BINDIR)/$(t)/softfpu-$(p).o))
 
 .PHONY: utilities
 utilities: $(UTILBINS) $(UTILINCS)
 
 .PHONY: asm-offsets
-asm-offsets: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/asm-offsets-$(p).h))
+asm-offsets: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),$(BINDIR)/$(t)/asm-offsets-$(p).h))
 
 .PHONY: tcg-constants
-tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h) \
-               $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_ARCH)/tcgconstants.$(t).h)
+tcg-constants: $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/tcgconstants.h) \
+               $(foreach t,$(THE_TARGETS),$(BINDIR)/$(HOST_ARCH)/tcgconstants.$(t).h)
 
 .PHONY: all-helpers-mk
-all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
+all-helpers-mk: $(foreach t,$(THE_TARGETS),all-helpers-$(t)-mk)
 
 .PHONY: env-inits
-env-inits: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/env_init.$(p).inc))
+env-inits: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),$(BINDIR)/$(t)/env_init.$(p).inc))
 
 .PHONY: version
 version: $(BINDIR)/version.inc
@@ -201,22 +203,22 @@ runtime-$(1)-linux: $(BINDIR)/$(1)/libjove_rt.st.so \
                     $(BINDIR)/$(1)/jove.elf.mt.ll
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
-	clang-19 -o $$@ --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIE -pie $$< $(UTILS_LDFLAGS)
+	clang -o $$@ --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIE -pie $$< $(UTILS_LDFLAGS)
 
 $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 	xxd -i < $$< > $$@
 
 #
-# we use clang-16 here to avoid a catch-22 during build. if our clang's version
+# we use clang here to avoid a catch-22 during build. if our clang's version
 # ever changes, we should change this, too.
 #
 $(BINDIR)/$(1)/asm-offsets-win.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	clang-16 -o $(BINDIR)/$(1)/asm-offsets-win.s --target=$($(1)_COFF_TRIPLE) $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	clang -o $(BINDIR)/$(1)/asm-offsets-win.s --target=$($(1)_COFF_TRIPLE) $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-win.s >> $$@
 
 $(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	clang-16 -o $(BINDIR)/$(1)/asm-offsets-linux.s --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	clang -o $(BINDIR)/$(1)/asm-offsets-linux.s --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-linux.s >> $$@
 
@@ -297,28 +299,28 @@ $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o \
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.st.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.mt.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.st.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.mt.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.st.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.st.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.mt.bc.d)
--include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/linux/$(h).d))
--include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/win/$(h).d))
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.st.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.mt.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.st.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.mt.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/jove.elf.st.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/jove.coff.st.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/jove.coff.mt.bc.d)
+-include $(foreach t,$(THE_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/linux/$(h).d))
+-include $(foreach t,$(THE_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/win/$(h).d))
 
 .PHONY: clean-helpers
-clean-helpers: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),clean-helpers-$(t)-$(p)))
+clean-helpers: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),clean-helpers-$(t)-$(p)))
 
 .PHONY: clean-runtime
-clean-runtime: $(foreach t,$(ALL_TARGETS),clean-runtime-$(t))
+clean-runtime: $(foreach t,$(THE_TARGETS),clean-runtime-$(t))
 
 .PHONY: clean-bitcode
-clean-bitcode: $(foreach t,$(ALL_TARGETS),clean-bitcode-$(t))
+clean-bitcode: $(foreach t,$(THE_TARGETS),clean-bitcode-$(t))
 
 .PHONY: clean-asm-offsets
-clean-asm-offsets: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),clean-asm-offsets-$(t)-$(p)))
+clean-asm-offsets: $(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),clean-asm-offsets-$(t)-$(p)))
 
 .PHONY: clean-utilities
 clean-utilities:
@@ -463,6 +465,7 @@ $(BINDIR)/$(1)/softfpu-win.o: $(call softfpu_bitcode,$(1),linux)
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) --sys-code -n ____copyme_jove --flatten $(call linux_carbon_extract_params,$(1)) -o $$@ --clear-inc $(BINDIR)/$(1)/linux.copy.clear.h.inc
+	@printf '%s\n\n' '#pragma once' | cat - $$@ > $$@.tmp && mv $$@.tmp $$@
 
 $(BINDIR)/$(1)/env.copy.h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) --sys-code -n ____copyme_env -o $$@
@@ -497,13 +500,13 @@ endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
 .PHONY: check-helpers
-check-helpers: $(foreach t,$(ALL_TARGETS),check-helpers-$(t))
+check-helpers: $(foreach t,$(THE_TARGETS),check-helpers-$(t))
 
 .PHONY: ccopy
-ccopy: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
-       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h) \
-       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu.tcg.copy.h) \
-       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_ARCH)/qemu.tcg.copy.$(t).h)
+ccopy: $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
+       $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/env.copy.h) \
+       $(foreach t,$(THE_TARGETS),$(BINDIR)/$(t)/qemu.tcg.copy.h) \
+       $(foreach t,$(THE_TARGETS),$(BINDIR)/$(HOST_ARCH)/qemu.tcg.copy.$(t).h)
 
 .PHONY: clean-tcg-constants
 clean-tcg-constants:

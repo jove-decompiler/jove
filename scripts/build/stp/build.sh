@@ -14,8 +14,8 @@ OURCFLAGS=\
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-      -D CMAKE_C_COMPILER=$(which clang-19) \
-      -D CMAKE_CXX_COMPILER=$(which clang++-19) \
+      -D CMAKE_C_COMPILER=$(which clang) \
+      -D CMAKE_CXX_COMPILER=$(which clang++) \
       -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
       -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
       -S $(pwd)/.. -B $(pwd)
