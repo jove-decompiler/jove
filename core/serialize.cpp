@@ -618,9 +618,7 @@ static void serialize(Archive &ar, jove::bbprop_t &bbprop,
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::ip_call_graph_node_properties_t &prop,
-                      const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(prop.X);
-}
+                      const unsigned int version) {}
 
 //
 // jv_t
@@ -632,8 +630,8 @@ static void serialize(Archive &ar,
                       const unsigned int) {
   ar &BOOST_SERIALIZATION_NVP(jv.Binaries)
      &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
-     &BOOST_SERIALIZATION_NVP(jv.name_to_binaries)
-     &BOOST_SERIALIZATION_NVP(jv.Analysis.ReverseCallGraph);
+//   &BOOST_SERIALIZATION_NVP(jv.Analysis.ReverseCallGraph)
+     &BOOST_SERIALIZATION_NVP(jv.name_to_binaries);
 }
 
 } // namespace serialization

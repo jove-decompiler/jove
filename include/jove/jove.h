@@ -665,12 +665,19 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
   return block_t(BIdx, BBIdx);
 }
 
-struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
-  dynamic_target_t X = invalid_dynamic_target;
+struct function_t;
 
-  ip_call_graph_node_properties_t() noexcept = default;
-  ip_call_graph_node_properties_t(segment_manager_t *) noexcept {}
+struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
+  boost::interprocess::offset_ptr<function_t> pFunc = nullptr;
+
+  ip_call_graph_node_properties_t(segment_manager_t *) {}
 };
+
+#ifdef JOVE_CG_IS_BIDIRECTIONAL
+#define ___the_icg_directedS boost::bidirectional_simpleS
+#else
+#define ___the_icg_directedS boost::directedS
+#endif
 
 template <bool MT>
 using ip_call_graph_base_t =
@@ -679,7 +686,7 @@ using ip_call_graph_base_t =
                       true /* PointUnique */,
                       boost::setS_ip, /* no parallel edges! */ /* OutEdgeList */
                       boost::dequeS_ip,                        /* VertexList */
-                      boost::directedS,                        /* Directed */
+                      ___the_icg_directedS,                    /* Directed */
                       ip_call_graph_node_properties_t,         /* VertexProperties */
                       boost::no_property,                      /* EdgeProperties */
                       boost::no_property,                      /* GraphProperties */
@@ -1371,6 +1378,7 @@ struct jv_base_t {
     this->hash_to_binary   = std::move(other.hash_to_binary);
     this->cached_hashes    = std::move(other.cached_hashes);
     this->name_to_binaries = std::move(other.name_to_binaries);
+    return *this;
   }
 
   ~jv_base_t() noexcept = default;

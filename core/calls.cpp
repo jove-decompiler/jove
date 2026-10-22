@@ -18,7 +18,7 @@ call_graph_builder_t<MT, MinSize>::call_graph_builder_t(const jv_t &jv) noexcept
   for_each_function(jv, [&](const function_t &f, const binary_t &b) {
     auto V = boost::add_vertex(G);
 
-    G[V] = target_of_function(f);
+    G[V].X = target_of_function(f);
 
     state.for_function(f).V = V;
   });
@@ -62,7 +62,7 @@ void call_graph_builder_t<MT, MinSize>::write_graphviz(std::ostream &os) const {
 
     void operator()(std::ostream &out,
                     const typename call_graph_t::vertex_descriptor &V) const {
-      const function_t &f = function_of_target(G[V], jv);
+      const function_t &f = function_of_target(G[V].X, jv);
       const auto &b = binary_of_function(f, jv);
 
       std::string str(b.is_file() ? fs::path(b.path()).filename().string()

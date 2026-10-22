@@ -216,7 +216,7 @@ template <bool MT, bool MinSize>
 void bbprop_t::InvalidateAnalyses(jv_base_t<MT, MinSize> &jv,
                                   binary_base_t<MT, MinSize> &b,
                                   basic_block_index_t BBIdx) {
-
+#ifdef JOVE_ICFG_IS_BIDIRECTIONAL
   using ReverseGraphTy =
       boost::reverse_graph<typename ip_icfg_base_t<MT>::type,
                            typename ip_icfg_base_t<MT>::type &>;
@@ -244,7 +244,7 @@ void bbprop_t::InvalidateAnalyses(jv_base_t<MT, MinSize> &jv,
 
     void discover_vertex(ip_call_graph_base_t<MT>::vertex_descriptor V,
                          const ip_call_graph_base_t<MT>::type &RCG) const {
-      dynamic_target_t X = RCG[V].X;
+      dynamic_target_t X = target_of_function(*RCG[V].pFunc.get());
       assert(is_dynamic_target_valid(X));
       out.insert(X);
     }
@@ -299,6 +299,9 @@ void bbprop_t::InvalidateAnalyses(jv_base_t<MT, MinSize> &jv,
                   function_t &f = function_of_target(X, jv);
                   f.Analysis.Invalidate();
                 });
+#else
+#error "TODO"
+#endif
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

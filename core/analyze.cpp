@@ -2,6 +2,7 @@
 #include "B.h"
 #include "locator.h"
 #include "llvm.h"
+#include "except.h"
 
 #include <llvm/IR/Module.h>
 
@@ -50,7 +51,11 @@ analyzer_t<MT, MinSize>::analyzer_t(
     : options(options), tcg(tcg), SafeContext(SafeContext), helpers(helpers),
       jv_file(jv_file), jv(jv), state(jv),
       IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
-      inflight(inflight), done(done) {}
+      inflight(inflight), done(done) {
+  for_each_function(maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
+    (void)f.Analysis.ReverseCGVert(jv);
+  });
+}
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::examine_callers(void) {
@@ -250,6 +255,18 @@ template <bool MT, bool MinSize>
 template <bool BottomUp>
 int analyzer_t<MT, MinSize>::analyze_functions(
     boost::optional<invalidated_t &> invalidated) {
+  unsigned N = ~0u;
+
+#ifdef JOVE_CG_IS_BIDIRECTIONAL
+  using ReverseGraphTy =
+      boost::reverse_graph<typename ip_call_graph_base_t<MT>::type,
+                           typename ip_call_graph_base_t<MT>::type &>;
+
+  auto &RCG = jv.Analysis.ReverseCallGraph;
+  ReverseGraphTy CG(RCG.container());
+
+  N = RCG.actual_num_vertices();
+#else
   std::chrono::time_point<std::chrono::high_resolution_clock> t2, t1;
 
   if (options.IsVerbose())
@@ -266,8 +283,10 @@ int analyzer_t<MT, MinSize>::analyze_functions(
   }
 
   auto &CG = cg.G;
+  N = boost::num_vertices(CG);
+#endif
 
-  const unsigned N = boost::num_vertices(CG);
+  using cg_vert_t = std::remove_reference_t<decltype(CG)>::vertex_descriptor;
 
   // which component each vertex in the graph belongs to
   std::vector<call_graph_t::vertices_size_type> CompMap(N);
@@ -275,15 +294,24 @@ int analyzer_t<MT, MinSize>::analyze_functions(
   auto CompPropMap = boost::make_iterator_property_map(
       CompMap.begin(), boost::get(boost::vertex_index, CG));
 
-  const auto sc_num = boost::strong_components(CG, CompPropMap);
+  unsigned sc_num = ~0u;
 
-  std::vector<std::vector<call_node_t>> components;
-  boost::build_component_lists(CG, sc_num, CompPropMap, components);
+  std::vector<std::vector<cg_vert_t>> components;
 
-  // create the DAG of the SCCs
   call_graph_t CGCondensed;
-  boost::create_condensation_graph(CG, components, CompPropMap, CGCondensed);
+  using call_graph_vert_t = call_graph_t::vertex_descriptor;
 
+  {
+#ifdef JOVE_CG_IS_BIDIRECTIONAL
+    auto s_lck = RCG.shared_access();
+#endif
+
+    sc_num = boost::strong_components(CG, CompPropMap);
+    boost::build_component_lists(CG, sc_num, CompPropMap, components);
+    boost::create_condensation_graph(CG, components, CompPropMap, CGCondensed);
+  }
+
+  {
   tbb::flow::graph flow_graph;
 
   std::unique_ptr<std::atomic<unsigned>[]> counts(
@@ -293,21 +321,50 @@ int analyzer_t<MT, MinSize>::analyze_functions(
     counts[boost::get(boost::vertex_index, CGCondensed, v)].store(
         0, std::memory_order_relaxed);
 
-  tbb::flow::function_node<call_node_t> analyze_node(
+  tbb::flow::function_node<call_graph_vert_t> analyze_node(
       flow_graph, tbb::flow::unlimited,
-      [this, &counts, &analyze_node, &CGCondensed,
-       &components, &CG, &invalidated](call_node_t v) -> void {
+      [this, &counts, &analyze_node, &CGCondensed, &components, &CG,
+
+#ifdef JOVE_CG_IS_BIDIRECTIONAL
+                &RCG,
+#endif
+
+      &invalidated](call_graph_vert_t v) -> void {
         auto &scc_verts =
             components.at(boost::get(boost::vertex_index, CGCondensed, v));
-        tbb::parallel_for_each(
-            scc_verts.begin(), scc_verts.end(), [&](call_node_t V) {
-              const dynamic_target_t X(CG[V]);
+        tbb::parallel_for_each( /* FIXME for each while */
+            scc_verts.begin(), scc_verts.end(), [&](cg_vert_t V) {
+#ifdef JOVE_CG_IS_BIDIRECTIONAL
+              const unsigned VIdx = boost::get(boost::vertex_index, CG)[V];
+              if (VIdx >= RCG.num_vertices())
+                return;
+#endif
 
-              if (invalidated)
-                analyze_function(function_of_target(X, jv), (*invalidated).at(X.first));
-              else
-                analyze_function(function_of_target(X, jv));
-            });
+              std::string msg;
+              if (unlikely(jove::handle_exceptions([&] {
+#ifdef JOVE_CG_IS_BIDIRECTIONAL
+                function_t *const pf = ({
+                  auto s_lck = RCG.shared_access();
+                  CG[V].pFunc.get();
+                });
+                aassert(pf);
+                const dynamic_target_t X = target_of_function(*pf);
+#else
+                const dynamic_target_t X = ({
+                  CG[V].X;
+                });
+#endif
+
+                aassert(is_binary_index_valid(X.first));
+                aassert(is_function_index_valid(X.second));
+                if (invalidated)
+                  analyze_function(function_of_target(X, jv), (*invalidated).at(X.first));
+                else
+                  analyze_function(function_of_target(X, jv));
+              }, msg))) {
+                llvm::errs() << llvm::formatv("{0}\n", msg).str();
+                return;
+              }
 
 if constexpr (BottomUp) {
         for (auto pred : boost::make_iterator_range(
@@ -331,6 +388,7 @@ if constexpr (BottomUp) {
         }
 }
       });
+  });
 
   for (auto v : boost::make_iterator_range(boost::vertices(CGCondensed))) {
 if constexpr (BottomUp) {
@@ -345,6 +403,7 @@ if constexpr (BottomUp) {
   }
 
   flow_graph.wait_for_all();
+  }
 
   return 0;
 }

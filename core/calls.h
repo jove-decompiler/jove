@@ -3,10 +3,14 @@
 
 namespace jove {
 
+struct call_graph_node_properties_t {
+  dynamic_target_t X = invalid_dynamic_target;
+};
+
 typedef boost::adjacency_list<boost::vecS,           /* OutEdgeList */
                               boost::vecS,           /* VertexList */
                               boost::bidirectionalS, /* Directed */
-                              dynamic_target_t,      /* VertexProperties */
+                              call_graph_node_properties_t, /* VertexProperties */
                               boost::no_property,    /* EdgeProperties */
                               boost::no_property,    /* GraphProperties */
                               boost::vecS>           /* EdgeList */

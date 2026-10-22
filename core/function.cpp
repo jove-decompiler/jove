@@ -114,20 +114,29 @@ function_analysis_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
   auto &RCG = jv.Analysis.ReverseCallGraph;
 
   call_graph_index_t Res =
-      this->ReverseCGVertIdxHolder.Idx.load(boost::memory_order_relaxed);
+      this->ReverseCGVertIdxHolder.Idx.load(MT ? boost::memory_order_acquire
+                                               : boost::memory_order_relaxed);
 
   if (unlikely(!is_call_graph_index_valid(Res))) {
     auto e_lck = this->ReverseCGVertIdxHolder.exclusive_access<MT>();
 
-    Res = this->ReverseCGVertIdxHolder.Idx.load(boost::memory_order_relaxed);
+    Res = this->ReverseCGVertIdxHolder.Idx.load(MT ? boost::memory_order_acquire
+                                                   : boost::memory_order_relaxed);
     if (likely(!is_call_graph_index_valid(Res))) {
-      Res = RCG.index_of_add_vertex(&jv.get_segment_manager());
-      this->ReverseCGVertIdxHolder.Idx.store(Res, boost::memory_order_relaxed);
 
-      dynamic_target_t X = target_of_function(*this);
+      Res = RCG.index_of_add_vertex(&get_segment_manager());
+
+#if 0
+      const dynamic_target_t X = target_of_function(*this);
       assert(is_dynamic_target_valid(X));
-
       RCG[RCG.template vertex<MT>(Res)].X = X;
+#else
+      RCG[RCG.template vertex<MT>(Res)].pFunc =
+          JOVE_CONTAINER_OF(this, function_t, Analysis);
+#endif
+
+      this->ReverseCGVertIdxHolder.Idx.store(Res, MT ? boost::memory_order_release
+                                                     : boost::memory_order_relaxed);
     }
   }
 
