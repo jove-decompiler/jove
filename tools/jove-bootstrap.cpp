@@ -372,15 +372,15 @@ int BootstrapTool::Run(void) {
       HumanOut() << "waited on SIGSTOP.\n";
 
     {
-      int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                        /* PTRACE_O_EXITKILL   | */
-                           PTRACE_O_TRACEEXIT  |
-                        /* PTRACE_O_TRACEEXEC  | */
-                           PTRACE_O_TRACEFORK  |
-                           PTRACE_O_TRACEVFORK |
-                           PTRACE_O_TRACECLONE;
+      int tmp_options = PTRACE_O_TRACESYSGOOD |
+                     /* PTRACE_O_EXITKILL   | */
+                        PTRACE_O_TRACEEXIT  |
+                     /* PTRACE_O_TRACEEXEC  | */
+                        PTRACE_O_TRACEFORK  |
+                        PTRACE_O_TRACEVFORK |
+                        PTRACE_O_TRACECLONE;
 
-      if (_jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+      if (_jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, tmp_options) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                           __func__,
