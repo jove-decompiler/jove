@@ -42,7 +42,9 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   using in_edge_iterator = type::in_edge_iterator;
   using inv_adjacency_iterator = type::inv_adjacency_iterator;
   using vertex_property_type = type::vertex_property_type;
-  using stored_vertex = type::stored_vertex;
+  using StoredVertex = type::StoredVertex;
+  using StoredEdge = type::StoredEdge;
+  using OutEdgeIter = type::OutEdgeIter;
 
   using edge_parallel_category = boost::parallel_edge_traits<OutEdgeListS>::type;
 
@@ -107,9 +109,9 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     auto s_lck = this->shared_access();                                        \
     &this->container()[V];                                                     \
   });                                                                          \
-  possibly_const<ARE_WE_CONST, stored_vertex> *const pstoredv_nm =             \
-      reinterpret_cast<possibly_const<ARE_WE_CONST, stored_vertex> *>(         \
-          JOVE_ADDRESS_CONTAINER_OF(pvprop_nm, stored_vertex, m_property));
+  possibly_const<ARE_WE_CONST, StoredVertex> *const pstoredv_nm =              \
+      reinterpret_cast<possibly_const<ARE_WE_CONST, StoredVertex> *>(          \
+          JOVE_ADDRESS_CONTAINER_OF(pvprop_nm, StoredVertex, m_property));
 
 #define ____shared_vert____(ShouldLock, Mutex)                                 \
   [[maybe_unused]]                                                             \
@@ -221,26 +223,26 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   template <bool L = true>
   degree_size_type out_degree(vertex_descriptor V) const {
     ____stored_vert____(V, pvp, psv);
-    ____shared_vert____(L, pvp->mtx);
-
     auto &oedges = psv->m_out_edges;
+
+    ____shared_vert____(L, pvp->mtx);
     return oedges.size();
   }
 
   void clear(void) {
     auto e_lck = this->exclusive_access();
 
-    // FIXME? take exclusive locks
+    // FIXME take all the locks?
     container().clear();
   }
 
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
     ____stored_vert____(V, pvp, psv);
+    auto &oedges = psv->m_out_edges;
 
     auto φ = [&](void) -> void {
       ____exclusive_vert____(L, pvp->mtx);
-      auto &oedges = psv->m_out_edges;
       oedges.clear();
     };
 
@@ -248,11 +250,10 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
       φ();
     } else if constexpr (std::is_same_v<DirectedS, boost::bidirectional_simpleS>) {
 
-      // FIXME (dup)
+      // FIXME (style: dup)
       std::vector<vertex_descriptor> adjvv;
       {
         ____shared_vert____(L, pvp->mtx);
-        auto &oedges = psv->m_out_edges;
 
         adjvv.reserve(oedges.size());
 
@@ -263,9 +264,9 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 
       for (vertex_descriptor adj : adjvv) {
         ____stored_vert____(adj, padjvp, padjsv);
-        ____exclusive_vert____(L, padjvp->mtx);
         auto &iedges = padjsv->m_in_edges;
 
+        ____exclusive_vert____(L, padjvp->mtx);
         boost::detail::erase_from_incidence_list(iedges, V, edge_parallel_category());
       }
 
@@ -278,24 +279,40 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   template <bool L = true>
   std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
                                             vertex_descriptor V2) {
-    auto s_lck = this->shared_access();
-
-    auto φ = [&](void) -> auto {
-      return boost::add_edge(V1, V2, container());
-    };
-
     if constexpr (std::is_same_v<DirectedS, boost::directedS>) {
-      ____exclusive_vert____(L, container()[V1].mtx);
-      return φ();
-    } else if constexpr (std::is_same_v<DirectedS, boost::bidirectional_simpleS>) {
-      if (V1 == V2) {
-        ____exclusive_vert____(L, container()[V1].mtx);
-        return φ();
-      } else {
-        ____exclusive_vert____(L, container()[V1].mtx);
-        ____exclusive_vert____(L, container()[V2].mtx);
-        return φ();
+      ____stored_vert____(V1, pvp1, psv1);
+      auto &oedges = psv1->m_out_edges;
+
+      OutEdgeIter it;
+      bool inserted;
+
+      {
+        ____exclusive_vert____(L, pvp1->mtx);
+        boost::tie(it, inserted) = boost::graph_detail::push(oedges, StoredEdge(V2));
       }
+
+      return std::make_pair(edge_descriptor(V1, V2, &it->get_property()), inserted);
+    } else if constexpr (std::is_same_v<DirectedS, boost::bidirectional_simpleS>) {
+      OutEdgeIter it;
+      bool inserted;
+      {
+        ____stored_vert____(V1, pvp1, psv1);
+        auto &oedges = psv1->m_out_edges;
+
+        ____exclusive_vert____(L, pvp1->mtx);
+        boost::tie(it, inserted) =
+            boost::graph_detail::push(oedges, StoredEdge(V2));
+      }
+
+      if (inserted) {
+        ____stored_vert____(V2, pvp2, psv2);
+        auto &iedges = psv2->m_in_edges;
+
+        ____exclusive_vert____(L, pvp2->mtx);
+        boost::graph_detail::push(iedges, StoredEdge(V1));
+      }
+
+      return std::make_pair(edge_descriptor(V1, V2, &it->get_property()), inserted);
     } else {
       __compiletime_unreachable();
     }
@@ -304,9 +321,9 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   template <bool L = true>
   vertex_descriptor adjacent_front(vertex_descriptor V) const {
     ____stored_vert____(V, pvp, psv);
-    ____shared_vert____(L, pvp->mtx);
-
     auto &oedges = psv->m_out_edges;
+
+    ____shared_vert____(L, pvp->mtx);
     assert(oedges.begin() != oedges.end());
     return (*oedges.begin()).m_target;
   }
@@ -316,11 +333,11 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   __attribute__((always_inline))
   std::array<vertex_descriptor, N> adjacent_n(vertex_descriptor V) const {
     ____stored_vert____(V, pvp, psv);
+    auto &oedges = psv->m_out_edges;
+
     ____shared_vert____(L, pvp->mtx);
 
     std::array<vertex_descriptor, N> res;
-
-    auto &oedges = psv->m_out_edges;
     auto it = oedges.begin();
 
 #pragma clang loop unroll(full)
@@ -362,11 +379,11 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   std::vector<vertex_descriptor>
   get_adjacent_vertices(vertex_descriptor V) const {
     ____stored_vert____(V, pvp, psv);
+    auto &oedges = psv->m_out_edges;
+
     ____shared_vert____(L, pvp->mtx);
 
     std::vector<vertex_descriptor> res;
-
-    auto &oedges = psv->m_out_edges;
     res.reserve(oedges.size());
 
     auto end = oedges.end();

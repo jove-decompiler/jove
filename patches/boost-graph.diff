@@ -135,7 +135,7 @@ index c9abfb32..1f6b5b7f 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index 113143a7..9c9a1e7e 100644
+index 113143a7..777f55d2 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
 @@ -18,153 +18,289 @@
@@ -542,17 +542,39 @@ index 113143a7..9c9a1e7e 100644
  template < class OutEdgeListS = vecS, // a Sequence or an AssociativeContainer
      class VertexListS = vecS, // a Sequence or a RandomAccessContainer
      class DirectedS = directedS, class VertexProperty = no_property,
-@@ -298,59 +456,66 @@ public:
+@@ -282,75 +440,87 @@ class adjacency_list
+           EdgeProperty, GraphProperty, EdgeListS >,
+       VertexListS, OutEdgeListS, DirectedS, VertexProperty, EdgeProperty,
+       GraphProperty, EdgeListS >::type
+ {
+ public:
+     typedef GraphProperty graph_property_type;
+     typedef typename lookup_one_property< GraphProperty, graph_bundle_t >::type
+         graph_bundled;
+ 
+     typedef VertexProperty vertex_property_type;
+     typedef
+         typename lookup_one_property< VertexProperty, vertex_bundle_t >::type
+             vertex_bundled;
+ 
+     typedef EdgeProperty edge_property_type;
+     typedef typename lookup_one_property< EdgeProperty, edge_bundle_t >::type
          edge_bundled;
  
  private:
      typedef adjacency_list self;
++
      typedef typename detail::adj_list_gen< self, VertexListS, OutEdgeListS,
          DirectedS, vertex_property_type, edge_property_type, GraphProperty,
-         EdgeListS >::type Base;
+-        EdgeListS >::type Base;
++        EdgeListS > BaseT;
++    typedef typename BaseT::type Base;
  
  public:
      typedef typename Base::stored_vertex stored_vertex;
++    typedef typename BaseT::config::StoredVertex StoredVertex;
++    typedef typename BaseT::config::StoredEdge StoredEdge;
++    typedef typename BaseT::config::OutEdgeIter OutEdgeIter;
      typedef typename Base::vertices_size_type vertices_size_type;
      typedef typename Base::edges_size_type edges_size_type;
      typedef typename Base::degree_size_type degree_size_type;
