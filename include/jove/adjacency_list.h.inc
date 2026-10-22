@@ -293,25 +293,40 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 
       return std::make_pair(edge_descriptor(V1, V2, &it->get_property()), inserted);
     } else if constexpr (std::is_same_v<DirectedS, boost::bidirectional_simpleS>) {
+      const bool Same = V1 == V2;
+
       OutEdgeIter it;
       bool inserted;
-      {
-        ____stored_vert____(V1, pvp1, psv1);
-        auto &oedges = psv1->m_out_edges;
+      if (Same) {
+        ____stored_vert____(V1, pvp, psv);
+        auto &oedges = psv->m_out_edges;
+        auto &iedges = psv->m_in_edges;
 
-        ____exclusive_vert____(L, pvp1->mtx);
+        ____exclusive_vert____(L, pvp->mtx);
         boost::tie(it, inserted) =
             boost::graph_detail::push(oedges, StoredEdge(V2));
+        if (inserted)
+          boost::graph_detail::push(iedges, StoredEdge(V1));
+      } else {
+        OutEdgeIter it;
+        bool inserted;
+        {
+          ____stored_vert____(V1, pvp1, psv1);
+          auto &oedges = psv1->m_out_edges;
+
+          ____exclusive_vert____(L, pvp1->mtx);
+          boost::tie(it, inserted) =
+              boost::graph_detail::push(oedges, StoredEdge(V2));
+
+          if (inserted) {
+            ____stored_vert____(V2, pvp2, psv2);
+            auto &iedges = psv2->m_in_edges;
+
+            ____exclusive_vert____(L, pvp2->mtx);
+            boost::graph_detail::push(iedges, StoredEdge(V1));
+          }
+        }
       }
-
-      if (inserted) {
-        ____stored_vert____(V2, pvp2, psv2);
-        auto &iedges = psv2->m_in_edges;
-
-        ____exclusive_vert____(L, pvp2->mtx);
-        boost::graph_detail::push(iedges, StoredEdge(V1));
-      }
-
       return std::make_pair(edge_descriptor(V1, V2, &it->get_property()), inserted);
     } else {
       __compiletime_unreachable();
