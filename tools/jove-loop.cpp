@@ -144,8 +144,8 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           Sysroot("sysroot", cl::desc("Output directory"),
                   cl::cat(JoveCategory)),
 
-          Daemonize("daemonize", cl::desc("Run `jove llvm` as daemon"),
-                    cl::init(true), cl::cat(JoveCategory)),
+          Daemonize("daemonize", cl::desc("Run `jove llvm` as daemon (experimental)"),
+                    cl::cat(JoveCategory)),
 
           DaemonizeThreshold("daemonize-threshold",
                              cl::desc("Re-exec when |invalidated| becomes too big"),
