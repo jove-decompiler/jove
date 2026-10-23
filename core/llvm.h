@@ -525,6 +525,7 @@ private:
   TranslateFunction(const function_t &);
 
   int Daemonize(std::vector<function_index_t> &invalidated);
+  int FixupEntry(bool Replace = false);
 
   void DumpModule(const char *);
 

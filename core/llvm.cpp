@@ -5629,36 +5629,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   if (Binary.IsExecutable)
     assert(is_function_index_valid(Binary.Analysis.EntryFunction));
 
-  fillInFunctionBody(
-      Module->getFunction("_jove_call_entry"),
-      [&](auto &IRB) -> void {
-        if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
-          const function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
-
-          llvm::Value *Env = GetEnv(IRB);
-          std::vector<llvm::Value *> ArgVec;
-          {
-            std::vector<unsigned> glbv;
-            ExplodeFunctionArgs(f, glbv);
-
-            ArgVec.resize(glbv.size());
-            std::transform(
-                glbv.begin(),
-                glbv.end(), ArgVec.begin(),
-                [&](unsigned glb) -> llvm::Value * {
-                  return IRB.CreateLoad(
-                      TypeOfTCGGlobal(glb),
-                      BuildCPUStatePointer(IRB, Env, glb));
-                });
-          }
-
-          IRB.CreateCall(state.for_function(f).F, ArgVec)->setIsNoInline();
-        }
-
-        IRB.CreateCall(
-            llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
-        IRB.CreateUnreachable();
-      }, !options.ForCBE);
+  FixupEntry();
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_dynl_function_table"),
@@ -5872,6 +5843,43 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
         IRB.CreateRet(IRB.getInt1(Binary.IsExecutable && !Binary.IsPIC));
       }, !options.ForCBE);
 
+  return 0;
+}
+
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::FixupEntry(bool Replace) {
+  fillInFunctionBody(
+      Module->getFunction("_jove_call_entry"),
+      [&](auto &IRB) -> void {
+        auto &Binary = jv.Binaries.at(BinaryIndex);
+
+        if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
+          const function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
+
+          llvm::Value *Env = GetEnv(IRB);
+          std::vector<llvm::Value *> ArgVec;
+          {
+            std::vector<unsigned> glbv;
+            ExplodeFunctionArgs(f, glbv);
+
+            ArgVec.resize(glbv.size());
+            std::transform(
+                glbv.begin(),
+                glbv.end(), ArgVec.begin(),
+                [&](unsigned glb) -> llvm::Value * {
+                  return IRB.CreateLoad(
+                      TypeOfTCGGlobal(glb),
+                      BuildCPUStatePointer(IRB, Env, glb));
+                });
+          }
+
+          IRB.CreateCall(state.for_function(f).F, ArgVec)->setIsNoInline();
+        }
+
+        IRB.CreateCall(
+            llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+        IRB.CreateUnreachable();
+      }, !options.ForCBE, Replace);
   return 0;
 }
 
@@ -6361,6 +6369,12 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
     ret = Daemonize(invalidated);
     if (unlikely(ret))
       return ret;
+
+    const bool EntryIsInvalid = std::binary_search(
+        invalidated.begin(), invalidated.end(), Binary.Analysis.EntryFunction);
+    BOOST_SCOPE_DEFER [&] {
+      if (EntryIsInvalid) FixupEntry(true);
+    };
 
     binary_state_t &x = state.for_binary(Binary);
 

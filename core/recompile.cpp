@@ -1238,6 +1238,7 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
 
         ToWrite.push_back(FIdx);
       });
+      std::sort(ToWrite.begin(), ToWrite.end());
     } else {
       std::array<int, 2> request_pipefd;
       std::array<int, 2> completion_pipefd;
@@ -1402,11 +1403,11 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
     bin_llvm_options->BinaryIndex = std::to_string(BIdx);
 
     llvm_t<MT, MinSize> llvm(jv,
-                *bin_llvm_options,
-                analyzer_options,
-                tcg,
-                helpers,
-                disas, locator());
+                             *bin_llvm_options,
+                             analyzer_options,
+                             tcg,
+                             helpers,
+                             disas, locator());
 
     rc = llvm.go();
   }

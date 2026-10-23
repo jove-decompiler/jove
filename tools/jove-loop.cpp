@@ -717,8 +717,6 @@ run:
     if (run.mapping->get_child_pid() != 0)
       WithColor::warning() << "jove run should have reset the child pid\n";
 
-    jv.generation.load(boost::memory_order_relaxed);
-
 #ifndef JOVE_NO_BACKEND
     if (opts.Daemonize) {
       if (opts.ForceRecompile)
@@ -1327,8 +1325,6 @@ skip_run:
         HumanOut() << "jove analyze failed!\n";
         return rc;
       }
-
-      jv.generation.fetch_add(1, boost::memory_order_relaxed);
 
       //
       // recompile
