@@ -415,9 +415,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
   jv.fixup_binary(jv_file, BIdx);
 
-  BOOST_SCOPE_DEFER [&] {
-    jv.generation.fetch_add(1, boost::memory_order_relaxed);
-  };
+  jv.generation.fetch_add(1, boost::memory_order_release);
 
   out = BIdx;
 }
