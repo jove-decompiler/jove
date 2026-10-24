@@ -126,7 +126,7 @@ struct binary_base_t;
 #include "jove/nop.h.inc"
 #include "jove/atomic.h.inc"
 #include "jove/mt.h.inc"
-#include "jove/possibly_concurrent.h.inc"
+#include "jove/perhaps_concurrent.h.inc"
 #include "jove/index.h.inc"
 #include "jove/deque.h.inc"
 #include "jove/adjacency_list.h.inc"
@@ -150,7 +150,7 @@ struct allocates_basic_block_t {
 };
 
 template <bool MT, bool Node>
-using bbbmap_t = possibly_concurrent_node_or_flat_map<
+using bbbmap_t = perhaps_concurrent_node_or_flat_map<
     MT, Node, std::true_type /* Spin */, taddr_t, allocates_basic_block_t,
     boost::hash<taddr_t>, std::equal_to<taddr_t>>;
 
@@ -233,7 +233,7 @@ struct allocates_function_t {
 };
 
 template <bool MT, bool Node>
-using fnmap_t = possibly_concurrent_node_or_flat_map<
+using fnmap_t = perhaps_concurrent_node_or_flat_map<
     MT, Node, std::true_type /* Spin */, taddr_t, allocates_function_t,
     boost::hash<taddr_t>, std::equal_to<taddr_t>>;
 
@@ -1235,19 +1235,19 @@ struct cached_hash_t {
 
 template <bool MT, bool Node>
 using ip_cached_hashes_type =
-    possibly_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
+    perhaps_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
                                          ip_string, cached_hash_t,
                                          ip_string_hash_t, ip_string_equal_t>;
 
 template <bool MT, bool Node>
 using ip_hash_to_binary_map_type =
-    possibly_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
+    perhaps_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
                                          hash_t, adds_binary_t, JoveBinaryHash,
                                          std::equal_to<hash_t>>;
 
 template <bool MT, bool Node>
 using ip_name_to_binaries_map_type =
-    possibly_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
+    perhaps_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
                                          ip_string, ip_binary_index_set,
                                          ip_string_hash_t, ip_string_equal_t>;
 

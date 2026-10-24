@@ -105,12 +105,12 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   std::is_const_v<std::remove_reference_t<decltype(*this)>>
 
 #define ____stored_vert____(V, pvprop_nm, pstoredv_nm)                         \
-  possibly_const<ARE_WE_CONST, VertexProperty> *const pvprop_nm = ({           \
+  perhaps_const<ARE_WE_CONST, VertexProperty> *const pvprop_nm = ({           \
     auto s_lck = this->shared_access();                                        \
     &this->container()[V];                                                     \
   });                                                                          \
-  possibly_const<ARE_WE_CONST, StoredVertex> *const pstoredv_nm =              \
-      reinterpret_cast<possibly_const<ARE_WE_CONST, StoredVertex> *>(          \
+  perhaps_const<ARE_WE_CONST, StoredVertex> *const pstoredv_nm =              \
+      reinterpret_cast<perhaps_const<ARE_WE_CONST, StoredVertex> *>(          \
           JOVE_ADDRESS_CONTAINER_OF(pvprop_nm, StoredVertex, m_property));
 
 #define ____shared_vert____(ShouldLock, Mutex)                                 \

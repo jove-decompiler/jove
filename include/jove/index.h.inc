@@ -51,7 +51,7 @@ constexpr bool is_block_valid(block_t X) {
 
 template <bool MT, bool Node>
 using ip_dynamic_target_set =
-    possibly_concurrent_node_or_flat_set<MT, Node, dynamic_target_t,
+    perhaps_concurrent_node_or_flat_set<MT, Node, dynamic_target_t,
                                          boost::hash<dynamic_target_t>,
                                          std::equal_to<dynamic_target_t>>;
 
@@ -73,7 +73,7 @@ typedef boost::interprocess::set<
     ip_func_index_set;
 
 template <bool MT>
-using ip_func_index_sets = possibly_concurrent_node_set<
+using ip_func_index_sets = perhaps_concurrent_node_set<
     MT, std::true_type /* Spin */, ip_func_index_set,
     boost::hash<ip_func_index_set>, std::equal_to<ip_func_index_set>,
     boost::interprocess::node_allocator<ip_func_index_set, segment_manager_t>>;
@@ -86,7 +86,7 @@ typedef boost::container::vector<
     ip_func_index_vec;
 
 template <bool MT>
-using ip_func_index_vec_set = possibly_concurrent_node_set<
+using ip_func_index_vec_set = perhaps_concurrent_node_set<
     MT, std::true_type /* Spin */, ip_func_index_vec,
     boost::hash<ip_func_index_vec>, std::equal_to<ip_func_index_vec>,
     boost::interprocess::node_allocator<ip_func_index_vec, segment_manager_t>>;
