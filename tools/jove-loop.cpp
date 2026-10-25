@@ -480,6 +480,7 @@ int LoopTool::Run(void) {
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);
   PROPOGATE_OPTION(Trace);
+  PROPOGATE_OPTION(InlineHelpers);
   PROPOGATE_OPTION(Optimize);
   PROPOGATE_OPTION(SkipCopyRelocHack);
   PROPOGATE_OPTION(DebugSjlj);
