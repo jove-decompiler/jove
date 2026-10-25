@@ -261,8 +261,8 @@ void CodeDigger::Worker(binary_index_t BIdx, int rfd, int wfd) {
           Arg("--binary-index");
           Arg(std::to_string(BIdx));
 
-          //Arg("--inline-helpers");
-          //Arg("--optimize");
+          Arg("--inline-helpers");
+          Arg("--optimize");
         },
         "", "",
         RunToolExtraArgs(),
@@ -338,8 +338,8 @@ int CodeDigger::ListLocalGotos() {
     if (ICFG[bb].hasDynTarget())
       return;
 
-    HumanOut() << symbolizer.addr2desc(binary, ICFG[bb].Term.Addr)
-               << " #" << index_of_basic_block(ICFG, bb) << '\n';
+    llvm::outs() << symbolizer.addr2desc(binary, ICFG[bb].Term.Addr) << " #"
+                 << index_of_basic_block(ICFG, bb) << '\n';
   };
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
