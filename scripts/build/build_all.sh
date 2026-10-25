@@ -88,12 +88,13 @@ fi
 # -------- Stage 6 --------
 . "$Y/llknife.sh"
 . "$Y/qemu.softfpu.sh"
-. "$Y/klee.sh"
+. "$Y/gperftools.sh"
 
 . "$X/parallel.sh"
 
 # -------- Stage 7 --------
 . "$Y/06_make.sh"
+. "$Y/klee.sh"
 . "$X/parallel.sh"
 
 # -------- Stage 8 --------

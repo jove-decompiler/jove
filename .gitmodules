@@ -63,3 +63,6 @@
 [submodule "_gmsl"]
 	path = _gmsl
 	url = https://github.com/jgrahamc/gmsl.git
+[submodule "gperftools"]
+	path = gperftools
+	url = https://github.com/gperftools/gperftools.git

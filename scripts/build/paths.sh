@@ -14,5 +14,6 @@ wine_path="$jove_path/wine"
 linux_path="$jove_path/linux"
 carbc_path="$jove_path/carbon-copy"
 llknife_path="$jove_path/llknife"
+gperftools_path="$jove_path/gperftools"
 
-export jove_path qemu_path llvm_path wine_path linux_path carbc_path llknife_path
+export jove_path qemu_path llvm_path wine_path linux_path carbc_path llknife_path gperftools_path
