@@ -114,6 +114,13 @@ CLANGVER=19
 configure_args=()
 ourcflags=()
 
+marchvar="JOVE_MARCH_${arch}"
+
+if [[ -n ${!marchvar:-} ]]; then
+  echo "$marchvar=${!marchvar}; adding -march=${!marchvar}"
+  ourcflags+=("-march=${!marchvar}")
+fi
+
 # better debugging
 if [ -n "$frame_pointer" ]; then
   ourcflags+=(
