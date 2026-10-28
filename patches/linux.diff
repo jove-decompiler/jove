@@ -1,3 +1,72 @@
+diff --git a/arch/arm64/include/asm/cpucaps.h b/arch/arm64/include/asm/cpucaps.h
+index 9d769291a306..67e4cf0188b3 100644
+--- a/arch/arm64/include/asm/cpucaps.h
++++ b/arch/arm64/include/asm/cpucaps.h
+@@ -1,34 +1,35 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+ #ifndef __ASM_CPUCAPS_H
+ #define __ASM_CPUCAPS_H
+ 
+ #include <asm/cpucap-defs.h>
+ 
+ #ifndef __ASSEMBLY__
+ #include <linux/types.h>
+ /*
+  * Check whether a cpucap is possible at compiletime.
+  */
+ static __always_inline bool
+ cpucap_is_possible(const unsigned int cap)
++#if 0
+ {
+ 	compiletime_assert(__builtin_constant_p(cap),
+ 			   "cap must be a constant");
+ 	compiletime_assert(cap < ARM64_NCAPS,
+ 			   "cap must be < ARM64_NCAPS");
+ 
+ 	switch (cap) {
+ 	case ARM64_HAS_PAN:
+ 		return IS_ENABLED(CONFIG_ARM64_PAN);
+ 	case ARM64_HAS_EPAN:
+ 		return IS_ENABLED(CONFIG_ARM64_EPAN);
+ 	case ARM64_SVE:
+ 		return IS_ENABLED(CONFIG_ARM64_SVE);
+ 	case ARM64_SME:
+ 	case ARM64_SME2:
+ 	case ARM64_SME_FA64:
+ 		return IS_ENABLED(CONFIG_ARM64_SME);
+ 	case ARM64_HAS_CNP:
+ 		return IS_ENABLED(CONFIG_ARM64_CNP);
+ 	case ARM64_HAS_ADDRESS_AUTH:
+@@ -60,23 +61,28 @@ cpucap_is_possible(const unsigned int cap)
+ 		return IS_ENABLED(CONFIG_ARM64_ERRATUM_2658417);
+ 	case ARM64_WORKAROUND_CAVIUM_23154:
+ 		return IS_ENABLED(CONFIG_CAVIUM_ERRATUM_23154);
+ 	case ARM64_WORKAROUND_NVIDIA_CARMEL_CNP:
+ 		return IS_ENABLED(CONFIG_NVIDIA_CARMEL_CNP_ERRATUM);
+ 	case ARM64_WORKAROUND_REPEAT_TLBI:
+ 		return IS_ENABLED(CONFIG_ARM64_WORKAROUND_REPEAT_TLBI);
+ 	case ARM64_WORKAROUND_SPECULATIVE_SSBS:
+ 		return IS_ENABLED(CONFIG_ARM64_ERRATUM_3194386);
+ 	case ARM64_MPAM:
+ 		/*
+ 		 * KVM MPAM support doesn't rely on the host kernel supporting MPAM.
+ 		*/
+ 		return true;
+ 	case ARM64_HAS_PMUV3:
+ 		return IS_ENABLED(CONFIG_HW_PERF_EVENTS);
+ 	}
+ 
+ 	return true;
+ }
++#else
++{
++	return false;
++}
++#endif
+ #endif /* __ASSEMBLY__ */
+ 
+ #endif /* __ASM_CPUCAPS_H */
 diff --git a/lib/Makefile b/lib/Makefile
 index 1ab2c4be3b66..19a21fcce7a0 100644
 --- a/lib/Makefile
