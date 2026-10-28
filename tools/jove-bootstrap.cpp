@@ -1060,7 +1060,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 if (IsVeryVerbose())
                   msg("forked!");
 
+#if 0
                 ignore_sigchld.insert(/* new_child */ saved_child);
+#endif
                 child = -1;
                 continue;
               } else {
@@ -1099,7 +1101,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 } else {
                   if (IsVeryVerbose())
                     msg(llvm::formatv("attached [{0}], suppressing next SIGSTOP", new_child).str());
+#if 0
                   ignore_sigstop.insert(new_child);
+#endif
 
                   //
                   // the tracee will not necessarily have stopped by the completion of this call.
