@@ -2,6 +2,6 @@
 
 namespace jove {
 
-bool smartterm = false;
+bool smartterm = true;
 
 }
