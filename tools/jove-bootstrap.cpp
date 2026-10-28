@@ -293,6 +293,7 @@ ssize_t BootstrapTool::poke(const taddr_t dst,
 }
 
 int BootstrapTool::Run(void) {
+  long ret = -1L;
   pTool = this;
 
   if (!opts.HumanOutput.empty())
@@ -349,8 +350,9 @@ int BootstrapTool::Run(void) {
     //
     // mode 1: attach
     //
-    if (_jove_sys_ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
-      HumanOut() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
+    ret = _jove_sys_ptrace(PTRACE_ATTACH, child, 0UL, 0UL);
+    if (unlikely(ret < 0)) {
+      msg(llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(-ret)).str());
       return 1;
     }
 
@@ -380,11 +382,10 @@ int BootstrapTool::Run(void) {
                         PTRACE_O_TRACEVFORK |
                         PTRACE_O_TRACECLONE;
 
-      if (_jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, tmp_options) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                          __func__,
-                                          strerror(err));
+      ret = _jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, tmp_options);
+      if (unlikely(ret < 0)) {
+        msg(llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n", __func__,
+                          strerror(-ret)).str());
       }
     }
 
@@ -430,7 +431,7 @@ int BootstrapTool::Run(void) {
 #endif
 
     if (IsVerbose())
-      HumanOut() << llvm::formatv("parent: running {0}\n", path_to_exe);
+      msg(llvm::formatv("parent: running {0}\n", path_to_exe).str());
 
     struct {
       std::string path_to_wine;
@@ -554,26 +555,27 @@ int BootstrapTool::Run(void) {
     tracee_state.get(child);
 
     if (IsVerbose())
-      HumanOut() << llvm::formatv(
-          "first ptrace-stop @ {0}\n",
-          description_of_program_counter(tracee_state.program_counter(), true));
+      msg(llvm::formatv("first ptrace-stop @ {0}\n",
+                        description_of_program_counter(
+                            tracee_state.program_counter(), true)).str());
 
     auto BBPair =
         block_at_program_counter(child, tracee_state.program_counter());
 
     if (unlikely(!is_basic_block_index_valid(BBPair.second)))
-      HumanOut() << llvm::formatv(
-          "failed to translate block at first ptrace-stop @ {0}\n",
-          description_of_program_counter(tracee_state.program_counter(), true));
+      msg(llvm::formatv(
+              "failed to translate block at first ptrace-stop @ {0}\n",
+              description_of_program_counter(tracee_state.program_counter(),
+                                             true)).str());
   }
 
   //
   // establish options
   //
-  if (_jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-    int err = errno;
-    HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                __func__, strerror(err));
+  ret = _jove_sys_ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options);
+  if (unlikely(ret < 0)) {
+    msg(llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n", __func__,
+                      strerror(-ret)).str());
   }
 
   //
@@ -678,10 +680,34 @@ int BootstrapTool::TracerLoop(pid_t child) {
   {
     for (;; (void)({
            if (!(child < 0)) {
-             if (unlikely(_jove_sys_ptrace(syscall_or_cont, child, 0UL, sig) <
-                          0))
-               HumanOut() << llvm::formatv("failed to resume tracee {0}: {1}\n",
-                                           child, strerror(errno));
+
+             if (sig) {
+//             aassert(child == si.si_pid);
+
+#if 0
+               const bool suppress =
+                   (sig == SIGCHLD && (ignore_sigchld.erase(child) > 0)) ||
+                   (sig == SIGSTOP && (ignore_sigstop.erase(child) > 0));
+#else
+               const bool suppress = false;
+#endif
+               if (suppress) {
+                 if (IsVeryVerbose())
+                   msg(llvm::formatv("suppressing signal {0} to {1}!", sig,
+                                     child).str());
+
+                 sig = 0;
+               } else {
+                 if (opts.Signals)
+                   msg(llvm::formatv("delivering signal {0} <{1}> to {2}", sig,
+                                     strsignal(sig), child).str());
+               }
+             }
+
+             long ret = _jove_sys_ptrace(syscall_or_cont, child, 0UL, sig);
+             if (unlikely(ret < 0))
+               msg(llvm::formatv("failed to resume tracee {0}: {1}\n", child,
+                                 strerror(-ret)).str());
            }
 
            0;
@@ -697,7 +723,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         assert(err != EINTR);
 
         if (IsVerbose())
-          HumanOut() << llvm::formatv("exiting... ({0})\n", strerror(err));
+          msg(llvm::formatv("exiting... ({0})\n", strerror(err)).str());
 
         break;
       }
@@ -741,32 +767,30 @@ int BootstrapTool::TracerLoop(pid_t child) {
             switch (event) {
             default:
               if (opts.PrintPtraceEvents)
-                HumanOut() << llvm::formatv("unknown ptrace event {0}\n",
-                                            event);
+                msg(llvm::formatv("unknown ptrace event {0}\n", event).str());
               break;
 
             case PTRACE_EVENT_VFORK:
             case PTRACE_EVENT_FORK: {
               unsigned long new_child;
-              if (_jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL, reinterpret_cast<uintptr_t>(&new_child)) < 0) {
-                HumanOut() << llvm::formatv("what the fuck? [{0}]\n", child);
+              if (_jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL,
+                                   reinterpret_cast<uintptr_t>(&new_child)) < 0) {
                 die("PTRACE_GETEVENTMSG on fork()/vfork()");
               }
 
               if (opts.PrintPtraceEvents)
-                HumanOut() << llvm::formatv(
-                    "<PTRACE_EVENT_{0}FORK> {1} => {2}\n",
-                    event == PTRACE_EVENT_VFORK ? "V" : "", child, new_child);
+                msg(llvm::formatv("<PTRACE_EVENT_{0}FORK> {1} => {2}\n",
+                                  event == PTRACE_EVENT_VFORK ? "V" : "", child,
+                                  new_child).str());
 
-#if 1
-              sig = SIGSTOP;
+//            sig = SIGSTOP;
               forked.insert(new_child);
-#endif
               break;
             }
             case PTRACE_EVENT_CLONE: {
               unsigned long new_child;
-              _jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL, reinterpret_cast<uintptr_t>(&new_child));
+              _jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL,
+                               reinterpret_cast<uintptr_t>(&new_child));
 
               if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_CLONE) -> "
@@ -780,11 +804,13 @@ int BootstrapTool::TracerLoop(pid_t child) {
               break;
             case PTRACE_EVENT_EXEC: {
               unsigned long new_pid;
-              if (_jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL, reinterpret_cast<uintptr_t>(&new_pid)) < 0) {
-                int err = errno;
+              long ret =
+                  _jove_sys_ptrace(PTRACE_GETEVENTMSG, child, 0UL,
+                                   reinterpret_cast<uintptr_t>(&new_pid));
+              if (unlikely(ret < 0)) {
                 WithColor::warning() << llvm::formatv(
                     "PTRACE_GETEVENTMSG failed: {0} (PTRACE_EVENT_EXEC)\n",
-                    strerror(err));
+                    strerror(-ret));
 
                 new_pid = child;
               }
@@ -845,11 +871,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
               }
 
               if (opts.PrintPtraceEvents)
-                HumanOut() << llvm::formatv(
-                    "<PTRACE_EVENT_EXEC> \"{0}\" [{1}]\n", exe_path, new_pid);
+                msg(llvm::formatv("<PTRACE_EVENT_EXEC> \"{0}\" [{1}]\n", exe_path, new_pid).str());
               else if (IsVerbose())
-                HumanOut() << llvm::formatv("tracee {0} exec'd {1}\n", new_pid,
-                                            exe_path);
+                msg(llvm::formatv("tracee {0} exec'd {1}\n", new_pid, exe_path).str());
 
               //
               // the address space has been reset, so we need
@@ -860,7 +884,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
               auto DetachFromChild = [&](void) -> void {
                 if (IsVerbose())
-                  HumanOut() << llvm::formatv("detaching from {0}!\n", child);
+                  msg(llvm::formatv("detaching from {0}!\n", child).str());
 
                 if (_jove_sys_ptrace(PTRACE_DETACH, child, 0UL, 0UL) < 0) {
                   int err = errno;
@@ -958,7 +982,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           //
 
           if (opts.PrintPtraceEvents)
-            HumanOut() << "ptrace group-stop [" << child << "]\n";
+            msg(llvm::formatv("ptrace group-stop [{0}]", child).str());
 
           // When restarting a tracee from a ptrace-stop other than
           // signal-delivery-stop, recommended practice is to always pass 0 in
@@ -1005,21 +1029,19 @@ int BootstrapTool::TracerLoop(pid_t child) {
             }
 #else
             if (IsVerbose()) {
-              HumanOut() << llvm::formatv(
-                "sigsegv @ {0}\n", description_of_program_counter(
-                  tracee_state.program_counter(), true));
+              msg(llvm::formatv("sigsegv @ {0}",
+                                description_of_program_counter(
+                                    tracee_state.program_counter(), true)).str());
             }
 #endif
           } else if (stopsig == SIGSTOP) {
-            if (unlikely(forked.contains(child))) {
+            if (unlikely(forked.erase(child))) {
               sig = 0; /* suppress */
 
               const pid_t new_child = child;
 
-              forked.erase(new_child);
-
               if (IsVeryVerbose())
-                llvm::errs() << llvm::formatv("waited on forked child. [{0}]\n", child);
+                msg(llvm::formatv("waited on forked child. [{0}]", child).str());
 
               //
               // upon a fork(), we detach, fork(), and then reattach.
@@ -1029,18 +1051,22 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 die("PTRACE_DETACH on fork(): " + std::string(strerror(err)));
               } else {
                 if (IsVeryVerbose())
-                  llvm::errs() << llvm::formatv("detached [{0}]\n", new_child);
+                  msg(llvm::formatv("detached [{0}]", new_child).str());
               }
 
               scoped_fd our_pfd(pidfd_open(::getpid(), 0));
 
-              if (IsVeryVerbose())
-                HumanOut() << "forking!\n";
-
               if (jove::fork()) {
+                if (IsVeryVerbose())
+                  msg("forked!");
+
+                ignore_sigchld.insert(/* new_child */ saved_child);
                 child = -1;
                 continue;
               } else {
+                if (IsVeryVerbose())
+                  msg("hi!");
+
                 if (::prctl(PR_SET_PDEATHSIG, SIGKILL) < 0) {
                   int err = errno;
                   if (IsVerbose())
@@ -1072,7 +1098,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   die("PTRACE_ATTACH on fork() " + std::string(strerror(-err)));
                 } else {
                   if (IsVeryVerbose())
-                    llvm::errs() << llvm::formatv("attached [{0}]\n", new_child);
+                    msg(llvm::formatv("attached [{0}], suppressing next SIGSTOP", new_child).str());
+                  ignore_sigstop.insert(new_child);
 
                   //
                   // the tracee will not necessarily have stopped by the completion of this call.
@@ -1089,20 +1116,15 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   //
                   static_assert(ptrace_options & PTRACE_O_TRACEEXEC, "needs to be set here");
 
-                  err = _jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options);
-                  if (err < 0) {
-                    HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                                __func__,
-                                                strerror(-err));
+                  long ret = _jove_sys_ptrace(PTRACE_SETOPTIONS, new_child, 0UL, ptrace_options);
+                  if (unlikely(ret < 0)) {
+                    die(llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})",
+                                      __func__, strerror(-ret)).str());
                   }
                 }
               }
             }
           }
-
-          if (sig && opts.Signals)
-            HumanOut() << llvm::formatv("delivering signal {0} <{1}> [{2}]\n",
-                                        sig, strsignal(sig), child);
         }
       } else {
         int the_status = -1;
@@ -1118,8 +1140,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         // the child terminated
         //
         if (IsVerbose())
-          HumanOut() << llvm::formatv("child {0} terminated ({1})\n", child,
-                                      the_status);
+          msg(llvm::formatv("child {0} terminated ({1})", child, the_status).str());
 
         child = -1;
       }
@@ -1172,8 +1193,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
     if (IsVerbose())
       if (unsigned c = NumChanged.load())
-        HumanOut() << llvm::formatv("fixed {0} ambiguous indirect jump{1}\n", c,
-                                    c > 1 ? "s" : "");
+        msg(llvm::formatv("fixed {0} ambiguous indirect jump{1}", c,
+                          c > 1 ? "s" : "").str());
   }
 
   return 0;
@@ -1302,7 +1323,7 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
       case __NR_exit:
       case __NR_exit_group:
         if (IsVerbose())
-          HumanOut() << "Observed program exit.\n";
+          msg("Observed program exit.");
         break;
 
       default:
@@ -1618,9 +1639,11 @@ static void arch_put_breakpoint(void *code);
 void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
                                                         taddr_t pc,
                                                         indirect_branch_t &indbr) {
+#if 0
   if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("indjmp @ {0}\n",
                                   description_of_program_counter(pc));
+#endif
 
   auto wrote = this->poke(pc, TargetBrkpt, TargetBrkptLen);
   aassert(wrote == TargetBrkptLen);
@@ -1628,8 +1651,10 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
 
 void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
                                                return_t &r) {
+#if 0
   if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("return @ {0}\n", description_of_program_counter(pc));
+#endif
 
   const uint8_t *src = nullptr;
   unsigned N = 0;
@@ -1713,11 +1738,10 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
 #if defined(__mips64) || defined(__mips__)
     if (IsVeryVerbose())
-      HumanOut() << llvm::formatv("trapped @ {0} <{1:x}>\n",
-                                  description_of_program_counter(SavedPC),
-                                  trapped.DelaySlotInsn);
+      msg(llvm::formatv("trapped @ {0} <{1:x}>",
+                        description_of_program_counter(SavedPC),
+                        trapped.DelaySlotInsn).str());
 #endif
-
 
     const taddr_t ExecutableRegionAddress = emulator->ExecutableRegionAddress;
     pc = SavedPC;
@@ -2075,11 +2099,11 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
           ItsTheBinary(*BIdxSet.begin(), pm.off);
         } else {
           if (IsVeryVerbose())
-            HumanOut() << llvm::formatv("dont recognize {0}\n", nm);
+            msg(llvm::formatv("dont recognize {0}", nm).str());
         }
       }
     } else {
-      HumanOut() << llvm::formatv("WTF? {0}\n", nm);
+      msg(llvm::formatv("WTF? {0}", nm).str());
     }
   }
 }
@@ -2176,8 +2200,8 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #endif
 
     if (IsVerbose())
-      HumanOut() << llvm::formatv("ExecutableRegionAddress = {0:x}\n",
-                                  emulator->ExecutableRegionAddress);
+      msg(llvm::formatv("ExecutableRegionAddress = {0:x}",
+                        emulator->ExecutableRegionAddress).str());
   }
 
   bool res = false;
@@ -2191,17 +2215,17 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     if (!IsTerminatorIndirect(TermType))
       return;
 
-    std::string msg;
+    std::string emsg;
     res |= catch_exception([&] {
       place_breakpoints_in_block(binary, bbprop,
                                  index_of_basic_block(binary, bb));
     });
 
-    if (!msg.empty()) {
+    if (!emsg.empty()) {
       if (IsVerbose()) {
-        HumanOut() << llvm::formatv(
-            "<{0}:{1}> failed to place breakpoint in block!{2}\n",
-            binary.Name.c_str(), taddr2str(bbprop.Term.Addr, true), msg);
+        msg(llvm::formatv("<{0}:{1}> failed to place breakpoint in block!{2}",
+                          binary.Name.c_str(),
+                          taddr2str(bbprop.Term.Addr, true), emsg).str());
       }
     }
   });
@@ -2415,7 +2439,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
   if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("BinaryFromPath: \"{0}\"\n", path);
+    msg(llvm::formatv("BinaryFromPath: \"{0}\"", path).str());
 
   using namespace std::placeholders;
 
@@ -2438,7 +2462,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
   if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv("BinaryFromData: \"{0}\"\n", name);
+    msg(llvm::formatv("BinaryFromData: \"{0}\"", name).str());
 
   using namespace std::placeholders;
 
@@ -2458,7 +2482,8 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
       if (Sym.isUndefined())
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName =
+          Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -2472,10 +2497,8 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
         _r_debug.ptr = pc;
 
         if (IsVerbose())
-          HumanOut() << llvm::formatv("_r_debug @ {0} <{1}+{2}>\n",
-                                      taddr2str(pc),
-                                      b.Name.c_str(),
-                                      taddr2str(off));
+          msg(llvm::formatv("_r_debug @ {0} <{1}+{2}>", taddr2str(pc),
+                            b.Name.c_str(), taddr2str(off)).str());
 
         WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
         rendezvous_with_dynamic_linker(child);
@@ -2484,7 +2507,7 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
     }
   }
 
-  HumanOut() << llvm::formatv("{0}: could not find _r_debug\n", __PRETTY_FUNCTION__);
+  msg(llvm::formatv("{0}: could not find _r_debug", __PRETTY_FUNCTION__).str());
 }
 
 void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
@@ -2511,7 +2534,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
     aassert(updateVariable(_r_debug.brk, pc));
 
     if (IsVerbose())
-      HumanOut() << llvm::formatv("r_brk is now {0:x}\n", pc);
+      msg(llvm::formatv("r_brk is now {0:x}", pc).str());
   }
 }
 
@@ -2597,16 +2620,15 @@ void BootstrapTool::on_return(pid_t child,
 
     if (unlikely(!is_basic_block_index_valid(Before_BBIdx))) {
       if (IsVeryVerbose())
-        HumanOut() << llvm::formatv("on_return: unknown block before @ {0}\n",
-                                    description_of_program_counter(pc, true));
+        msg(llvm::formatv("on_return: unknown block before @ {0}",
+                          description_of_program_counter(pc, true)).str());
       return;
     }
 
     if (unlikely(BIdx != Before_BIdx)) {
       if (IsVeryVerbose())
-        HumanOut() << llvm::formatv(
-            "on_return: unexpected crossing of boundary @ {0}",
-            description_of_program_counter(before_pc, true));
+        msg(llvm::formatv("on_return: unexpected crossing of boundary @ {0}",
+                          description_of_program_counter(before_pc, true)).str());
       return;
     }
 
@@ -2620,9 +2642,9 @@ void BootstrapTool::on_return(pid_t child,
 
     if (!isCall && !isIndirectCall) {
       if (IsVerbose())
-        HumanOut() << llvm::formatv("on_return: unexpected term {0} @ {1}\n",
-                                    description_of_terminator(before_Term.Type),
-                                    description_of_program_counter(before_pc, true));
+        msg(llvm::formatv("on_return: unexpected term {0} @ {1}",
+                          description_of_terminator(before_Term.Type),
+                          description_of_program_counter(before_pc, true)).str());
       return;
     }
 
@@ -2974,7 +2996,7 @@ void BootstrapTool::DropPrivileges(void) {
 
     if (::setgid(gid) < 0) {
       int err = errno;
-      HumanOut() << llvm::formatv("setgid failed: {0}", strerror(err));
+      msg(llvm::formatv("setgid failed: {0}", strerror(err)).str());
     }
   }
 
@@ -2983,7 +3005,7 @@ void BootstrapTool::DropPrivileges(void) {
 
     if (::setuid(uid) < 0) {
       int err = errno;
-      HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
+      msg(llvm::formatv("setuid failed: {0}", strerror(err)).str());
     }
   }
 }
@@ -2994,6 +3016,10 @@ void BootstrapTool::invalidate_block(bbprop_t &bbprop,
   bbprop.InvalidateAnalyses(this->jv, binary);
 }
 #endif
+
+void BootstrapTool::msg(const std::string &s) {
+  llvm::errs() << llvm::formatv("[{0}] {1}\n", _jove_sys_gettid(), s).str();
+}
 
 void arch_put_breakpoint(void *code) {
 #if defined(__x86_64__) || defined(__i386__)

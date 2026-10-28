@@ -244,6 +244,8 @@ struct BootstrapTool
 
   const bool IsCOFF;
   unordered_set<pid_t> forked;
+  unordered_set<pid_t> ignore_sigchld;
+  unordered_set<pid_t> ignore_sigstop;
   unordered_set<pid_t> exited;
 
   std::unique_ptr<ptrace_emulator_t> emulator;
@@ -419,6 +421,8 @@ public:
 #ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
   void invalidate_block(bbprop_t &, binary_t &);
 #endif
+
+  void msg(const std::string &);
 };
 
 }
