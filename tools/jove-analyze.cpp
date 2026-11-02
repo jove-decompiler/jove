@@ -99,7 +99,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
   analyzer_options_t analyzer_options;
 
-  tiny_code_generator_t TCG;
+  tiny_code_generator_t<> TCG;
   tcg_helpers_t helpers;
 
   analyzer_t<IsToolMT, IsToolMinSize> analyzer;
@@ -115,7 +115,6 @@ public:
                 SafeContext,
                 analyzer_options),
         analyzer(analyzer_options,
-                 TCG,
                  SafeContext,
                  helpers,
                  jv_file, jv, inflight, done) {}
@@ -152,7 +151,7 @@ int AnalyzeTool::Run(void) {
 }
 
 int AnalyzeTool::AnalyzeBlocks(void) {
-  return analyzer.analyze_blocks();
+  return analyzer.analyze_blocks(TCG);
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {

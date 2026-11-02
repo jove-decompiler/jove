@@ -101,5 +101,5 @@ public:
     return false;
   }
 
-  int run(const char *filename, const B::ref &Bin);
+  int run(const char *filename);
 };

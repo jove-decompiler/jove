@@ -1,6 +1,7 @@
 #pragma once
 #include "B.h"
 #include "disas.h"
+#include "tcg.h"
 
 #include <functional>
 #include <vector>
@@ -16,8 +17,6 @@ struct invalid_control_flow_exception {
   invalid_control_flow_exception(binary_base_t<MT, MinSize> &b, uint64_t pc)
       : name_of_binary(b.Name.c_str()), pc(pc) {}
 };
-
-struct tiny_code_generator_t;
 
 template <bool MT>
 using onblockproc_t = std::function<void(
@@ -73,14 +72,14 @@ class explorer_t : public VerboseThing {
   jv_file_t &jv_file;
   boost::optional<jv_t &> maybe_jv;
   disas_t &disas;
-  tiny_code_generator_t &tcg;
+  tiny_code_generator_t<> &tcg;
 
   on_newbb_proc_t<MT, MinSize> on_newbb_proc = nop_on_newbb_proc<MT, MinSize>;
   on_newfn_proc_t<MT, MinSize> on_newfn_proc = nop_on_newfn_proc<MT, MinSize>;
 
   template <bool WithOnBlockProc>
   bool split(binary_t &,
-             B::ref,
+             B::cached::type<> &,
              bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
              bbmap_t::iterator it,
              const taddr_t Addr,
@@ -90,7 +89,7 @@ class explorer_t : public VerboseThing {
   template <bool WithOnBlockProc>
   basic_block_index_t _explore_basic_block(
       binary_t &,
-      B::ref,
+      B::cached::type<> &,
       const taddr_t Addr,
       bool Speculative,
       const function_index_t ParentIdx = invalid_function_index,
@@ -98,12 +97,12 @@ class explorer_t : public VerboseThing {
       onblockproc_u_t obp_u = nop_on_block_u);
 
   function_index_t _explore_function(binary_t &,
-                                     B::ref,
+                                     B::cached::type<> &,
                                      const taddr_t Addr,
                                      const bool Speculative);
 
   void _control_flow_to(binary_t &,
-                        B::ref,
+                        B::cached::type<> &,
                         const taddr_t TermAddr,
                         const taddr_t Target,
                         const bool Speculative,
@@ -111,13 +110,13 @@ class explorer_t : public VerboseThing {
 
 public:
   explicit explorer_t(jv_file_t &jv_file, jv_t &jv, disas_t &disas,
-                      tiny_code_generator_t &tcg,
+                      tiny_code_generator_t<> &tcg,
                       unsigned VerbosityLevel = 0) noexcept
       : VerboseThing(VerbosityLevel), jv_file(jv_file), maybe_jv(jv),
         disas(disas), tcg(tcg) {}
 
   explicit explorer_t(jv_file_t &jv_file, disas_t &disas,
-                      tiny_code_generator_t &tcg,
+                      tiny_code_generator_t<> &tcg,
                       unsigned VerbosityLevel = 0) noexcept
       : VerboseThing(VerbosityLevel), jv_file(jv_file), maybe_jv(boost::none),
         disas(disas), tcg(tcg) {}
@@ -135,6 +134,16 @@ public:
     }
   }
 
+  void explore_binary(binary_t &, B::cached::type<> &, const AddOptions_t &);
+
+  //
+  // we thought this was a goto, but now we know it's definitely a tail
+  // call. translate all sucessors as functions, then store them into the
+  // dynamic targets set for this bb. afterwards, delete the edges in the
+  // ICFG that would originate from this basic block.
+  //
+  bool fix_ambiguous_indirect_jump(binary_t &, B::cached::type<> &, taddr_t TermAddr);
+
   //
   // the objective is to translate all the code we can up until indirect
   // control-flow instructions. this is precisely what jove-bootstrap needs to
@@ -142,17 +151,17 @@ public:
   // executing.
   //
   basic_block_index_t explore_basic_block(binary_t &,
-                                          B::ref,
+                                          B::cached::type<> &,
                                           taddr_t Addr);
 
   basic_block_index_t explore_basic_block(binary_t &,
-                                          B::ref,
+                                          B::cached::type<> &,
                                           taddr_t Addr,
                                           onblockproc_t<MT> obp,
                                           onblockproc_u_t obp_u);
 
   function_index_t explore_function(binary_t &,
-                                    B::ref,
+                                    B::cached::type<> &,
                                     taddr_t Addr);
 
   on_newbb_proc_t<MT, MinSize> get_newbb_proc(void) const {

@@ -128,66 +128,6 @@ void binary_base_t<MT, MinSize>::InvalidateBasicBlockAnalyses(void) {
                               [&](function_t &f) { f.Analysis.Invalidate(); });
 }
 
-template <bool MT, bool MinSize>
-bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
-    taddr_t TermAddr,
-    explorer_t<MT, MinSize> &E,
-    const B::ref &Bin,
-    jv_base_t<MT, MinSize> &jv) {
-  std::vector<taddr_t> SuccAddrVec;
-
-  typename ip_icfg_base_t<MT>::vertex_descriptor bb;
-
-  auto &ICFG = this->Analysis.ICFG;
-  {
-    auto s_lck_bbmap = this->BBMap.shared_access();
-
-    bb = basic_block_at_address(TermAddr, *this);
-
-    if (!IsAmbiguousIndirectJump(ICFG, bb))
-      return false;
-
-    auto e_lck = ICFG[bb].template exclusive_access<MT>();
-
-    auto succ_it_pair = ICFG.adjacent_vertices(bb);
-
-    SuccAddrVec.resize(ICFG.template out_degree<false>(bb));
-    std::transform(
-        succ_it_pair.first,
-        succ_it_pair.second, SuccAddrVec.begin(),
-        [&](bb_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
-  }
-
-  std::vector<function_index_t> SuccFIdxVec;
-  SuccFIdxVec.resize(SuccAddrVec.size());
-  std::transform(std::execution::seq,
-                 SuccAddrVec.begin(),
-                 SuccAddrVec.end(), SuccFIdxVec.begin(),
-                 [&](taddr_t Addr) -> function_index_t {
-                   function_index_t res = E.explore_function(*this, Bin, Addr);
-                   assert(is_function_index_valid(res));
-                   return res;
-                 });
-
-  {
-    auto s_lck_bbmap = this->BBMap.shared_access();
-
-    ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
-
-    bb_t bb = basic_block_at_address(TermAddr, *this);
-    auto &bbprop = ICFG[bb];
-    std::for_each(maybe_par_unseq,
-                  SuccFIdxVec.cbegin(),
-                  SuccFIdxVec.cend(), [&](function_index_t FIdx) {
-                    bbprop.insertDynTarget(index_of_binary(*this, jv),
-                                           {index_of_binary(*this, jv), FIdx}, jv);
-                  });
-    bbprop.InvalidateAnalyses(jv, *this, index_of_basic_block(ICFG, bb));
-  }
-
-  return true;
-}
-
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
     ((true))                                                                   \
     ((false))

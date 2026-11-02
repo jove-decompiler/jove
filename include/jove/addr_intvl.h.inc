@@ -114,7 +114,7 @@ constexpr auto intvl_map_add(OrderedIntvlMap &map,
                              Value &&val) {
   auto x = map.insert(typename OrderedIntvlMap::value_type(intvl, std::move(val)));
 
-  assert(x.second);
+  aassert(x.second);
   return x.first;
 }
 

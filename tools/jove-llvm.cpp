@@ -12,7 +12,7 @@ struct LLVMTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
-    cl::opt<std::string> BinaryIndex;
+    cl::opt<unsigned> BinaryIndex;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::list<std::string> Daemonize;
@@ -199,17 +199,13 @@ struct LLVMTool : public JVTool<ToolKind::Standard> {
                                    cl::cat(JoveCategory)) {}
   } opts;
 
-
   analyzer_options_t analyzer_options;
   llvm_options_t options;
 
-  tiny_code_generator_t TCG;
   SafeLLVMContext SafeContext;
 
-  tcg_helpers_t helpers;
-
 public:
-  LLVMTool() : opts(JoveCategory), helpers(TCG, SafeContext, analyzer_options) {}
+  LLVMTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 };
@@ -218,15 +214,6 @@ JOVE_REGISTER_TOOL("llvm", LLVMTool);
 
 int LLVMTool::Run(void) {
   disas_t disas;
-
-  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
-    if (idx < 0)
-      die("unknown global to pin: " + PinnedGlobalName);
-
-    tcg_global_set_set(analyzer_options.PinnedEnvGlbs, idx);
-    tcg_global_set_set(options.PinnedEnvGlbs, idx); /* FIXME */
-  }
 
   ConfigureVerbosity(analyzer_options);
   ConfigureVerbosity(options);
@@ -278,6 +265,18 @@ int LLVMTool::Run(void) {
   }
 
   analyzer_options.ForCBE = options.ForCBE; // XXX
+
+  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> TCG;
+  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+
+  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
+    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0)
+      die("unknown global to pin: " + PinnedGlobalName);
+
+    tcg_global_set_set(analyzer_options.PinnedEnvGlbs, idx);
+    tcg_global_set_set(options.PinnedEnvGlbs, idx); /* FIXME */
+  }
 
   llvm_t llvm(jv,
               options,

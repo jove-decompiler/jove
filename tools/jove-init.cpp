@@ -250,7 +250,7 @@ int InitTool::Run(void) {
   //
   // add them
   //
-  tiny_code_generator_t tcg;
+  tiny_code_generator_t<> tcg;
   disas_t disas;
   explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
                                             GetVerbosityLevel());
@@ -295,8 +295,8 @@ int InitTool::Run(void) {
           break;
         }
 
-        B::unique_ptr Bin;
-        if (catch_exception([&]() { Bin = B::Create(b.data()); })) {
+        B::cached::type cachedb;
+        if (catch_exception([&]() { B::cached::create(cachedb, b.data()); })) {
           WithColor::error()
               << llvm::formatv("not valid binary: \"{0}\"\n", b.Name.c_str());
           exit(1);
@@ -307,8 +307,7 @@ int InitTool::Run(void) {
         if (AddOptions.Objdump) {
           if (catch_exception([&]() {
                 // TODO verbose print command
-                b.Analysis.objdump_thinks.run(
-                    b.is_file() ? b.Name.c_str() : nullptr, Bin.get());
+                b.Analysis.objdump_thinks.run(b.is_file() ? b.Name.c_str() : nullptr);
               })) {
             if (IsVerbose()) {
               WithColor::warning() << llvm::formatv(
@@ -321,7 +320,7 @@ int InitTool::Run(void) {
         // explore them for real
         //
         try {
-          jv.DoAdd(b, explorer, Bin.get(), AddOptions);
+          explorer.explore_binary(b, cachedb, AddOptions);
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());

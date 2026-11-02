@@ -8,8 +8,11 @@
 #include "helper.h"
 #include "disas.h"
 #include "locator.h"
+#include "section.h"
+#include "safe.h"
 
 #include <boost/icl/split_interval_map.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Constants.h>
@@ -17,12 +20,18 @@
 
 #include <memory>
 
+namespace llvm {
+class StructType;
+class Constant;
+class Type;
+}
+
 namespace jove {
 
 struct llvm_options_t : public VerboseThing {
   std::string Output;
   std::string Binary;
-  std::string BinaryIndex;
+  binary_index_t BinaryIndex = invalid_binary_index;
 
   bool ForeignLibs = true;
   bool CheckEmulatedStackReturnAddress = false;
@@ -83,77 +92,31 @@ struct hook_t {
   bool Syscall; // is this a wrapper for performing a system call?
 };
 
-struct section_properties_t {
-  std::string name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-
-  struct {
-    bool initArray = false;
-    bool finiArray = false;
-  } _elf;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-
-struct section_hasher {
-  std::size_t operator()(const section_properties_t &s) const {
-    return std::hash<std::string>{}(s.name);
-  }
-};
-
-struct section_t {
-  std::string Name;
-  llvm::ArrayRef<uint8_t> Contents;
-  uint64_t Addr;
-  unsigned Size;
-
-  bool w = true;
-
-  unsigned j = ~0; /* XXX */
-
-  struct {
-    bool initArray = false;
-    bool finiArray = false;
-  } _elf;
-
-  struct {
-    boost::icl::split_interval_set<uint64_t> Intervals;
-    boost::unordered::unordered_flat_map<unsigned, llvm::Constant *> Constants;
-    boost::unordered::unordered_flat_map<unsigned, llvm::Type *> Types;
-  } Stuff;
-
-  llvm::StructType *T = nullptr;
-  llvm::Constant *C = nullptr;
-};
-
-// returns whether the block was actually analyzed
-bool AnalyzeBasicBlock(B::ref Bin,
-                       bbprop_t &,
-                       tiny_code_generator_t &,
-                       tcg_helpers_t &,
-                       analyzer_options_t &);
-
 template <bool MT, bool MinSize>
-class llvm_t {
+struct llvm_t {
   using jv_t = jv_base_t<MT, MinSize>;
   using binary_t = binary_base_t<MT, MinSize>;
   using icfg_t = ip_icfg_base_t<MT>;
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
+
+  struct section_extra_t {
+    unsigned j = ~0;
+    struct {
+      boost::icl::split_interval_set<uint64_t> Intervals;
+      boost::unordered::unordered_flat_map<unsigned, llvm::Constant *> Constants;
+      boost::unordered::unordered_flat_map<unsigned, llvm::Type *> Types;
+    } Stuff;
+
+    llvm::StructType *T = nullptr;
+    llvm::Constant *C = nullptr;
+  };
 
   const jv_t &jv;
 
   llvm_options_t &options;
   analyzer_options_t &analyzer_options;
 
-  tiny_code_generator_t &TCG;
+  tiny_code_generator_t<section_extra_t> TCG;
 
   SafeLLVMContext &SafeContext;
   llvm::LLVMContext &Context;
@@ -172,7 +135,7 @@ class llvm_t {
   using unordered_set = boost::unordered::unordered_flat_set<Args...>;
 
   struct binary_state_t {
-    B::unique_ptr Bin;
+    B::cached::type<section_extra_t> cachedb;
     struct {
       elf::DynRegionInfo DynamicTable;
       llvm::StringRef DynamicStringTable;
@@ -195,11 +158,12 @@ class llvm_t {
     uint64_t SectsEndAddr = 0;
 
     binary_state_t(const binary_t &b) {
-      Bin = B::Create(b.data());
+      B::cached::create(cachedb, b.data());
 
-      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(Bin.get());
+      std::tie(SectsStartAddr, SectsEndAddr) =
+          B::bounds_of_binary(cachedb.first.get());
 
-      B::_elf(Bin.get(), [&](ELFO &O) {
+      B::_elf(cachedb.first.get(), [&](ELFO &O) {
         elf::loadDynamicTable(O, _elf.DynamicTable);
 
         if (_elf.DynamicTable.Addr) {
@@ -212,7 +176,7 @@ class llvm_t {
         }
       });
 
-      B::_coff(Bin.get(), [&](COFFO &O) {
+      B::_coff(cachedb.first.get(), [&](COFFO &O) {
         coff::for_each_exported_function(
             O, [&](uint32_t Ordinal, llvm::StringRef Name, uint64_t RVA) {
               _coff.Name2RVA.emplace(Name, RVA);
@@ -279,14 +243,13 @@ class llvm_t {
     StateOpt::Eager
     > state;
 
-  using section_properties_set_t =
-      unordered_set<section_properties_t, section_hasher>;
-
-  binary_index_t BinaryIndex = invalid_binary_index;
+  const binary_index_t BinaryIndex;
+  const binary_t &Binary;
+  binary_state_t &x;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 
-  bool IsCOFF = false;
+  const bool IsCOFF;
 
   uint64_t ForAddr = 0;
 
@@ -407,10 +370,10 @@ class llvm_t {
 
   static constexpr const char *DIVersionKey = "Debug Info Version";
 
-  unsigned NumSections = 0;
-  boost::icl::split_interval_map<uint64_t, section_properties_set_t> SectMap;
-  std::vector<section_t> SectTable;
-  boost::icl::interval_map<uint64_t, unsigned> SectIdxMap;
+  const unsigned NumSections;
+  B::section_amap_t &SectMap;
+  B::section_vec_t<section_extra_t> &SectTable;
+  B::section_amap_t &SectIdxMap;
 
   std::vector<std::vector<uint8_t>> SegContents;
 
@@ -465,13 +428,35 @@ class llvm_t {
   uint64_t lstaddr = 0;    /* FIXME? !MT-safe */
 
 public:
-  llvm_t(const jv_t &,
-         llvm_options_t &,
-         analyzer_options_t &,
-         tiny_code_generator_t &,
-         tcg_helpers_t &,
-         disas_t &,
-         locator_t &);
+  template <typename other_extra_t>
+  llvm_t(const jv_t &jv,
+         llvm_options_t &options,
+         analyzer_options_t &analyzer_options,
+         tiny_code_generator_t<other_extra_t> &TCG,
+         tcg_helpers_t &helpers_,
+         disas_t &disas,
+         locator_t &locator_)
+    : jv(jv),
+      options(options),
+      analyzer_options(analyzer_options),
+      TCG(std::move(TCG)),
+      SafeContext(helpers_.SafeContext),
+      Context(SafeContext.Context),
+      helpers(helpers_),
+      our_helper_table{},
+      locator_(locator_),
+      state(jv),
+      BinaryIndex(options.BinaryIndex),
+      Binary(jv.Binaries.at(options.BinaryIndex)),
+      x(state.for_binary(Binary)),
+      IsCOFF(B::is_coff(x.cachedb.first.get())),
+      NumSections(x.cachedb.second.svec.size()),
+      SectMap(x.cachedb.second.amap),
+      SectTable(x.cachedb.second.svec),
+      SectIdxMap(x.cachedb.second.amap),
+      disas(disas),
+      DL("")
+{}
 
   int go(void);
 

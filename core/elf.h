@@ -1,4 +1,6 @@
 #pragma once
+#include "section.h"
+
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/PointerIntPair.h>
@@ -32,6 +34,7 @@ typedef typename ELFF::Elf_Rel Elf_Rel;
 typedef typename ELFF::Elf_Rela Elf_Rela;
 typedef typename ELFF::Elf_Shdr Elf_Shdr;
 typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
 typedef typename ELFF::Elf_Sym Elf_Sym;
 typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
 typedef typename ELFF::Elf_Verdef Elf_Verdef;
@@ -300,6 +303,104 @@ std::optional<std::string> soname(ELFO &);
 
 bool needed_libs(ELFO &, std::vector<std::string> &out);
 
+template <typename extra_t>
+static inline bool sections(ELFO &O, B::section_vec_t<extra_t> &out) {
+  const size_t M = O.getMemoryBufferRef().getBufferSize();
+
+  const ELFF &Elf = O.getELFFile();
+
+  auto MaybeSections = Elf.sections();
+  if (MaybeSections && !MaybeSections->empty()) {
+    Elf_Shdr_Range Sections = *MaybeSections;
+
+    out.reserve(Sections.size());
+
+    for (const Elf_Shdr &Sec : Sections) {
+      const auto flags = Sec.sh_flags;
+      if (!(flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      const auto length = Sec.sh_size;
+      if (!length)
+        continue;
+
+      const auto stype = Sec.sh_type;
+      const auto size = stype == llvm::ELF::SHT_NOBITS ? 1 /* XXX */ : length;
+      if (!size)
+        continue;
+
+      const auto off = Sec.sh_offset;
+      if (off >= M)
+        continue;
+
+      auto MaybeName = Elf.getSectionName(Sec);
+
+      // TODO this is definitely desired but explain
+      if ((flags & llvm::ELF::SHF_TLS) &&
+          MaybeName && *MaybeName == ".tbss")
+        continue;
+
+      const unsigned idx = out.size();
+      auto &section = out.emplace_back(off, size, Sec.sh_addr, length);
+      __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
+
+      if (MaybeName)
+        section.Name = *MaybeName;
+      else
+        ; // TODO? synthesize a name
+
+      section.perm.r = 1;
+      section.perm.w = !!(flags & llvm::ELF::SHF_WRITE);
+      section.perm.x = !!(flags & llvm::ELF::SHF_EXECINSTR);
+
+      section._elf.init   = stype == llvm::ELF::SHT_INIT_ARRAY;
+      section._elf.fini   = stype == llvm::ELF::SHT_FINI_ARRAY;
+      section._elf.nobits = stype == llvm::ELF::SHT_NOBITS;
+    }
+  } else {
+    //
+    // the sections don't exist. we will "synthesize" them (from the segments).
+    //
+    std::vector<const Elf_Phdr *> LoadSegments;
+
+    auto MaybeProgramHeaders = Elf.program_headers();
+    if (!MaybeProgramHeaders)
+      return false;
+
+    Elf_Phdr_Range ProgramHeaders = *MaybeProgramHeaders;
+
+    out.reserve(ProgramHeaders.size());
+
+    for (const Elf_Phdr &Phdr : ProgramHeaders) {
+      if (Phdr.p_type != llvm::ELF::PT_LOAD)
+        continue;
+
+      const auto size = Phdr.p_filesz;
+      if (!size)
+        continue;
+
+      const auto length = Phdr.p_memsz;
+      if (size > length)
+        continue;
+
+      const auto off = Phdr.p_offset;
+      if (off >= M)
+        continue;
+
+      const unsigned idx = out.size();
+      auto &section = out.emplace_back(off, size, Phdr.p_vaddr, length);
+      __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
+
+      const auto flags = Phdr.p_flags;
+      section.perm.r = !!(flags & llvm::ELF::PF_R);
+      section.perm.w = !!(flags & llvm::ELF::PF_W);
+      section.perm.x = !!(flags & llvm::ELF::PF_X);
+    }
+  }
+
+  return !out.empty();
 }
 
+
+}
 }

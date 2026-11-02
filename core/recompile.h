@@ -115,7 +115,7 @@ class recompiler_t {
   llvm_options_t       llvm_options; /* created from options */
   analyzer_options_t   analyzer_options;
 
-  tiny_code_generator_t &tcg;
+  tiny_code_generator_t<typename llvm_t<MT, MinSize>::section_extra_t> tcg;
   tcg_helpers_t &helpers;
 
   const boost::filesystem::path path_to_output;
@@ -172,9 +172,10 @@ class recompiler_t {
   locator_t &locator(void) { return locator_; }
 
 public:
+  template <typename other_extra_t>
   recompiler_t(const jv_t &jv,
                recompiler_options_t &options,
-               tiny_code_generator_t &tcg,
+               tiny_code_generator_t<other_extra_t> &tcg,
                tcg_helpers_t &helpers,
                disas_t &disas,
                locator_t &locator_)
@@ -182,7 +183,7 @@ public:
         options(options),
         llvm_options(options.to_llvm_options()),
         analyzer_options(options.to_analyzer_options()),
-        tcg(tcg),
+        tcg(std::move(tcg)),
         helpers(helpers),
         path_to_output(options.Output),
         disas(disas),

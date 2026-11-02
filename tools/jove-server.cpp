@@ -424,11 +424,10 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   disas_t disas;
   SafeLLVMContext SafeContext;
 
-  tiny_code_generator_t TCG;
-
-  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
-
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
+    tiny_code_generator_t<> TCG;
+    tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+
     bool IsCOFF = false;
 
     using jv_t_1 = jv_base_t<MT, MinSize>;
@@ -452,7 +451,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
 
     int rc = ({
     analyzer_t analyzer(analyzer_options,
-                        TCG, SafeContext, helpers, jv_file, jv, inflight, done);
+                        SafeContext, helpers, jv_file, jv, inflight, done);
 
     analyzer.examine_blocks();
     oneapi::tbb::parallel_invoke(
@@ -461,7 +460,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     analyzer.identify_Sjs();
     analyzer.refine_analyses();
 
-    (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
+    (int)(analyzer.analyze_blocks(TCG) || analyzer.analyze_functions());
     });
 
     if (rc)

@@ -26,7 +26,9 @@ recoverer_base_t<MT, MinSize>::recoverer_base_t(
     jv_t &jv,
     explorer_t<MT, MinSize> &E,
     boost::optional<symbolizer_base_t<MT, MinSize> &> symbolizer)
-    : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
+    : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {
+  E.set_jv(jv);
+}
 
 template <bool MT, bool MinSize>
 recoverer_base_t<MT, MinSize>::~recoverer_base_t() {}
@@ -97,8 +99,8 @@ std::string recoverer_base_t<MT, MinSize>::RecoverDynamicTarget(
   });
 
   if (Ambig)
-    CallerBinary.FixAmbiguousIndirectJump(
-        TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
+    E.fix_ambiguous_indirect_jump(
+        CallerBinary, state.for_binary(CallerBinary).cachedb, TermAddr);
 
   callee.Analysis.Invalidate();
   ICFG[bb].InvalidateAnalyses(jv, CallerBinary, index_of_basic_block(ICFG, bb));
@@ -140,7 +142,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverBasicBlock(
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t TargetBBIdx =
-      E.explore_basic_block(b, state.for_binary(b).Bin.get(), Addr);
+      E.explore_basic_block(b, state.for_binary(b).cachedb, Addr);
   if (!is_basic_block_index_valid(TargetBBIdx)) {
     throw std::runtime_error(
         (fmt("failed to recover control flow to %#lx") % Addr).str());
@@ -178,7 +180,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverFunctionAtAddress(
   auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_index_t CalleeFIdx = E.explore_function(
-      CalleeBinary, state.for_binary(CalleeBinary).Bin.get(), CalleeAddr);
+      CalleeBinary, state.for_binary(CalleeBinary).cachedb, CalleeAddr);
   if (!is_function_index_valid(CalleeFIdx))
     throw std::runtime_error((fmt("failed to translate indirect call target %#lx") % CalleeAddr).str());
 
@@ -213,8 +215,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverFunctionAtAddress(
 
   if (isNewTarget) {
     if (Ambig)
-      CallerBinary.FixAmbiguousIndirectJump(
-          TermAddr, E, state.for_binary(CallerBinary).Bin.get(), jv);
+      E.fix_ambiguous_indirect_jump(CallerBinary, state.for_binary(CallerBinary).cachedb, TermAddr);
 
     ICFG[bb].InvalidateAnalyses(jv, CallerBinary, index_of_basic_block(ICFG, bb));
   }
@@ -256,7 +257,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverFunctionAtOffset(
   auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   uint64_t CalleeAddr =
-      B::va_of_offset(state.for_binary(CalleeBinary).Bin.get(), CalleeOff);
+      B::cached::va_of_offset(state.for_binary(CalleeBinary).cachedb, CalleeOff);
 
   return RecoverFunctionAtAddress(IndCallBIdx, IndCallBBIdx, CalleeBIdx, CalleeAddr);
 }
@@ -300,7 +301,7 @@ std::string recoverer_base_t<MT, MinSize>::Returns(binary_index_t CallBIdx,
       !is_function_index_valid(index_of_function_at_address(b, NextAddr));
 
   basic_block_index_t NextBBIdx =
-      E.explore_basic_block(b, state.for_binary(b).Bin.get(), NextAddr);
+      E.explore_basic_block(b, state.for_binary(b).cachedb, NextAddr);
   assert(is_basic_block_index_valid(NextBBIdx));
 
   {

@@ -1,7 +1,8 @@
+#ifndef JOVE_NO_BACKEND
 #define NO_JOVE_ASSERT
+#include "jove/assert.h"
 #include "llvm.h"
 
-#ifndef JOVE_NO_BACKEND
 #include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
 #include "asm-offsets-linux.h" /* FIXME!!! */
@@ -78,8 +79,8 @@
 #include <signal.h>
 
 #include "jove_constants.h"
-#undef NO_JOVE_ASSERT
-#include "jove/assert.h"
+//#define NO_JOVE_ASSERT
+//#undef NO_JOVE_ASSERT
 
 extern "C" {
 void __attribute__((noinline))
@@ -103,37 +104,14 @@ using llvm::WithColor;
 
 namespace jove {
 
+TCGContext *get_tcg_context(void); /* FIXME */
+
 typedef boost::format fmt;
 
 #define WARN()                                                                 \
   do {                                                                         \
     this->warning(__FILE__, __LINE__);                                         \
   } while (false)
-
-TCGContext *get_tcg_context(void); /* FIXME */
-
-template <bool MT, bool MinSize>
-llvm_t<MT, MinSize>::llvm_t(
-               const jv_t &jv,
-               llvm_options_t &options,
-               analyzer_options_t &analyzer_options,
-               tiny_code_generator_t &TCG,
-               tcg_helpers_t &helpers_,
-               disas_t &disas,
-               locator_t &locator_)
-    : jv(jv),
-      options(options),
-      analyzer_options(analyzer_options),
-      TCG(TCG),
-      SafeContext(helpers_.SafeContext),
-      Context(SafeContext.Context),
-      helpers(helpers_),
-      our_helper_table{},
-      locator_(locator_),
-      state(jv),
-      disas(disas),
-      DL("")
-{}
 
 template <bool MT, bool MinSize>
 void llvm_t<MT, MinSize>::CURIOSITY(const std::string &message) {
@@ -261,21 +239,6 @@ static bool AnalyzeHelper(const llvm::Function &F,
   }
 
   return res;
-}
-
-tcg_helpers_t::tcg_helpers_t(tiny_code_generator_t & tcg,
-                             SafeLLVMContext &SafeContext,
-                             analyzer_options_t &options)
-  : table{},
-    SafeContext(SafeContext),
-    options(options)
-{
-  const void *const *const special_helpers = tcg.special_helpers();
-
-  Funcs.lookup_tb_ptr = special_helpers[0];
-  Funcs.memset        = special_helpers[1];
-
-  Funcs.syscall_helper = special_helpers[2];
 }
 
 llvm::Function &tcg_helper_t::CloneInto(llvm::Module &Module) const {
@@ -472,161 +435,6 @@ const tcg_helper_t &tcg_helpers_t::lookup(TCGHelperInfo &Info,
   return *Expected;
 }
 
-bool AnalyzeBasicBlock(B::ref Bin,
-                       bbprop_t &bbprop,
-                       tiny_code_generator_t &TCG,
-                       tcg_helpers_t &helpers,
-                       analyzer_options_t &options) {
-  if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
-    return false;
-
-  BOOST_SCOPE_DEFER [&] {
-    bbprop.Analysis.Stale.clear(boost::memory_order_release);
-  };
-
-  const bool IsCOFF = B::is_coff(Bin);
-
-  const uint64_t Addr = bbprop.Addr;
-  const unsigned Size = bbprop.Size;
-
-  TCG.set_binary(Bin);
-
-  tcg_global_set_reset(bbprop.Analysis.live.use);
-  tcg_global_set_reset(bbprop.Analysis.live.def);
-#ifdef TCG_BITSET
-  tcg_global_set_reset(bbprop.Analysis.live.out.Set);
-#else
-  bbprop.Analysis.live.out.store(0, boost::memory_order_relaxed);
-#endif
-  tcg_global_set_reset(bbprop.Analysis.reach.def);
-
-  unsigned size = 0;
-  jove::terminator_info_t T;
-  do {
-    unsigned len;
-    try {
-      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
-    } catch (const illegal_op_exception &) {
-      break;
-    }
-
-    TCGContext *s = get_tcg_context();
-
-    TCGOp *op;
-    QTAILQ_FOREACH(op, &s->ops, link) {
-      TCGOpcode opc = op->opc;
-
-      tcg_global_set_t iglbs{0}, oglbs{0};
-
-      int nb_oargs, nb_iargs;
-      if (opc == INDEX_op_call) {
-        nb_oargs = TCGOP_CALLO(op);
-        nb_iargs = TCGOP_CALLI(op);
-
-        void *const helper_fn = jv_tcg_helper_func(op);
-        if (helper_fn == helpers.Funcs.memset)
-          continue;
-
-        auto *const pHelperInfo = (TCGHelperInfo *)jv_tcg_helper_info(op);
-        assert(pHelperInfo);
-        TCGHelperInfo &HelperInfo = *pHelperInfo;
-
-        const tcg_helper_t &hf = helpers.lookup(HelperInfo, op, IsCOFF);
-
-        iglbs = hf.Analysis.InGlbs;
-        oglbs = hf.Analysis.OutGlbs;
-      } else {
-        nb_iargs = jv_tcgopc_nb_iargs_in_def(opc);
-        nb_oargs = jv_tcgopc_nb_oargs_in_def(opc);
-      }
-
-      for (int i = 0; i < nb_iargs; ++i) {
-        TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-        if (ts->kind != TEMP_GLOBAL)
-          continue;
-
-        unsigned glb_idx = temp_idx(ts);
-        if (glb_idx == tcg_env_index)
-          continue;
-
-        tcg_global_set_set(iglbs, glb_idx);
-      }
-
-      for (int i = 0; i < nb_oargs; ++i) {
-        TCGTemp *ts = arg_temp(op->args[i]);
-        if (ts->kind != TEMP_GLOBAL)
-          continue;
-
-        unsigned glb_idx = temp_idx(ts);
-        if (glb_idx == tcg_env_index)
-          continue;
-
-        tcg_global_set_set(oglbs, glb_idx);
-      }
-
-      bbprop.Analysis.live.use |= (iglbs & ~bbprop.Analysis.live.def);
-      bbprop.Analysis.live.def |= (oglbs & ~bbprop.Analysis.live.use);
-
-      bbprop.Analysis.reach.def |= oglbs;
-    }
-
-    size += len;
-  } while (size < Size);
-
-#if 0
-  if (false /* options::PrintDefAndUse */) {
-    llvm::outs() << (fmt("%#lx") % Addr).str() << '\n';
-
-    uint64_t InstLen;
-    for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
-      std::ptrdiff_t Offset = A - (*sectit).first.lower();
-
-      llvm::MCInst Inst;
-      bool Disassembled = DisAsm->getInstruction(
-          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
-      if (!Disassembled) {
-        WithColor::error() << "failed to disassemble "
-                           << (fmt("%#lx") % Addr).str() << '\n';
-        break;
-      }
-
-      IP->printInst(&Inst, A, "", *STI, llvm::outs());
-      llvm::outs() << '\n';
-    }
-
-    llvm::outs() << '\n';
-
-    llvm::outs() << "live.def:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, bbprop.Analysis.live.def);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << s->temps[glb].name;
-    }
-    llvm::outs() << '\n';
-
-    llvm::outs() << "live.use:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, bbprop.Analysis.live.use);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << s->temps[glb].name;
-    }
-    llvm::outs() << '\n';
-
-    llvm::outs() << "reach.def:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, bbprop.Analysis.reach.def);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << s->temps[glb].name;
-    }
-    llvm::outs() << '\n';
-  }
-#endif
-  return true;
-}
-
 static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
 }
@@ -694,53 +502,8 @@ static bool is_builtin_sym(const std::string &);
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::go(void) {
-  //jove::cmdline.argv = argv;
-  //options.CheckEmulatedStackReturnAddress = options.DFSan;
+  aassert(x.cachedb.first.get());
 
-  //
-  // binary index (cmdline)
-  //
-  if (!options.Binary.empty()) {
-    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      auto &b = jv.Binaries.at(BIdx);
-
-      if (fs::path(b.path_str()).filename().string() == options.Binary) {
-        if (b.IsDynamicLinker) {
-          WithColor::error() << "given binary is dynamic linker\n";
-          return 1;
-        }
-
-        if (!b.is_file()) {
-          WithColor::error() << "given binary is not file\n";
-          return 1;
-        }
-
-        BinaryIndex = BIdx;
-      }
-    }
-
-    WithColor::error() << "no binary associated with given path\n";
-    return 1;
-  }
-  if (!options.BinaryIndex.empty()) {
-    int idx = atoi(options.BinaryIndex.c_str());
-
-    if (idx < 0 || idx >= jv.Binaries.size()) {
-      WithColor::error() << "invalid binary index supplied\n";
-      return 1;
-    }
-
-    BinaryIndex = idx;
-  }
-  if (!is_binary_index_valid(BinaryIndex)) {
-    WithColor::error() << "must specify binary\n";
-    return 1;
-  }
-
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-  assert(state.for_binary(Binary).Bin);
-
-  IsCOFF = B::is_coff(state.for_binary(Binary).Bin.get());
   if (IsCOFF) {
     if (!options.ForeignLibs)
       throw std::runtime_error("COFF is only supported in exe-only mode");
@@ -781,7 +544,7 @@ int llvm_t<MT, MinSize>::go(void) {
     for_each_binary_if(
         jv,
         [&](auto &b) -> bool {
-          return state.for_binary(b).Bin &&
+          return state.for_binary(b).cachedb.first.get() &&
                  state.for_binary(b)._elf.OptionalDynSymRegion;
         },
         [&](auto &b) {
@@ -820,7 +583,7 @@ int llvm_t<MT, MinSize>::go(void) {
   for_each_binary_if(
       jv,
       [&](auto &b) -> bool {
-        return state.for_binary(b).Bin.get() != nullptr &&
+        return state.for_binary(b).cachedb.first.get() != nullptr &&
                state.for_binary(b)._elf.OptionalDynSymRegion;
       },
       [&](auto &b) {
@@ -863,12 +626,12 @@ int llvm_t<MT, MinSize>::go(void) {
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
 
-  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
+  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
-  if (state.for_binary(Binary)._elf.OptionalDynSymRegion)
-    BinaryDynSyms = state.for_binary(Binary)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+  if (x._elf.OptionalDynSymRegion)
+    BinaryDynSyms = x._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
   //
   // process binary function symbols
@@ -883,7 +646,7 @@ int llvm_t<MT, MinSize>::go(void) {
       },
       [&](const Elf_Sym &Sym) {
         llvm::Expected<llvm::StringRef> ExpectedSymName =
-            Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
+            Sym.getName(x._elf.DynamicStringTable);
 
         if (!ExpectedSymName)
           return;
@@ -892,18 +655,18 @@ int llvm_t<MT, MinSize>::go(void) {
         llvm::StringRef SymVers;
         bool VisibilityIsDefault;
 
-        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
+        if (x._elf.SymbolVersionSection) {
           unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
                             reinterpret_cast<uintptr_t>(
-                                state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+                                x._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
           const Elf_Versym *Versym =
               unwrapOrError(Elf.template getEntry<Elf_Versym>(
-                  *state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+                  *x._elf.SymbolVersionSection, SymNo));
 
-          SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                            state.for_binary(Binary)._elf.DynamicStringTable,
+          SymVers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                            x._elf.DynamicStringTable,
                                             Versym->vs_index,
                                             VisibilityIsDefault);
         }
@@ -933,7 +696,7 @@ int llvm_t<MT, MinSize>::go(void) {
         // jove-add should have explored this
         assert(exists_function_at_address(Binary, Addr));
 
-        const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
+        const unsigned SectsOff = Addr - x.SectsStartAddr;
 
         if (SymVers.empty()) {
           Module->appendModuleInlineAsm(
@@ -979,7 +742,7 @@ int llvm_t<MT, MinSize>::go(void) {
       },
       [&](const Elf_Sym &Sym) {
         llvm::Expected<llvm::StringRef> ExpectedSymName =
-            Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
+            Sym.getName(x._elf.DynamicStringTable);
 
         if (!ExpectedSymName)
           return;
@@ -1014,7 +777,7 @@ int llvm_t<MT, MinSize>::go(void) {
       (rc = CreatePossibleTramps()))
     return rc;
 
-  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
+  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -1031,7 +794,7 @@ int llvm_t<MT, MinSize>::go(void) {
       },
       [&](const Elf_Sym &Sym) {
         llvm::Expected<llvm::StringRef> ExpectedSymName =
-            Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
+            Sym.getName(x._elf.DynamicStringTable);
 
         if (!ExpectedSymName)
           return;
@@ -1040,18 +803,18 @@ int llvm_t<MT, MinSize>::go(void) {
         llvm::StringRef SymVers;
         bool VisibilityIsDefault;
 
-        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
+        if (x._elf.SymbolVersionSection) {
           unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
                             reinterpret_cast<uintptr_t>(
-                                state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+                                x._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
           const Elf_Versym *Versym =
               unwrapOrError(Elf.template getEntry<Elf_Versym>(
-                  *state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+                  *x._elf.SymbolVersionSection, SymNo));
 
-          SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                            state.for_binary(Binary)._elf.DynamicStringTable,
+          SymVers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                            x._elf.DynamicStringTable,
                                             Versym->vs_index,
                                             VisibilityIsDefault);
         }
@@ -1090,7 +853,7 @@ int llvm_t<MT, MinSize>::go(void) {
         },
         [&](const Elf_Sym &Sym) {
           llvm::Expected<llvm::StringRef> ExpectedSymName =
-              Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
+              Sym.getName(x._elf.DynamicStringTable);
 
           if (!ExpectedSymName)
             return;
@@ -1099,18 +862,18 @@ int llvm_t<MT, MinSize>::go(void) {
           llvm::StringRef SymVers;
           bool VisibilityIsDefault;
 
-          if (state.for_binary(Binary)._elf.SymbolVersionSection) {
+          if (x._elf.SymbolVersionSection) {
             unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
                               reinterpret_cast<uintptr_t>(
-                                  state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+                                  x._elf.OptionalDynSymRegion->Addr)) /
                              sizeof(Elf_Sym);
 
             const Elf_Versym *Versym =
                 unwrapOrError(Elf.template getEntry<Elf_Versym>(
-                    *state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+                    *x._elf.SymbolVersionSection, SymNo));
 
-            SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                              state.for_binary(Binary)._elf.DynamicStringTable,
+            SymVers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                              x._elf.DynamicStringTable,
                                               Versym->vs_index,
                                               VisibilityIsDefault);
           }
@@ -1118,7 +881,7 @@ int llvm_t<MT, MinSize>::go(void) {
           const uint64_t Addr = Sym.st_value;
           const unsigned Size = Sym.st_size;
 
-          const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
+          const unsigned SectsOff = Addr - x.SectsStartAddr;
 
           auto it = AddrToSymbolMap.find(Addr);
           if (it == AddrToSymbolMap.end()) {
@@ -1261,12 +1024,7 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
                                          state.for_binary(b).SectsStartAddr);
     });
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
-  {
-    binary_state_t &x = state.for_binary(Binary);
-
-    B::_elf(x.Bin.get(), [&](ELFO &O) {
+    B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
       loadDynamicRelocations(O,
                              x._elf.DynamicTable,
                              x._elf.DynRelRegion,
@@ -1274,15 +1032,12 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
                              x._elf.DynRelrRegion,
                              x._elf.DynPLTRelRegion);
     });
-  }
 
   for_each_binary(jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
-    binary_state_t &x = state.for_binary(Binary);
-
-    if (B::is_coff(x.Bin.get()))
+    if (B::is_coff(state.for_binary(b).cachedb.first.get()))
       _coff.DLL2Binary.emplace(
           lowered_string(fs::path(b.path_str()).filename().string()),
           index_of_binary(b, jv));
@@ -1956,7 +1711,7 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   auto &b = jv.Binaries.at(BinaryIndex);
 
-  B::_elf(state.for_binary(b).Bin.get(), [&](ELFO &O) {
+  B::_elf(state.for_binary(b).cachedb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -2112,7 +1867,6 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
       const function_t &f = function_of_target(IdxPair, jv);
 
-      auto &Binary = jv.Binaries.at(BinaryIndex);
       auto &ICFG = Binary.Analysis.ICFG;
 
       uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
@@ -2228,13 +1982,11 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
-  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
+  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
-  auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
+  auto OptionalDynSymRegion = x._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
     return; /* no dynamic symbols */
@@ -2246,34 +1998,34 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
   };
 
   for_each_dynamic_relocation_if(Elf,
-      state.for_binary(Binary)._elf.DynRelRegion,
-      state.for_binary(Binary)._elf.DynRelaRegion,
-      state.for_binary(Binary)._elf.DynRelrRegion,
-      state.for_binary(Binary)._elf.DynPLTRelRegion,
+      x._elf.DynRelRegion,
+      x._elf.DynRelaRegion,
+      x._elf.DynRelrRegion,
+      x._elf.DynPLTRelRegion,
       elf_is_copy_relocation,
       [&](const elf::Relocation &R) {
         elf::RelSymbol RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
-                                                       state.for_binary(Binary)._elf.DynamicStringTable, R);
+                                                       x._elf.DynamicStringTable, R);
 
         assert(RelSym.Sym);
 
         //
         // determine symbol version (if present)
         //
-        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
+        if (x._elf.SymbolVersionSection) {
           // Determine the position in the symbol table of this entry.
           size_t EntryIndex =
               (reinterpret_cast<uintptr_t>(RelSym.Sym) -
-               reinterpret_cast<uintptr_t>(state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+               reinterpret_cast<uintptr_t>(x._elf.OptionalDynSymRegion->Addr)) /
               sizeof(Elf_Sym);
 
           // Get the corresponding version index entry.
           llvm::Expected<const Elf_Versym *> ExpectedVersym =
-              Elf.getEntry<Elf_Versym>(*state.for_binary(Binary)._elf.SymbolVersionSection, EntryIndex);
+              Elf.getEntry<Elf_Versym>(*x._elf.SymbolVersionSection, EntryIndex);
 
           if (ExpectedVersym) {
-            RelSym.Vers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                                  state.for_binary(Binary)._elf.DynamicStringTable,
+            RelSym.Vers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                                  x._elf.DynamicStringTable,
                                                   (*ExpectedVersym)->vs_index,
                                                   RelSym.IsVersionDefault);
           }
@@ -2357,8 +2109,6 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::PrepareToTranslateCode(void) {
   assert(analyzer_options.ForCBE == options.ForCBE);
   assert(analyzer_options.PinnedEnvGlbs == options.PinnedEnvGlbs);
-
-  auto &Binary = jv.Binaries.at(BinaryIndex);
 
   if (!options.Debugify) {
   DIBuilder.reset(new llvm::DIBuilder(*Module));
@@ -2570,7 +2320,6 @@ bool is_builtin_sym(const std::string &sym) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreateFunctions(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
 
   for_each_function_in_binary(Binary, [&](const function_t &f) {
@@ -2590,7 +2339,6 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
 template <bool MT, bool MinSize>
 std::pair<llvm::Function *, llvm::Function *>
 llvm_t<MT, MinSize>::CreateFunction(const function_t &f) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
 
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
@@ -2744,11 +2492,10 @@ int llvm_t<MT, MinSize>::CreateFunctionTables(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   auto &ICFG = Binary.Analysis.ICFG;
 
-  if (llvm::Function *F = state.for_binary(Binary).SectsF) {
-    fillInFunctionBody(state.for_binary(Binary).SectsF, [&](auto &IRB) {
+  if (llvm::Function *F = x.SectsF) {
+    fillInFunctionBody(x.SectsF, [&](auto &IRB) {
        IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
     }, false /* don't internalize */);
 
@@ -3108,8 +2855,8 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
 
     binary_state_t &x = state.for_binary(jv.Binaries.at((*b_it).second));
 
-    assert(B::is_coff(x.Bin.get()));
-    COFFO &O = llvm::cast<COFFO>(*x.Bin);
+    assert(B::is_coff(x.cachedb.first.get()));
+    COFFO &O = llvm::cast<COFFO>(*x.cachedb.first);
 
     bool isCode = true;
 
@@ -3203,8 +2950,6 @@ void llvm_t<MT, MinSize>::elf_compute_irelative_relocation(IRBuilderTy &IRB,
     IRB.CreateStore(NewSP, SPPtr);
   }
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
   const function_t &resolver_f = function_at_address(Binary, resolverAddr);
   assert(resolver_f.IsABI && "resolver function should be ABI!");
 
@@ -3290,9 +3035,7 @@ void llvm_t<MT, MinSize>::elf_compute_tpoff_relocation(IRBuilderTy &IRB,
 
 template <bool MT, bool MinSize>
 uint64_t llvm_t<MT, MinSize>::ExtractWordAtAddress(uint64_t Addr) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
-  auto &Bin = state.for_binary(Binary).Bin;
+  auto &Bin = x.cachedb.first;
 
   const void *Ptr = B::toMappedAddr(Bin.get(), Addr);
   return B::extractAddress(Bin.get(), Ptr);
@@ -3342,9 +3085,7 @@ struct unhandled_relocation_exception {};
 template <bool MT, bool MinSize>
 template <bool LayOutSections>
 int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-  auto &x = state.for_binary(Binary);
-  auto &Bin = x.Bin;
+  auto &Bin = x.cachedb.first;
 
   struct PatchContents {
     llvm_t &tool;
@@ -3366,7 +3107,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
       Saved.resize(Binary.Analysis.Functions.size());
 
-      auto &Bin = tool.state.for_binary(Binary).Bin;
+      auto &Bin = tool.x.cachedb.first;
 
       //
       // backup
@@ -3399,7 +3140,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       if (!tool.options.PlaceSectionBreakpoints)
         return;
 
-      auto &Bin = tool.state.for_binary(Binary).Bin;
+      auto &Bin = tool.x.cachedb.first;
 
       //
       // restore
@@ -3417,8 +3158,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
   } __PatchContents(*this, Binary);
 
-  const auto SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
-  const auto SectsEndAddr   = state.for_binary(Binary).SectsEndAddr;
+  const auto SectsStartAddr = x.SectsStartAddr;
+  const auto SectsEndAddr   = x.SectsEndAddr;
 
   struct {
     int rsrcSectIdx = -1;
@@ -3451,289 +3192,60 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   });
 #endif
 
-  B::_elf(Bin.get(), [&](ELFO &O) {
+  assert(NumSections > 0);
+  const auto sortedsr = x.cachedb.second.sorted_by_addr();
 
-  const ELFF &Elf = O.getELFFile();
+  if (B::is_coff(Bin.get())) {
+    auto it = std::ranges::find_if(sortedsr, [](const auto &section) -> bool {
+      return section.Name == ".rsrc";
+    });
+    if (it != sortedsr.end()) {
+      if (_coff.rsrcSectIdx >= 0)
+        throw std::runtime_error("multiple .rsrc sections in PE file?");
 
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
-  if (ExpectedSections && !(*ExpectedSections).empty()) {
-    //
-    // build section map
-    //
-    for (const Elf_Shdr &Sec : *ExpectedSections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      llvm::Expected<llvm::StringRef> name = Elf.getSectionName(Sec);
-
-      if (!name)
-        continue;
-
-      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-          *name == std::string(".tbss"))
-        continue;
-
-      if (!Sec.sh_size)
-        continue;
-
-      section_properties_t sectprop;
-      sectprop.name = *name;
-
-      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-        sectprop.contents = llvm::ArrayRef<uint8_t>();
-      } else {
-        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            Elf.getSectionContents(Sec);
-        aassert(contents);
-        sectprop.contents = *contents;
-      }
-
-      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
-
-      sectprop._elf.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
-      sectprop._elf.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
-
-      boost::icl::interval<uint64_t>::type intervl =
-          boost::icl::interval<uint64_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-      {
-        auto it = SectMap.find(intervl);
-        if (it != SectMap.end()) {
-          WithColor::error() << "the following sections intersect: "
-                             << (*(*it).second.begin()).name << " and "
-                             << sectprop.name << '\n';
-          exit(1);
-        }
-      }
-
-      SectMap.add({intervl, {sectprop}});
-    }
-
-    NumSections = SectMap.iterative_size();
-    SectTable.resize(NumSections);
-
-    unsigned i = 0;
-    for (const auto &pair : SectMap) {
-      section_t &Sect = SectTable[i];
-
-      SectIdxMap.add({pair.first, 1+i});
-
-      const section_properties_t &prop = *pair.second.begin();
-      Sect.Addr = pair.first.lower();
-      Sect.Size = pair.first.upper() - pair.first.lower();
-      Sect.w = prop.w;
-      Sect.Name = prop.name;
-      Sect.Contents = prop.contents;
-      Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
-      Sect._elf.initArray = prop._elf.initArray;
-      Sect._elf.finiArray = prop._elf.finiArray;
-
-      ++i;
-    }
-  } else {
-    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-
-    auto ProgramHeadersOrError = Elf.program_headers();
-    if (!ProgramHeadersOrError)
-      abort();
-
-    for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
-      if (Phdr.p_type != llvm::ELF::PT_LOAD)
-        continue;
-
-      LoadSegments.push_back(&Phdr);
-    }
-
-    aassert(!LoadSegments.empty());
-
-    std::stable_sort(LoadSegments.begin(),
-                     LoadSegments.end(),
-                     [](const Elf_Phdr *A,
-                        const Elf_Phdr *B) {
-                       return A->p_vaddr < B->p_vaddr;
-                     });
-
-    /* XXX */
-    NumSections = LoadSegments.size();
-    SectTable.resize(NumSections);
-    SegContents.resize(NumSections);
-    for (unsigned i = 0; i < NumSections; ++i) {
-      aassert(LoadSegments[i]->p_filesz <= LoadSegments[i]->p_memsz);
-
-      std::vector<uint8_t> &vec = SegContents.at(i);
-      vec.resize(LoadSegments[i]->p_memsz);
-      memset(&vec[0], 0, vec.size());
-      memcpy(&vec[0], Elf.base() + LoadSegments[i]->p_offset, LoadSegments[i]->p_filesz);
-
-      boost::icl::interval<uint64_t>::type intervl =
-          boost::icl::interval<uint64_t>::right_open(
-              LoadSegments[i]->p_vaddr,
-              LoadSegments[i]->p_vaddr + LoadSegments[i]->p_memsz);
-
-      SectIdxMap.add({intervl, 1+i});
-
-        section_properties_t sectprop;
-
-        sectprop.name = (fmt(".seg.%u") % i).str();
-        sectprop.contents = vec;
-        sectprop.w = !!(LoadSegments[i]->p_flags & llvm::ELF::PF_W);
-        sectprop.x = !!(LoadSegments[i]->p_flags & llvm::ELF::PF_X);
-        sectprop._elf.initArray = false;
-        sectprop._elf.finiArray = false;
-
-        SectMap.add({intervl, {sectprop}});
-
-      {
-        section_t &s = SectTable[i];
-
-        s.Addr = LoadSegments[i]->p_vaddr;
-        s.Size = LoadSegments[i]->p_memsz;
-        s.w = sectprop.w;
-        s.Name = (fmt(".seg.%u") % i).str();
-        s.Contents = vec;
-        s.Stuff.Intervals.insert(
-            boost::icl::interval<uint64_t>::right_open(0, s.Size));
-        s._elf.initArray = false;
-        s._elf.finiArray = false;
-        s.T = nullptr;
-      }
+      _coff.rsrcSectIdx = std::distance(sortedsr.begin(), it);
     }
   }
 
-  });
-
-  B::_coff(Bin.get(), [&](COFFO &O) {
-    NumSections = O.getNumberOfSections();
-    SectTable.resize(NumSections);
-    SegContents.resize(NumSections);
-
-    unsigned i = 0;
-    auto sect_itr = O.sections();
-    for (auto it = sect_itr.begin(); it != sect_itr.end(); ++it, ++i) {
-      const obj::SectionRef &S = *it;
-
-      const llvm::object::coff_section *pSect = O.getCOFFSection(S);
-      aassert(pSect);
-      const llvm::object::coff_section &Sect = *pSect;
-
-      section_properties_t sectprop;
-      sectprop.name = Sect.Name;
-
-      if (Sect.PointerToRawData) {
-        llvm::ArrayRef<uint8_t> contents;
-        if (llvm::errorToBool(O.getSectionContents(&Sect, contents))) {
-          WithColor::warning() << "failed to get contents of section "
-                             << Sect.Name << '\n';
-        } else {
-          aassert(contents.size() <= Sect.SizeOfRawData);
-
-          if (options.IsVeryVerbose())
-            llvm::errs() << llvm::formatv(
-                "section {0} is {1} bytes (have {2}) (should have {3})\n",
-                Sect.Name,
-                Sect.VirtualSize,
-                contents.size(),
-                Sect.SizeOfRawData);
-
-          std::vector<uint8_t> &vec = SegContents.at(i);
-
-          vec.resize(Sect.VirtualSize);
-          memset(&vec[0], 0, vec.size());
-          memcpy(&vec[0], contents.data(), std::min(vec.size(), contents.size()));
-
-          sectprop.contents = vec;
-        }
-      }
-
-      sectprop.x = !!(Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
-      sectprop.w = !!(Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_WRITE);
-
-      boost::icl::interval<uint64_t>::type intervl =
-          boost::icl::interval<uint64_t>::right_open(
-              coff::va_of_rva(O, Sect.VirtualAddress),
-              coff::va_of_rva(O, Sect.VirtualAddress) + Sect.VirtualSize);
-
-      {
-        auto _it = SectMap.find(intervl);
-        if (_it != SectMap.end()) {
-          WithColor::error() << "the following sections intersect: "
-                             << (*(*_it).second.begin()).name << " and "
-                             << Sect.Name << '\n';
-          exit(1);
-        }
-      }
-
-      SectMap.add({intervl, {sectprop}});
-    }
-
-    aassert(SectMap.iterative_size() == NumSections);
-
-    i = 0;
-    for (const auto &pair : SectMap) {
-      section_t &Sect = SectTable.at(i);
-
-      SectIdxMap.add({pair.first, 1+i});
-
-      const section_properties_t &prop = *pair.second.begin();
-      Sect.Addr = pair.first.lower();
-      Sect.Size = pair.first.upper() - pair.first.lower();
-      Sect.w = prop.w;
-      Sect.Name = prop.name;
-      Sect.Contents = prop.contents;
-      Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
-      Sect._elf.initArray = prop._elf.initArray;
-      Sect._elf.finiArray = prop._elf.finiArray;
-
-      if (Sect.Name == ".rsrc") {
-        if (_coff.rsrcSectIdx >= 0)
-          throw std::runtime_error("multiple .rsrc sections in PE file?");
-
-        _coff.rsrcSectIdx = i;
-      }
-
-      ++i;
-    }
-  });
-
-  aassert(NumSections > 0);
-  aassert(std::is_sorted(SectTable.cbegin(),
-                         SectTable.cend(),
-                         [](const section_t &lhs, const section_t &rhs) {
-                           return lhs.Addr < rhs.Addr;
-                         }));
+#if 0
+#ifndef NDEBUG
+  if (options.IsVerbose() &&
+      !std::is_sorted(SectTable.cbegin(), SectTable.cend(),
+                      [](const auto &lhs, const auto &rhs) {
+                        return lhs.addr < rhs.addr;
+                      }))
+    WithColor::warning() << "sections are not sorted\n";
+#endif
+#endif
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
-    auto it = SectIdxMap.find(Addr);
+    auto it = intvl_map_find(SectIdxMap, Addr);
     assert(it != SectIdxMap.end());
 
-    section_t &Sect = SectTable[-1+(*it).second];
-    unsigned Off = Addr - Sect.Addr;
+    auto &Sect = SectTable[(*it).second];
+    unsigned Off = Addr - Sect.addr();
 
-    Sect.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
+    Sect.extra.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
         Off, Off + DL.getTypeAllocSize(T)));
-    Sect.Stuff.Types[Off] = T;
+    Sect.extra.Stuff.Types[Off] = T;
   };
 
   auto constant_at_address = [&](uint64_t Addr, llvm::Constant *C) -> void {
-    auto it = SectIdxMap.find(Addr);
+    auto it = intvl_map_find(SectIdxMap, Addr);
     assert(it != SectIdxMap.end());
 
-    section_t &Sect = SectTable[-1+(*it).second];
-    unsigned Off = Addr - Sect.Addr;
+    auto &Sect = SectTable[(*it).second];
+    unsigned Off = Addr - Sect.addr();
 
 #if 0
     Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
         Off, Off + sizeof(uintptr_t)));
 #endif
 
-    if (Sect.Stuff.Types.find(Off) == Sect.Stuff.Types.end())
+    if (Sect.extra.Stuff.Types.find(Off) == Sect.extra.Stuff.Types.end())
       WithColor::warning() << llvm::formatv("%s:%d\n", __FILE__, __LINE__);
 
-    Sect.Stuff.Constants[Off] = C;
+    Sect.extra.Stuff.Constants[Off] = C;
     ConstantRelocations.emplace(Addr, C);
   };
 
@@ -3768,25 +3280,28 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
 
     std::string CurrSectName = ".jove";
-    for (unsigned i = 0; i < NumSections; ++i) {
-      section_t &Sect = SectTable[i];
+    auto beg = std::begin(sortedsr);
+    auto end = std::end(sortedsr);
+    for (auto it = beg; it != end; ++it) {
+      auto &section = *it;
+      const unsigned i = std::distance(beg, it);
 
 #if 0
-      llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
+      llvm::errs() << llvm::formatv("Section: {0}\n", section.Name);
 #endif
 
       //
       // check if there's space between the start of this section and the
       // previous
       //
-      if (i > 0) {
-        section_t &PrevSect = SectTable[i - 1];
-        const uint64_t PrevEnd = PrevSect.Addr + PrevSect.Size;
-        if (Sect.Addr < PrevEnd)
+      if (it != beg) {
+        auto &PrevSect = *std::prev(it);
+        const uint64_t PrevEnd = PrevSect.addr() + PrevSect.length();
+        if (section.addr() < PrevEnd)
           die("overlapping sections");
 
         uint64_t GapAddr = PrevEnd;
-        uint64_t Space = Sect.Addr - PrevEnd;
+        uint64_t Space = section.addr() - PrevEnd;
         if (Space > 0) {
           if constexpr (LayOutSections) { /* may need slight adjustment */
             if (trailingBytes > Space)
@@ -3846,11 +3361,11 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       //////////////////////////////////////////////////////////////////////////
       // section's struct's type
       //
-      Sect.j = j;
+      section.extra.j = j;
       BOOST_SCOPE_DEFER [&] { ++j; };
 
       if (options.IsVeryVerbose())
-        llvm::errs() << llvm::formatv("Declaring section {0}\n", Sect.Name);
+        llvm::errs() << llvm::formatv("Declaring section {0}\n", section.Name);
 
       if (IsCOFF && _coff.rsrcSectIdx >= 0) {
         if (i < _coff.rsrcSectIdx)
@@ -3863,11 +3378,11 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
       std::vector<llvm::Type *> FieldTyVec;
 
-      for (const auto &intvl : Sect.Stuff.Intervals) {
+      for (const auto &intvl : section.extra.Stuff.Intervals) {
         llvm::Type *T;
 
-        auto it = Sect.Stuff.Types.find(intvl.lower());
-        if (it == Sect.Stuff.Types.end() || !(*it).second)
+        auto it = section.extra.Stuff.Types.find(intvl.lower());
+        if (it == section.extra.Stuff.Types.end() || !(*it).second)
           T = llvm::ArrayType::get(llvm::IntegerType::get(Context, 8),
                                    intvl.upper() - intvl.lower());
         else
@@ -3884,26 +3399,26 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       }
 
       auto *const NewT = ({
-        std::string SectNm(Sect.Name);
+        std::string SectNm(section.Name);
         SectNm.erase(std::remove(SectNm.begin(), SectNm.end(), '.'), SectNm.end());
 
         llvm::StructType::create(Context, FieldTyVec, "section." + SectNm, true /* isPacked */);
       });
 
-      Sect.T = NewT;
+      section.extra.T = NewT;
 
       if constexpr (LayOutSections) {
         const unsigned actualSize = DL.getTypeAllocSize(NewT);
-        aassert(actualSize >= Sect.Size);
-        trailingBytes = actualSize - Sect.Size;
+        aassert(actualSize >= section.length());
+        trailingBytes = actualSize - section.length();
 
-        const uint64_t SectsStartOff = Sect.Addr - x.SectsStartAddr;
+        const uint64_t SectsStartOff = section.addr() - x.SectsStartAddr;
 
         auto *const OldGV =
             EmptyGVVec ? nullptr : std::get<1>(this->LaidOut.Vec.at(j));
         old(OldGV);
         auto *const NewGV = ({ /* TODO reuse if type remains the same */
-          std::string suffix = Sect.Name;
+          std::string suffix(section.Name.str());
           std::replace_if(
               suffix.begin(),
               suffix.end(),
@@ -4014,20 +3529,25 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   auto define_sections = [&](void) -> void {
     std::conditional_t<!LayOutSections, std::vector<llvm::Constant *>, std::monostate> WholeSectFieldInits;
 
-    for (unsigned i = 0; i < NumSections; ++i) {
-      section_t &Sect = SectTable[i];
+    auto beg = std::begin(sortedsr);
+    auto end = std::end(sortedsr);
+    for (auto it = beg; it != end; ++it) {
+      auto &section = *it;
+      const unsigned i = std::distance(beg, it);
+
+      auto Contents = B::contents_of_section(x.cachedb.first.get(), section);
 
       if (options.IsVeryVerbose())
         llvm::errs() << llvm::formatv(
-            "Section: \"{0}\" Size={1} Sect.Contents.size()={2}\n", Sect.Name,
-            Sect.Size, Sect.Contents.size());
+            "Section: \"{0}\" length={1} Contents.size()={2}\n", section.Name,
+            section.length(), Contents.size());
 
       //////////////////////////////////////////////////////////////////////////
       // section's struct's initializer
       //
       std::vector<llvm::Constant *> FieldCVec;
 
-      for (const auto &intvl : Sect.Stuff.Intervals) {
+      for (const auto &intvl : section.extra.Stuff.Intervals) {
         if (options.IsVeryVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x})\n",
                                         intvl.lower(),
@@ -4035,26 +3555,33 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
         llvm::Constant *C = nullptr;
         {
-          auto it = Sect.Stuff.Constants.find(intvl.lower());
-          if (it == Sect.Stuff.Constants.end()) {
-            ptrdiff_t len = intvl.upper() - intvl.lower();
+          auto it = section.extra.Stuff.Constants.find(intvl.lower());
+          if (it == section.extra.Stuff.Constants.end()) {
+            const size_t len = intvl.upper() - intvl.lower();
             assert(len > 0);
+            const size_t offset = intvl.lower();
 
-            if (Sect.Contents.size() >= len) {
-              assert(Sect.Contents.size() - intvl.lower() >= len);
+            const size_t available =
+                Contents.size() > offset
+                    ? std::min(len, Contents.size() - offset)
+                    : 0;
 
-              C = llvm::ConstantDataArray::get(
-                  Context,
-                  llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
-                                          Sect.Contents.begin() + intvl.upper()));
-            } else {
+            if ((!IsCOFF && section._elf.nobits) || available == 0) {
               C = llvm::Constant::getNullValue(
                   llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), len));
+            } else if (available == len) {
+              C = llvm::ConstantDataArray::get(
+                  Context, llvm::ArrayRef<uint8_t>(Contents.data() + offset, len));
+            } else {
+              std::vector<uint8_t> padded(len, 0);
+              std::copy_n(Contents.begin() + offset, available, padded.begin());
+
+              C = llvm::ConstantDataArray::get(Context, padded);
             }
           } else {
             auto *const T = ({
-              auto it = Sect.Stuff.Types.find(intvl.lower());
-              assert(it != Sect.Stuff.Types.end());
+              auto it = section.extra.Stuff.Types.find(intvl.lower());
+              assert(it != section.extra.Stuff.Types.end());
               (*it).second;
             });
 
@@ -4078,12 +3605,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       //////////////////////////////////////////////////////////////////////////
 
       // TODO check that it's what we computed in declare_sections()
-      llvm::StructType *const T = Sect.T;
+      llvm::StructType *const T = section.extra.T;
       auto *const C = llvm::ConstantStruct::get(T, FieldCVec);
 
-      Sect.C = C;
+      section.extra.C = C;
 
-      const unsigned j = Sect.j;
+      const unsigned j = section.extra.j;
 
       if constexpr (LayOutSections) {
         std::get<1>(this->LaidOut.Vec.at(j))->setInitializer(C);
@@ -4147,18 +3674,19 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       }
     }
 
-    auto it = SectIdxMap.find(Addr);
+    auto it = intvl_map_find(SectIdxMap, Addr);
     assert(it != SectIdxMap.end());
-    section_t &Sect = SectTable[(*it).second - 1];
-    const unsigned Off = Addr - Sect.Addr;
+    auto &section = SectTable[(*it).second];
+    auto Contents = B::contents_of_section(x.cachedb.first.get(), section);
+    const unsigned Off = Addr - section.addr();
 
     if (is_integral_size(Size)) {
       if (Size == WordBytes()) {
-        auto T_it = Sect.Stuff.Types.find(Off);
-        auto C_it = Sect.Stuff.Constants.find(Off);
+        auto T_it = section.extra.Stuff.Types.find(Off);
+        auto C_it = section.extra.Stuff.Constants.find(Off);
 
-        if (T_it != Sect.Stuff.Types.end()) {
-          assert(C_it != Sect.Stuff.Constants.end());
+        if (T_it != section.extra.Stuff.Types.end()) {
+          assert(C_it != section.extra.Stuff.Constants.end());
 
           llvm::Constant *Initializer = (*C_it).second;
 
@@ -4174,22 +3702,22 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
       bool HasRel = false;
       for (unsigned byte = 0; byte < Size; ++byte)
-        HasRel |= (Sect.Stuff.Types.find(Off + byte) != Sect.Stuff.Types.end());
+        HasRel |= (section.extra.Stuff.Types.find(Off + byte) != section.extra.Stuff.Types.end());
 
       if (!HasRel) {
         llvm::IntegerType *IntTy = llvm::Type::getIntNTy(Context, Size * 8);
 
         llvm::Constant *Initializer;
-        if (Sect.Contents.empty()) {
+        if (Contents.empty()) {
           Initializer = llvm::Constant::getNullValue(IntTy);
         } else {
-          assert(Sect.Contents.size() >= Size);
-          assert(Off + (Size - 1) < Sect.Contents.size());
+          assert(Contents.size() >= Size);
+          assert(Off + (Size - 1) < Contents.size());
 
           llvm::APInt X(Size * 8, 0u, false);
 
           {
-            const uint8_t *const bytes = Sect.Contents.begin() + Off;
+            const uint8_t *const bytes = Contents.begin() + Off;
 
             /* FIXME this algorithm sucks. can't we do better than this? */
 
@@ -4231,7 +3759,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
     int Left = Size;
 
-    for (const auto &_intvl : Sect.Stuff.Intervals) {
+    for (const auto &_intvl : section.extra.Stuff.Intervals) {
       uint64_t lower = _intvl.lower();
       uint64_t upper = _intvl.upper();
 
@@ -4246,29 +3774,29 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       if (upper > Off + Size)
         upper = Off + Size;
 
-      auto typeit = Sect.Stuff.Types.find(lower);
-      auto constit = Sect.Stuff.Constants.find(lower);
+      auto typeit = section.extra.Stuff.Types.find(lower);
+      auto constit = section.extra.Stuff.Constants.find(lower);
 
       llvm::Type *T;
       llvm::Constant *C;
 
-      if (typeit == Sect.Stuff.Types.end() ||
-          constit == Sect.Stuff.Constants.end()) {
+      if (typeit == section.extra.Stuff.Types.end() ||
+          constit == section.extra.Stuff.Constants.end()) {
         ptrdiff_t len = upper - lower;
 
         T = llvm::ArrayType::get(llvm::IntegerType::get(Context, 8), len);
-        if (Sect.Contents.size() >= len) {
+        if (Contents.size() >= len) {
           C = llvm::ConstantDataArray::get(
-              Context, llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + lower,
-                                                Sect.Contents.begin() + upper));
+              Context, llvm::ArrayRef<uint8_t>(Contents.begin() + lower,
+                                               Contents.begin() + upper));
         } else {
           C = llvm::Constant::getNullValue(T);
         }
 
         Left -= len;
       } else {
-        assert(typeit != Sect.Stuff.Types.end());
-        assert(constit != Sect.Stuff.Constants.end());
+        assert(typeit != section.extra.Stuff.Types.end());
+        assert(constit != section.extra.Stuff.Constants.end());
 
         T = (*typeit).second;
         C = (*constit).second;
@@ -4283,7 +3811,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         if (options.IsVerbose())
           llvm::errs() << llvm::formatv(
               "!create_global_variable for {0} @ {1:x}\n", SymName,
-              Sect.Addr + lower);
+              section.addr() + lower);
         return nullptr;
       }
 
@@ -4339,12 +3867,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
   auto clear_section_stuff = [&](void) -> void {
     ConstantRelocations.clear();
-    for (section_t &Sect : SectTable) {
-      Sect.Stuff.Constants.clear();
-      Sect.Stuff.Types.clear();
-      Sect.Stuff.Intervals.clear();
-      Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
+    for (auto &section : x.cachedb.second.sorted_by_addr()) {
+      section.extra.Stuff.Constants.clear();
+      section.extra.Stuff.Types.clear();
+      section.extra.Stuff.Intervals.clear();
+      section.extra.Stuff.Intervals.insert(
+          boost::icl::interval<uint64_t>::right_open(0, section.length()));
     }
   };
 
@@ -4358,25 +3886,25 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   // print relocations
   //
   for_each_dynamic_relocation(Elf,
-      state.for_binary(Binary)._elf.DynRelRegion,
-      state.for_binary(Binary)._elf.DynRelaRegion,
-      state.for_binary(Binary)._elf.DynRelrRegion,
-      state.for_binary(Binary)._elf.DynPLTRelRegion,
+      x._elf.DynRelRegion,
+      x._elf.DynRelaRegion,
+      x._elf.DynRelrRegion,
+      x._elf.DynPLTRelRegion,
       [&](const elf::Relocation &R) {
         //
         // determine symbol (if present)
         //
         elf::RelSymbol RelSym(nullptr, "");
-        if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-          const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+        if (x._elf.OptionalDynSymRegion) {
+          const elf::DynRegionInfo &DynSymRegion = *x._elf.OptionalDynSymRegion;
 
           RelSym = elf::getSymbolForReloc(O, DynSymRegion.getAsArrayRef<Elf_Sym>(),
-                                          state.for_binary(Binary)._elf.DynamicStringTable, R);
+                                          x._elf.DynamicStringTable, R);
 
           //
           // determine symbol version (if present)
           //
-          if (RelSym.Sym && state.for_binary(Binary)._elf.SymbolVersionSection) {
+          if (RelSym.Sym && x._elf.SymbolVersionSection) {
             // Determine the position in the symbol table of this entry.
             size_t EntryIndex =
                 (reinterpret_cast<uintptr_t>(RelSym.Sym) -
@@ -4385,13 +3913,13 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
             // Get the corresponding version index entry.
             llvm::Expected<const Elf_Versym *> ExpectedVersym =
                 Elf.getEntry<Elf_Versym>(
-                    *state.for_binary(Binary)._elf.SymbolVersionSection,
+                    *x._elf.SymbolVersionSection,
                     EntryIndex);
 
             if (ExpectedVersym) {
               RelSym.Vers = getSymbolVersionByIndex(
-                  state.for_binary(Binary)._elf.VersionMap,
-                  state.for_binary(Binary)._elf.DynamicStringTable,
+                  x._elf.VersionMap,
+                  x._elf.DynamicStringTable,
                   (*ExpectedVersym)->vs_index, RelSym.IsVersionDefault);
             }
           }
@@ -4420,11 +3948,11 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   //
   // print arch-specific relocations
   //
-  if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-    const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+  if (x._elf.OptionalDynSymRegion) {
+    const elf::DynRegionInfo &DynSymRegion = *x._elf.OptionalDynSymRegion;
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return state.for_binary(Binary)._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
+      return x._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
     };
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -4449,7 +3977,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
       assert(Sym);
 
-      auto ExpectedSymName = Sym->getName(state.for_binary(Binary)._elf.DynamicStringTable);
+      auto ExpectedSymName = Sym->getName(x._elf.DynamicStringTable);
       if (!ExpectedSymName) {
         WithColor::error() << llvm::formatv(
             "Failed to get symbol name for gotrel @ {0:x}: {1}\n", Offset,
@@ -4464,7 +3992,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       //
       // determine symbol version (if present)
       //
-      if (state.for_binary(Binary)._elf.SymbolVersionSection) {
+      if (x._elf.SymbolVersionSection) {
         // Determine the position in the symbol table of this entry.
         size_t EntryIndex =
             (reinterpret_cast<uintptr_t>(Sym) -
@@ -4473,12 +4001,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         // Get the corresponding version index entry.
         llvm::Expected<const Elf_Versym *> ExpectedVersym =
             Elf.getEntry<Elf_Versym>(
-                *state.for_binary(Binary)._elf.SymbolVersionSection,
+                *x._elf.SymbolVersionSection,
                 EntryIndex);
 
         if (ExpectedVersym)
-          SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                            state.for_binary(Binary)._elf.DynamicStringTable,
+          SymVers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                            x._elf.DynamicStringTable,
                                             (*ExpectedVersym)->vs_index,
                                             IsVersionDefault);
       }
@@ -4647,10 +4175,10 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     const ELFF &Elf = O.getELFFile();
 
     for_each_dynamic_relocation(Elf,
-        state.for_binary(Binary)._elf.DynRelRegion,
-        state.for_binary(Binary)._elf.DynRelaRegion,
-        state.for_binary(Binary)._elf.DynRelrRegion,
-        state.for_binary(Binary)._elf.DynPLTRelRegion,
+        x._elf.DynRelRegion,
+        x._elf.DynRelaRegion,
+        x._elf.DynRelrRegion,
+        x._elf.DynPLTRelRegion,
         [&](const elf::Relocation &R) {
           llvm::Type *R_T = nullptr;
 
@@ -4675,11 +4203,11 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     //
     // arch-specific relocations
     //
-    if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-      const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+    if (x._elf.OptionalDynSymRegion) {
+      const elf::DynRegionInfo &DynSymRegion = *x._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state.for_binary(Binary)._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
+        return x._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
       };
       auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -4746,10 +4274,10 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     const ELFF &Elf = O.getELFFile();
 
     for_each_dynamic_relocation(Elf,
-        state.for_binary(Binary)._elf.DynRelRegion,
-        state.for_binary(Binary)._elf.DynRelaRegion,
-        state.for_binary(Binary)._elf.DynRelrRegion,
-        state.for_binary(Binary)._elf.DynPLTRelRegion,
+        x._elf.DynRelRegion,
+        x._elf.DynRelaRegion,
+        x._elf.DynRelrRegion,
+        x._elf.DynPLTRelRegion,
         [&](const elf::Relocation &R) {
           llvm::Type *R_T = elf_type_of_expression_for_relocation(R);
           assert(R_T);
@@ -4761,20 +4289,20 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           // determine symbol (if present)
           //
           elf::RelSymbol RelSym(nullptr, "");
-          if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-            const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+          if (x._elf.OptionalDynSymRegion) {
+            const elf::DynRegionInfo &DynSymRegion = *x._elf.OptionalDynSymRegion;
 
             auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
               return DynSymRegion.getAsArrayRef<Elf_Sym>();
             };
 
             RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
-                                            state.for_binary(Binary)._elf.DynamicStringTable, R);
+                                            x._elf.DynamicStringTable, R);
 
             //
             // determine symbol version (if present)
             //
-            if (RelSym.Sym && state.for_binary(Binary)._elf.SymbolVersionSection) {
+            if (RelSym.Sym && x._elf.SymbolVersionSection) {
               // Determine the position in the symbol table of this entry.
               size_t EntryIndex =
                   (reinterpret_cast<uintptr_t>(RelSym.Sym) -
@@ -4784,12 +4312,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
               // Get the corresponding version index entry.
               llvm::Expected<const Elf_Versym *> ExpectedVersym =
                   Elf.getEntry<Elf_Versym>(
-                      *state.for_binary(Binary)._elf.SymbolVersionSection,
+                      *x._elf.SymbolVersionSection,
                       EntryIndex);
 
               if (ExpectedVersym)
-                RelSym.Vers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                                      state.for_binary(Binary)._elf.DynamicStringTable,
+                RelSym.Vers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                                      x._elf.DynamicStringTable,
                                                       (*ExpectedVersym)->vs_index,
                                                       RelSym.IsVersionDefault);
             }
@@ -4820,11 +4348,11 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     //
     // arch-specific relocations
     //
-    if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-      const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+    if (x._elf.OptionalDynSymRegion) {
+      const elf::DynRegionInfo &DynSymRegion = *x._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state.for_binary(Binary)._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
+        return x._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
       };
       auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -4852,7 +4380,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         const Elf_Sym *Sym = Parser.getGotSym(&Ent);
         assert(Sym);
 
-        auto ExpectedSymName = Sym->getName(state.for_binary(Binary)._elf.DynamicStringTable);
+        auto ExpectedSymName = Sym->getName(x._elf.DynamicStringTable);
         if (!ExpectedSymName) {
           WithColor::error() << llvm::formatv(
               "failed to get symbol name for gotrel @ {0:x}: {1}\n", Offset,
@@ -4867,7 +4395,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         //
         // determine symbol version (if present)
         //
-        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
+        if (x._elf.SymbolVersionSection) {
           // Determine the position in the symbol table of this entry.
           size_t EntryIndex =
               (reinterpret_cast<uintptr_t>(Sym) -
@@ -4876,12 +4404,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           // Get the corresponding version index entry.
           llvm::Expected<const Elf_Versym *> ExpectedVersym =
               Elf.getEntry<Elf_Versym>(
-                  *state.for_binary(Binary)._elf.SymbolVersionSection,
+                  *x._elf.SymbolVersionSection,
                   EntryIndex);
 
           if (ExpectedVersym)
-            SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
-                                              state.for_binary(Binary)._elf.DynamicStringTable,
+            SymVers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                              x._elf.DynamicStringTable,
                                               (*ExpectedVersym)->vs_index,
                                               IsVersionDefault);
         }
@@ -5110,15 +4638,15 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   // Global Ctors/Dtors
   //
   // XXX this should go somewhere else
-  for (section_t &Sect : SectTable) {
-    const bool InInitArray = Sect._elf.initArray;
-    const bool InFiniArray = Sect._elf.finiArray;
+  for (auto &section : x.cachedb.second.sorted_by_addr()) {
+    const bool InInitArray = section._elf.init;
+    const bool InFiniArray = section._elf.fini;
     if (!InInitArray && !InFiniArray)
       continue;
 
     aassert(InInitArray ^ InFiniArray);
 
-    for (const auto &pair : Sect.Stuff.Constants) {
+    for (const auto &pair : section.extra.Stuff.Constants) {
       llvm::Constant *C = pair.second;
       llvm::Function *F = nullptr;
 
@@ -5159,7 +4687,6 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           llvm::errs() << llvm::formatv("found {0:x} in {1} array\n", Addr,
                                         InInitArray ? "init" : "fini");
 
-        auto &Binary = jv.Binaries.at(BinaryIndex);
         const function_t &f = function_at_address(Binary, Addr);
 
         if (!f.IsABI) {
@@ -5171,7 +4698,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
         // FIXME casting to a llvm::Function* is a complete hack here. it's only
         // ever used as a llvm::Constant* in llvm/lib/Transforms/Utils/ModuleUtils.cpp
-        if (Sect._elf.initArray)
+        if (section._elf.init)
           llvm::appendToGlobalCtors(
               *Module,
               (llvm::Function *)llvm::ConstantExpr::getIntToPtr(
@@ -5268,12 +4795,12 @@ llvm_t<MT, MinSize>::decipher_copy_relocation(const elf::RelSymbol &S) {
     if (b.IsDynamicLinker)
       continue;
 
-    if (!state.for_binary(b).Bin)
+    if (!state.for_binary(b).cachedb.first)
       continue;
 
     if (auto MaybeRes = B::_must_be_elf<std::optional<
-                    std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>>(
-            state.for_binary(b).Bin.get(),
+            std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>>(
+            state.for_binary(b).cachedb.first.get(),
             [&](ELFO &Obj)
                 -> std::optional<
                     std::pair<binary_index_t, std::pair<uint64_t, unsigned>>> {
@@ -5345,14 +4872,12 @@ llvm_t<MT, MinSize>::decipher_copy_relocation(const elf::RelSymbol &S) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
   std::map<uint64_t, llvm::Function *> ManualRelocs;
 
-  B::_elf(state.for_binary(Binary).Bin.get(), [&](ELFO &O) {
+  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
 
-  auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
+  auto OptionalDynSymRegion = x._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
     return; /* no dynamic symbols */
@@ -5364,16 +4889,16 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
   };
 
   for_each_dynamic_relocation_if(Elf,
-      state.for_binary(Binary)._elf.DynRelRegion,
-      state.for_binary(Binary)._elf.DynRelaRegion,
-      state.for_binary(Binary)._elf.DynRelrRegion,
-      state.for_binary(Binary)._elf.DynPLTRelRegion,
+      x._elf.DynRelRegion,
+      x._elf.DynRelaRegion,
+      x._elf.DynRelrRegion,
+      x._elf.DynPLTRelRegion,
       [&](const elf::Relocation &R) -> bool { return elf_is_manual_relocation(R); },
       [&](const elf::Relocation &R) {
         llvm::Type *R_T = elf_type_of_expression_for_relocation(R);
 
         elf::RelSymbol RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
-                                                       state.for_binary(Binary)._elf.DynamicStringTable, R);
+                                                       x._elf.DynamicStringTable, R);
 
         llvm::Function *F = llvm::Function::Create(
             llvm::FunctionType::get(R_T, false),
@@ -5404,7 +4929,7 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
             ManualRelocs.end(), [&](const auto &pair) {
               llvm::Value *Computation = IRB.CreateCall(pair.second);
 
-              uintptr_t off = pair.first - state.for_binary(Binary).SectsStartAddr;
+              uintptr_t off = pair.first - x.SectsStartAddr;
 
               llvm::Value *Ptr = nullptr;
               if (!options.LayOutSections) {
@@ -5436,8 +4961,6 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_do_emulate_copy_relocations"),
       [&](auto &IRB) -> void {
-        auto &Binary = jv.Binaries.at(BinaryIndex);
-
         if (!Binary.IsExecutable) {
           assert(CopyRelocMap.empty());
         }
@@ -5560,13 +5083,11 @@ int llvm_t<MT, MinSize>::CreateBinaryNamesTable(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
   fillInFunctionBody(
       Module->getFunction("_jove_sections_start_addr"),
       [&](auto &IRB) {
         IRB.CreateRet(llvm::ConstantInt::get(
-            WordType(), state.for_binary(Binary).SectsStartAddr));
+            WordType(), x.SectsStartAddr));
       },
       !options.ForCBE);
 
@@ -5579,8 +5100,8 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_sections_end"),
       [&](auto &IRB) {
-        uint64_t SectsGlobalSize = state.for_binary(Binary).SectsEndAddr -
-                                   state.for_binary(Binary).SectsStartAddr;
+        uint64_t SectsGlobalSize = x.SectsEndAddr -
+                                   x.SectsStartAddr;
 
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
             llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
@@ -5648,7 +5169,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
               return llvm::ConstantInt::get(
                   WordType(),
                   B::offset_of_va(
-                      state.for_binary(dynl_binary).Bin.get(),
+                      state.for_binary(dynl_binary).cachedb.first.get(),
                       ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
@@ -5683,7 +5204,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
               return llvm::ConstantInt::get(
                   WordType(),
                   B::offset_of_va(
-                      state.for_binary(vdso_binary).Bin.get(),
+                      state.for_binary(vdso_binary).cachedb.first.get(),
                       ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
@@ -5749,7 +5270,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
               auto &binary = jv.Binaries.at(BIdx);
               auto &ICFG = binary.Analysis.ICFG;
 
-              auto &Bin = state.for_binary(binary).Bin;
+              auto &Bin = state.for_binary(binary).cachedb.first;
 
               llvm::ArrayType *TblTy =
                 llvm::ArrayType::get(WordType(),
@@ -5838,8 +5359,6 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_is_fixed_base_address"),
       [&](auto &IRB) {
-        auto &Binary = jv.Binaries.at(BinaryIndex);
-
         IRB.CreateRet(IRB.getInt1(Binary.IsExecutable && !Binary.IsPIC));
       }, !options.ForCBE);
 
@@ -5851,8 +5370,6 @@ int llvm_t<MT, MinSize>::FixupEntry(bool Replace) {
   fillInFunctionBody(
       Module->getFunction("_jove_call_entry"),
       [&](auto &IRB) -> void {
-        auto &Binary = jv.Binaries.at(BinaryIndex);
-
         if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
           const function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
 
@@ -6006,7 +5523,6 @@ std::pair<llvm::Function *, llvm::Function *>
 llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   TranslateContext TC(f);
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
   auto &ICFG = Binary.Analysis.ICFG;
 
@@ -6346,7 +5862,6 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
 
   FPM.doInitialization();
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   for (const function_t &f : Binary.Analysis.Functions) {
     llvm::Function *const F = TranslateFunction(f).first;
     aassert(F);
@@ -6375,8 +5890,6 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
     BOOST_SCOPE_DEFER [&] {
       if (EntryIsInvalid) FixupEntry(true);
     };
-
-    binary_state_t &x = state.for_binary(Binary);
 
     //
     // create / re-create those which were invalidated
@@ -6912,8 +6425,6 @@ int llvm_t<MT, MinSize>::Debugify(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-
   auto hunt_and_erase = [&](std::function<llvm::Instruction *(llvm::Instruction &)> HuntFunc) -> void {
     std::vector<llvm::Instruction *> ToErase;
 
@@ -7008,7 +6519,7 @@ int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
     //llvm::errs() << llvm::formatv("found {0}\n", I);
     const taddr_t Addr =
         (matched_Addend1 ? matched_Addend1->getZExtValue() : 0ull) +
-        state.for_binary(Binary).SectsStartAddr;
+        x.SectsStartAddr;
 
     llvm::Value *const Ptr = I.getOperand(PointerOperandIdx);
     llvm::Constant *const SectPtr = llvm::ConstantExpr::getIntToPtr(
@@ -7392,11 +6903,6 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::WriteLinkerScript(void) {
   assert(!options.LinkerScript.empty());
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-  assert(Binary.IsExecutable);
-
-  binary_state_t &x = state.for_binary(Binary);
-
   std::ofstream ofs(options.LinkerScript);
 
   if (IsCOFF) {
@@ -7575,7 +7081,6 @@ int llvm_t<MT, MinSize>::ForceCallConv(void) {
 
   force_callconv(JoveCallFunc);
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   for (const function_t &f : Binary.Analysis.Functions) {
     if (!f.IsABI)
       continue;
@@ -7664,8 +7169,6 @@ int llvm_t<MT, MinSize>::Daemonize(std::vector<function_index_t> &invalidated) {
 
   if (options.IsVeryVerbose()) {
     std::stringstream stream;
-
-    auto &Binary = jv.Binaries.at(BinaryIndex);
 
     stream << "translating / re-translating {";
     for (auto it = invalidated.begin(); it != invalidated.end(); ++it) {
@@ -7844,7 +7347,6 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   auto &LabelVec = TC.LabelVec;
   const function_t &f = TC.f;
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
 
   const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
@@ -7953,8 +7455,6 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
   }
 
-  TCG.set_binary(state.for_binary(Binary).Bin.get());
-
   llvm::BasicBlock *ExitBB = nullptr;
 
   unsigned size = 0;
@@ -7973,7 +7473,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     unsigned len;
 
     try {
-      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
+      std::tie(len, T) = TCG.translate(x.cachedb, Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
                                           Addr);
@@ -8671,7 +8171,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
         for (auto it = it_pair.first; it != it_pair.second; ++it) {
           bb_t succ = *it;
           SI->addCase(
-              IRB.getIntN(WordBits(), ICFG[succ].Addr - state.for_binary(Binary).SectsStartAddr),
+              IRB.getIntN(WordBits(), ICFG[succ].Addr - x.SectsStartAddr),
               state.for_basic_block(Binary, succ).B);
         }
       }
@@ -9775,7 +9275,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
 
-  auto &Binary = jv.Binaries.at(BinaryIndex);
   auto &ICFG = Binary.Analysis.ICFG;
 
   llvm::AllocaInst *const PCAlloca = TC.PCAlloca;
@@ -9804,7 +9303,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
-            llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
+            llvm::ConstantInt::get(WordType(), x.SectsStartAddr)));
   };
 
   /* special-cased global temps */

@@ -4,10 +4,115 @@
 #include "calls.h"
 #include "B.h"
 #include "helper.h"
+#include "tcg.h"
 
 namespace jove {
 
-struct tiny_code_generator_t;
+// returns whether the block was actually analyzed
+template <typename extra_t>
+bool AnalyzeBasicBlock(B::cached::type<extra_t> &cachedb,
+                       bbprop_t &bbprop,
+                       tiny_code_generator_t<extra_t> &TCG,
+                       tcg_helpers_t &helpers,
+                       analyzer_options_t &options) {
+  if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
+    return false;
+
+  BOOST_SCOPE_DEFER [&] {
+    bbprop.Analysis.Stale.clear(boost::memory_order_release);
+  };
+
+  const bool IsCOFF = B::is_coff(cachedb.first.get());
+
+  const auto Addr = bbprop.Addr;
+  const auto Size = bbprop.Size;
+
+  tcg_global_set_reset(bbprop.Analysis.live.use);
+  tcg_global_set_reset(bbprop.Analysis.live.def);
+#ifdef TCG_BITSET
+  tcg_global_set_reset(bbprop.Analysis.live.out.Set);
+#else
+  bbprop.Analysis.live.out.store(0, boost::memory_order_relaxed);
+#endif
+  tcg_global_set_reset(bbprop.Analysis.reach.def);
+
+  unsigned size = 0;
+  jove::terminator_info_t T;
+  do {
+    unsigned len;
+    try {
+      std::tie(len, T) = TCG.translate(cachedb, Addr + size, Addr + Size);
+    } catch (const illegal_op_exception &) {
+      break;
+    }
+
+    TCG.for_each_operation([&](void *op) {
+      tcg_global_set_t iglbs, oglbs;
+      std::tie(iglbs, oglbs) = TCG.analyze_operation(helpers, op);
+
+      bbprop.Analysis.live.use |= (iglbs & ~bbprop.Analysis.live.def);
+      bbprop.Analysis.live.def |= (oglbs & ~bbprop.Analysis.live.use);
+
+      bbprop.Analysis.reach.def |= oglbs;
+    });
+
+    size += len;
+  } while (size < Size);
+
+#if 0
+  if (false /* options::PrintDefAndUse */) {
+    llvm::outs() << (fmt("%#lx") % Addr).str() << '\n';
+
+    uint64_t InstLen;
+    for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
+      std::ptrdiff_t Offset = A - (*sectit).first.lower();
+
+      llvm::MCInst Inst;
+      bool Disassembled = DisAsm->getInstruction(
+          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
+      if (!Disassembled) {
+        WithColor::error() << "failed to disassemble "
+                           << (fmt("%#lx") % Addr).str() << '\n';
+        break;
+      }
+
+      IP->printInst(&Inst, A, "", *STI, llvm::outs());
+      llvm::outs() << '\n';
+    }
+
+    llvm::outs() << '\n';
+
+    llvm::outs() << "live.def:";
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, bbprop.Analysis.live.def);
+      for (unsigned glb : glbv)
+        llvm::outs() << ' ' << s->temps[glb].name;
+    }
+    llvm::outs() << '\n';
+
+    llvm::outs() << "live.use:";
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, bbprop.Analysis.live.use);
+      for (unsigned glb : glbv)
+        llvm::outs() << ' ' << s->temps[glb].name;
+    }
+    llvm::outs() << '\n';
+
+    llvm::outs() << "reach.def:";
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, bbprop.Analysis.reach.def);
+      for (unsigned glb : glbv)
+        llvm::outs() << ' ' << s->temps[glb].name;
+    }
+    llvm::outs() << '\n';
+  }
+#endif
+
+  return true;
+}
 
 using invalidated_t =
     boost::container::vector<boost::concurrent_flat_set<function_index_t>>;
@@ -31,9 +136,9 @@ struct analyzer_t {
   using exit_vertex_pair_t = std::pair<flow_vertex_t, bool>;
 
   struct binary_state_t {
-    B::unique_ptr Bin;
+    B::cached::type<> cachedb;
 
-    binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+    binary_state_t(const binary_t &b) { B::cached::create(cachedb, b.data()); }
   };
 
   struct function_state_t {
@@ -50,7 +155,6 @@ struct analyzer_t {
 
   SafeLLVMContext &SafeContext;
 
-  tiny_code_generator_t &tcg;
   tcg_helpers_t &helpers;
 
   jv_file_t &jv_file;
@@ -69,7 +173,6 @@ struct analyzer_t {
   std::atomic<uint64_t> &done;
 
   analyzer_t(analyzer_options_t &,
-             tiny_code_generator_t &,
              SafeLLVMContext &,
              tcg_helpers_t &,
              jv_file_t &,
@@ -85,7 +188,61 @@ struct analyzer_t {
 
   void refine_analyses(void);
 
-  int analyze_blocks(boost::optional<invalidated_t &> invalidated = boost::none);
+  template <typename extra_t>
+  int analyze_blocks(
+      tiny_code_generator_t<extra_t> &tcg,
+      boost::optional<invalidated_t &> invalidated = boost::none) {
+    std::atomic<unsigned> count = 0;
+
+    for_each_basic_block( /* FIXME (parunseq) */
+        jv, [&](binary_t &b, bb_t bb) {
+            auto &ICFG = b.Analysis.ICFG;
+            auto &bbprop = ICFG[bb];
+            if (AnalyzeBasicBlock(state.for_binary(b).cachedb,
+                                  bbprop,
+                                  tcg,
+                                  helpers,
+                                  options)) {
+              count.fetch_add(1u, std::memory_order_relaxed);
+              if (invalidated) {
+                auto &bin_invalidated = (*invalidated).at(index_of_binary(b));
+
+                const auto &ParentsVec = bbprop.Parents.template get<MT>();
+
+                std::for_each(maybe_par_unseq,
+                              ParentsVec.cbegin(),
+                              ParentsVec.cend(),
+                              [&](function_index_t FIdx) {
+                                bin_invalidated.insert(FIdx);
+                              });
+              }
+            }
+        });
+
+    if (options.IsVerbose())
+    if (unsigned c = count.load())
+      llvm::errs() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
+                                    c == 1 ? "" : "s");
+
+    //
+    // if libs are foreign, we won't necessarily see all the dynamic targets in
+    // those libraries, period. bootstrap might give us those targets, or it might
+    // not. therefore, unless told otherwise, do the following: assume that any
+    // function call which crosses binaries could lead to code for which we have
+    // *not* seen all the targets for.
+    //
+    if (options.Conservative >= 1)
+      for_each_function_if(
+          maybe_par_unseq, jv, [](function_t &f) { return f.IsABI; },
+          [](function_t &f, binary_t &b) {
+            auto &ICFG = b.Analysis.ICFG;
+            assert(is_basic_block_index_valid(f.Entry));
+            ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
+          });
+
+    return 0;
+  }
+
   template <bool BottomUp = false>
   int analyze_functions(boost::optional<invalidated_t &> invalidated = boost::none);
 

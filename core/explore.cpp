@@ -1,9 +1,12 @@
 #include "explore.h"
 #include "B.h"
 #include "tcg.h"
+#include "sjlj.h"
+#include "tcg.h"
 
 #include <boost/format.hpp>
 #include <boost/scope/defer.hpp>
+#include <boost/filesystem.hpp>
 
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/MC/MCInst.h>
@@ -16,6 +19,7 @@
 #include <stdexcept>
 
 namespace obj = llvm::object;
+namespace fs = boost::filesystem;
 
 using llvm::WithColor;
 
@@ -26,7 +30,7 @@ typedef boost::format fmt;
 template <bool MT, bool MinSize>
 function_index_t explorer_t<MT, MinSize>::_explore_function(
     binary_t &b,
-    B::ref Bin,
+    B::cached::type<> &cachedb,
     const taddr_t Addr,
     const bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
@@ -66,7 +70,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   get_newfn_proc()(b, f);
 
   const basic_block_index_t EntryIdx =
-      _explore_basic_block<false>(b, Bin, Addr, Speculative, Idx);
+      _explore_basic_block<false>(b, cachedb, Addr, Speculative, Idx);
 
   assert(is_basic_block_index_valid(EntryIdx));
 
@@ -107,7 +111,7 @@ template <bool MT, bool MinSize>
 template <bool WithOnBlockProc>
 bool explorer_t<MT, MinSize>::split(
     binary_t &b,
-    B::ref Bin,
+    B::cached::type<> &cachedb,
     bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
     bbmap_t::iterator it,
     const taddr_t Addr,
@@ -144,7 +148,7 @@ bool explorer_t<MT, MinSize>::split(
         llvm::raw_string_ostream ErrorStrStream(errmsg);
 
         const uint8_t *Ptr =
-            reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin, A));
+            reinterpret_cast<const uint8_t *>(B::cached::toMappedAddr(cachedb, A));
 
         Disassembled = disas.DisAsm->getInstruction(
             Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, len), A,
@@ -319,7 +323,7 @@ template <bool MT, bool MinSize>
 template <bool WithOnBlockProc>
 basic_block_index_t
 explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
-                                              B::ref Bin,
+                                              B::cached::type<> &cachedb,
                                               const taddr_t Addr,
                                               bool Speculative,
                                               const function_index_t ParentIdx,
@@ -401,9 +405,9 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (it != bbmap.end()) {
       bool success;
       if constexpr (WithOnBlockProc)
-        success = split<true>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx, obp);
+        success = split<true>(b, cachedb, boost::move(e_lck_bb), it, Addr, Idx, obp);
       else
-        success = split<false>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx);
+        success = split<false>(b, cachedb, boost::move(e_lck_bb), it, Addr, Idx);
       if (likely(success)) {
         return Idx;
       } else {
@@ -427,8 +431,6 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
   //
   // We are *not* splitting!
   //
-  tcg.set_binary(Bin);
-
   bool StartWasValid = false;
   unsigned Size = 0;
   jove::terminator_info_t T;
@@ -440,7 +442,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
   do {
     try {
       unsigned size;
-      std::tie(size, T) = tcg.translate(Addr + Size);
+      std::tie(size, T) = tcg.translate(cachedb, Addr + Size);
 
       Size += size;
       StartWasValid = true;
@@ -464,7 +466,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
       //
       const bool CanDisassemble = ({
         const uint8_t *const Ptr =
-            reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin, e.pc));
+            reinterpret_cast<const uint8_t *>(B::cached::toMappedAddr(cachedb, e.pc));
         assert(Ptr);
 
         std::string errmsg;
@@ -549,7 +551,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     uint64_t InstLen;
     for (uint64_t A = Addr; A < Addr + Size; A += InstLen) {
-      const uint8_t *Ptr = static_cast<const uint8_t *>(B::toMappedAddr(Bin, A));
+      const uint8_t *Ptr = static_cast<const uint8_t *>(B::cached::toMappedAddr(cachedb, A));
       if (!Ptr)
         throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
@@ -613,7 +615,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 #endif
 
     _control_flow_to(
-        b, Bin, T.Addr ?: Addr, Target, Speculative,
+        b, cachedb, T.Addr ?: Addr, Target, Speculative,
         basic_block_of_index(Idx, ICFG) /* unused if !Speculative */);
   };
 
@@ -657,7 +659,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     assert(T.Addr);
     function_index_t CalleeFIdx =
-        _explore_function(b, Bin, CalleeAddr, Speculative);
+        _explore_function(b, cachedb, CalleeAddr, Speculative);
 
     assert(is_function_index_valid(CalleeFIdx));
 
@@ -725,7 +727,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 template <bool MT, bool MinSize>
 void explorer_t<MT, MinSize>::_control_flow_to(
     binary_t &b,
-    B::ref Bin,
+    B::cached::type<> &cachedb,
     const taddr_t TermAddr,
     const taddr_t Target,
     const bool Speculative, bb_t bb /* unused if !Speculative */) {
@@ -736,7 +738,7 @@ void explorer_t<MT, MinSize>::_control_flow_to(
 
   basic_block_index_t SuccBBIdx = invalid_basic_block_index;
   try {
-    SuccBBIdx = _explore_basic_block<false>(b, Bin, Target, Speculative);
+    SuccBBIdx = _explore_basic_block<false>(b, cachedb, Target, Speculative);
   } catch (const invalid_control_flow_exception &e) {
     if (1 /* IsVerbose() */)
       llvm::errs() << llvm::formatv(
@@ -764,19 +766,19 @@ void explorer_t<MT, MinSize>::_control_flow_to(
 
 template <bool MT, bool MinSize>
 basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(binary_t &b,
-                                                                 B::ref Bin,
+                                                                 B::cached::type<> &cachedb,
                                                                  taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<false>(b, Bin, Addr, false);
+  return _explore_basic_block<false>(b, cachedb, Addr, false);
 }
 
 template <bool MT, bool MinSize>
 basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(
     binary_t &b,
-    B::ref Bin,
+    B::cached::type<> &cachedb,
     taddr_t Addr,
     onblockproc_t<MT> obp,
     onblockproc_u_t obp_u) {
@@ -784,19 +786,652 @@ basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<true>(b, Bin, Addr, false, invalid_function_index,
+  return _explore_basic_block<true>(b, cachedb, Addr, false, invalid_function_index,
                                     obp, obp_u);
 }
 
 template <bool MT, bool MinSize>
 function_index_t explorer_t<MT, MinSize>::explore_function(binary_t &b,
-                                                           B::ref Bin,
+                                                           B::cached::type<> &cachedb,
                                                            taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_function(b, Bin, Addr, false);
+  return _explore_function(b, cachedb, Addr, false);
+}
+
+#include "relocs_common.hpp"
+
+template <bool MT, bool MinSize>
+void explorer_t<MT, MinSize>::explore_binary(
+    binary_t &b,
+    B::cached::type<> &cachedb,
+    const AddOptions_t &Options) {
+  B::ref Bin = cachedb.first.get();
+
+  b.IsDynamicLinker = false;
+  b.IsExecutable = false;
+  b.IsVDSO = false;
+
+  b.IsPIC = true;
+  b.IsDynamicallyLoaded = false;
+
+  auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> basic_block_index_t {
+    if (!Entrypoint)
+      return invalid_basic_block_index;
+
+    if (Options.Objdump && b.Analysis.objdump_thinks.is_addr_bad(Entrypoint)) {
+      if (Options.IsVeryVerbose())
+        llvm::errs() << llvm::formatv("objdump rejects {0}:{1:x}\n",
+                                      b.Name.c_str(), Entrypoint);
+      return invalid_basic_block_index;
+    }
+
+    if (Options.IsVeryVerbose())
+      llvm::errs() << llvm::formatv("exploring {0}:{1:x}\n", b.Name.c_str(),
+                                    Entrypoint);
+
+    return this->explore_basic_block(b, cachedb, Entrypoint);
+  };
+  auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
+    if (!Entrypoint)
+      return invalid_function_index;
+
+    // let's be extra careful.
+    if (unlikely(!is_basic_block_index_valid(BasicBlockAtAddress(Entrypoint))))
+      return invalid_function_index;
+
+    return this->explore_function(b, cachedb, Entrypoint);
+  };
+  auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
+    function_index_t FIdx = FunctionAtAddress(Entrypoint);
+
+    if (unlikely(!is_function_index_valid(FIdx)))
+      return;
+
+    b.Analysis.Functions.at(FIdx).IsABI = true;
+  };
+
+  B::_elf(Bin,
+    [&](ELFO &O) {
+  const ELFF &Elf = O.getELFFile();
+
+  switch (Elf.getHeader().e_type) {
+  case llvm::ELF::ET_NONE:
+    throw std::runtime_error("given binary has unknown type");
+
+  case llvm::ELF::ET_REL:
+    throw std::runtime_error("given binary is object file");
+
+  case llvm::ELF::ET_EXEC:
+    b.IsPIC = false;
+    break;
+
+  case llvm::ELF::ET_DYN:
+    break;
+
+  case llvm::ELF::ET_CORE:
+    throw std::runtime_error("given binary is core file");
+
+  default:
+    abort();
+    break;
+  }
+
+  elf::DynRegionInfo DynamicTable(O);
+  elf::loadDynamicTable(O, DynamicTable);
+
+  //assert(DynamicTable.Addr);
+
+  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+    if (DynamicTable.Addr)
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    else
+      return {};
+  };
+
+#if 0
+  bool IsStaticallyLinked = true;
+#endif
+
+  //
+  // examine dynamic table
+  //
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (unlikely(Dyn.getTag() == llvm::ELF::DT_NULL))
+      break; /* marks end of dynamic table. */
+
+    switch (Dyn.d_tag) {
+#if 0
+    case llvm::ELF::DT_NEEDED:
+      IsStaticallyLinked = false;
+      break;
+#endif
+    case llvm::ELF::DT_INIT:
+      ABIAtAddress(Dyn.getVal());
+      break;
+    }
+  }
+
+  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = Elf.program_headers();
+  if (!ExpectedPrgHdrs)
+    throw std::runtime_error("no program headers in ELF. bug?");
+
+  auto PrgHdrs = *ExpectedPrgHdrs;
+
+  //
+  // if the ELF has a PT_INTERP program header, then we'll explore the entry
+  // point. if not, we'll only consider it if it's statically-linked (i.Elf. it's
+  // the dynamic linker)
+  //
+  bool HasInterpreter =
+    std::any_of(PrgHdrs.begin(),
+                PrgHdrs.end(),
+                [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
+  uint64_t EntryAddr = Elf.getHeader().e_entry;
+  if (EntryAddr) {
+#if 0
+    llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
+#endif
+
+    b.Analysis.EntryFunction = FunctionAtAddress(EntryAddr);
+  } else {
+    b.Analysis.EntryFunction = invalid_function_index;
+  }
+
+  //
+  // search local symbols (if they exist)
+  //
+  {
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
+
+    if (ExpectedSections) {
+      const Elf_Shdr *SymTab = nullptr;
+
+      for (const Elf_Shdr &Sect : *ExpectedSections) {
+        if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+          SymTab = &Sect;
+          break;
+        }
+      }
+
+      if (SymTab) {
+        llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms = Elf.symbols(SymTab);
+
+        if (ExpectedLocalSyms) {
+          auto LocalSyms = *ExpectedLocalSyms;
+
+          for_each_if(LocalSyms.begin(),
+                      LocalSyms.end(),
+                      [](const Elf_Sym &Sym) -> bool {
+                        return !Sym.isUndefined() &&
+                                Sym.getType() == llvm::ELF::STT_FUNC;
+                      },
+                      [&](const Elf_Sym &Sym) -> void {
+                        BasicBlockAtAddress(Sym.st_value);
+                      });
+        }
+      }
+    }
+  }
+
+  //
+  // look for split debug information
+  //
+  std::optional<llvm::ArrayRef<uint8_t>> optionalBuildID = elf::getBuildID(Elf);
+  if (optionalBuildID) {
+    llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
+
+    fs::path splitDbgInfo =
+        fs::path("/usr/lib/debug") / ".build-id" /
+        llvm::toHex(BuildID[0], /*LowerCase=*/true) /
+        (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
+
+    if (fs::exists(splitDbgInfo)) {
+    std::vector<uint8_t> SplitBinBytes;
+    auto SplitBin = B::CreateFromFile(splitDbgInfo.c_str(), SplitBinBytes);
+
+    B::_elf(SplitBin.get(), [&](ELFO &split_Obj) -> void {
+#if 0
+      WithColor::note() << llvm::formatv("found split debug info file {0}\n",
+                                         splitDbgInfo.c_str());
+#endif
+
+      const ELFF &split_Elf = split_Obj.getELFFile();
+
+      //
+      // examine local symbols (if they exist)
+      //
+      llvm::Expected<Elf_Shdr_Range> ExpectedSections = split_Elf.sections();
+      if (ExpectedSections && !(*ExpectedSections).empty()) {
+        const Elf_Shdr *SymTab = nullptr;
+
+        for (const Elf_Shdr &Sec : *ExpectedSections) {
+          if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
+            SymTab = &Sec;
+            break;
+          }
+        }
+
+        if (SymTab) {
+          llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms =
+              split_Elf.symbols(SymTab);
+
+          if (ExpectedLocalSyms) {
+            auto LocalSyms = *ExpectedLocalSyms;
+
+            for_each_if(LocalSyms.begin(),
+                        LocalSyms.end(),
+                        [](const Elf_Sym &Sym) -> bool {
+                          return !Sym.isUndefined() &&
+                                  Sym.getType() == llvm::ELF::STT_FUNC;
+                        },
+                        [&](const Elf_Sym &Sym) -> void {
+                          BasicBlockAtAddress(Sym.st_value);
+                        });
+          }
+        }
+      }
+    });
+    } else {
+      //WithColor::note() << llvm::formatv("build ID is {0}, no split debug found at {1}\n", llvm::toHex(BuildID, /*LowerCase=*/true), splitDbgInfo.string());
+    }
+  } else {
+    //WithColor::note() << "no build ID\n";
+  }
+
+  llvm::StringRef DynamicStringTable;
+  const Elf_Shdr *SymbolVersionSection = nullptr;
+  std::vector<elf::VersionMapEntry> VersionMap;
+  std::optional<elf::DynRegionInfo> OptionalDynSymRegion;
+
+  if (DynamicTable.Addr)
+    OptionalDynSymRegion =
+        loadDynamicSymbols(O,
+                           DynamicTable,
+                           DynamicStringTable,
+                           SymbolVersionSection,
+                           VersionMap);
+
+  //
+  // examine exported functions
+  //
+  if (OptionalDynSymRegion) {
+    auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+
+    for_each_if(DynSyms.begin(),
+                DynSyms.end(),
+                [](const Elf_Sym &Sym) -> bool {
+                  return !Sym.isUndefined() &&
+                          Sym.getType() == llvm::ELF::STT_FUNC;
+                },
+                [&](const Elf_Sym &Sym) -> void {
+                  FunctionAtAddress(Sym.st_value);
+                });
+
+    for_each_if(DynSyms.begin(),
+                DynSyms.end(),
+                [](const Elf_Sym &Sym) -> bool {
+                  return !Sym.isUndefined() &&
+                          Sym.getType() == llvm::ELF::STT_GNU_IFUNC;
+                },
+                [&](const Elf_Sym &Sym) -> void {
+                  ABIAtAddress(Sym.st_value);
+                });
+
+    //
+    // XXX __libc_early_init (glibc)
+    //
+    if (SymbolVersionSection) {
+      for_each_if(
+          DynSyms.begin(),
+          DynSyms.end(),
+          [](const Elf_Sym &Sym) -> bool {
+            return !Sym.isUndefined() &&
+                   Sym.getType() == llvm::ELF::STT_FUNC;
+          },
+          [&](const Elf_Sym &Sym) -> void {
+            llvm::Expected<llvm::StringRef> ExpectedSymName =
+                Sym.getName(DynamicStringTable);
+
+            if (!ExpectedSymName)
+              return;
+
+            llvm::StringRef SymName = *ExpectedSymName;
+            llvm::StringRef SymVers;
+
+            // Determine the position in the symbol table of this entry.
+            size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                                 reinterpret_cast<uintptr_t>(OptionalDynSymRegion->Addr)) /
+                                sizeof(Elf_Sym);
+
+            // Get the corresponding version index entry.
+            llvm::Expected<const Elf_Versym *> ExpectedVersym =
+                Elf.getEntry<Elf_Versym>(*SymbolVersionSection, EntryIndex);
+
+            bool IsDefault;
+            if (ExpectedVersym)
+              SymVers = getSymbolVersionByIndex(VersionMap,
+                                                DynamicStringTable,
+                                                (*ExpectedVersym)->vs_index,
+                                                IsDefault);
+
+            if (SymName == "__libc_early_init" &&
+                SymVers == "GLIBC_PRIVATE")
+              ABIAtAddress(Sym.st_value);
+          });
+    }
+  }
+
+  //
+  // search for constructor/deconstructor array
+  //
+  struct {
+    uint64_t Beg, End;
+  } InitArray = {0u, 0u};
+
+  struct {
+    uint64_t Beg, End;
+  } FiniArray = {0u, 0u};
+
+  {
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
+
+    if (ExpectedSections) {
+      for (const Elf_Shdr &Sect : *ExpectedSections) {
+        switch (Sect.sh_type) {
+        case llvm::ELF::SHT_INIT_ARRAY:
+          InitArray.Beg = Sect.sh_addr;
+          InitArray.End = Sect.sh_addr + Sect.sh_size;
+          break;
+        case llvm::ELF::SHT_FINI_ARRAY:
+          FiniArray.Beg = Sect.sh_addr;
+          FiniArray.End = Sect.sh_addr + Sect.sh_size;
+          break;
+        }
+      }
+    }
+  }
+
+  //
+  // examine relocations
+  //
+  elf::DynRegionInfo DynRelRegion(O);
+  elf::DynRegionInfo DynRelaRegion(O);
+  elf::DynRegionInfo DynRelrRegion(O);
+  elf::DynRegionInfo DynPLTRelRegion(O);
+
+  if (DynamicTable.Addr)
+    loadDynamicRelocations(O,
+                           DynamicTable,
+                           DynRelRegion,
+                           DynRelaRegion,
+                           DynRelrRegion,
+                           DynPLTRelRegion);
+
+  //
+  // Search for IFunc relocations and make their resolver functions be ABIs
+  //
+  {
+    auto processDynamicReloc = [&](const elf::Relocation &R) -> void {
+      //
+      // ifunc resolvers are ABIs
+      //
+      if (elf_is_irelative_relocation(R)) {
+        uint64_t resolverAddr = R.Addend ? *R.Addend : 0;
+
+        if (!resolverAddr) {
+          llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
+          if (ExpectedPtr)
+            resolverAddr = B::extractAddress(Bin, *ExpectedPtr);
+        }
+
+        if (resolverAddr)
+          ABIAtAddress(resolverAddr);
+      }
+    };
+
+    for_each_dynamic_relocation(Elf,
+                                DynRelRegion,
+                                DynRelaRegion,
+                                DynRelrRegion,
+                                DynPLTRelRegion,
+                                processDynamicReloc);
+  }
+
+  //
+  // Search for relocations in .init_array/.fini_array and make the
+  // constructor/deconstructor functions be ABIs
+  //
+  {
+    auto processDynamicReloc = [&](const elf::Relocation &R) -> void {
+      bool Contained = (R.Offset >= InitArray.Beg &&
+                        R.Offset < InitArray.End) ||
+                       (R.Offset >= FiniArray.Beg &&
+                        R.Offset < FiniArray.End);
+      if (!Contained)
+        return;
+
+      if (!elf_is_relative_relocation(R)) {
+#if 0
+        WithColor::warning() << llvm::formatv(
+            "unrecognized relocation {0} in .init_array/.fini_array\n",
+            Elf.getRelocationTypeName(R.Type));
+#endif
+        return;
+      }
+
+      //
+      // constructors/deconstructors are ABIs
+      //
+      uint64_t Addr = R.Addend ? *R.Addend : 0;
+      if (!Addr) {
+        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
+
+        if (ExpectedPtr)
+          Addr = B::extractAddress(Bin, *ExpectedPtr);
+      }
+
+#if 0
+      if (Options.IsVerbose())
+        WithColor::note() << llvm::formatv("ctor/dtor: off={0:x} Addr={1:x}\n",
+                                           R.Offset, Addr);
+#endif
+
+      if (Addr)
+        ABIAtAddress(Addr);
+    };
+
+    for_each_dynamic_relocation(Elf,
+                                DynRelRegion,
+                                DynRelaRegion,
+                                DynRelrRegion,
+                                DynPLTRelRegion,
+                                processDynamicReloc);
+  }
+    });
+
+  B::_coff(Bin,
+    [&](COFFO &O) {
+      //b.IsExecutable = O.getCharacteristics() & llvm::COFF::IMAGE_FILE_DLL;
+
+      uint64_t entryRVA = 0;
+      if (const obj::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader()) {
+        entryRVA = PEPlusHeader->AddressOfEntryPoint;
+        b.IsPIC = PEPlusHeader->DLLCharacteristics &
+                  llvm::COFF::IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE;
+      } else if (const obj::pe32_header *PEHeader = O.getPE32Header()) {
+        entryRVA = PEHeader->AddressOfEntryPoint;
+        b.IsPIC = PEHeader->DLLCharacteristics &
+                  llvm::COFF::IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE;
+      }
+
+      if (entryRVA)
+        b.Analysis.EntryFunction = FunctionAtAddress(coff::va_of_rva(O, entryRVA));
+
+      auto exp_itr = O.export_directories();
+      for_each_if(exp_itr.begin(),
+                  exp_itr.end(),
+                  [&](const obj::ExportDirectoryEntryRef &Exp) -> bool {
+                    llvm::StringRef Name;
+                    uint32_t Ordinal;
+                    bool IsForwarder;
+                    uint32_t RVA;
+
+                    return !llvm::errorToBool(Exp.getSymbolName(Name)) &&
+                           !llvm::errorToBool(Exp.getOrdinal(Ordinal)) &&
+                           !llvm::errorToBool(Exp.isForwarder(IsForwarder)) &&
+                           !IsForwarder &&
+                           !llvm::errorToBool(Exp.getExportRVA(RVA)) &&
+                           coff::isCode(O, coff::va_of_rva(O, RVA));
+                  },
+                  [&](const obj::ExportDirectoryEntryRef &Exp) -> void {
+                      uint32_t RVA;
+                      bool iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
+                      assert(!iserr);
+
+                      ABIAtAddress(coff::va_of_rva(O, RVA));
+                  });
+
+      for_each_if(O.symbol_begin(),
+                  O.symbol_end(),
+                  [&](obj::SymbolRef SymbolRef) -> bool {
+                    llvm::Expected<uint64_t> AddrOrErr = SymbolRef.getAddress();
+                    if (!AddrOrErr) {
+                      llvm::consumeError(AddrOrErr.takeError());
+                      return false;
+                    }
+
+                    obj::COFFSymbolRef Symbol = O.getCOFFSymbol(SymbolRef);
+
+                    if (Symbol.getNumberOfAuxSymbols() > 0)
+                      return false;
+
+                    llvm::Expected<llvm::StringRef> NameOrErr = O.getSymbolName(Symbol);
+                    if (!NameOrErr) {
+                      llvm::consumeError(NameOrErr.takeError());
+                      return false;
+                    }
+
+                    llvm::Expected<obj::section_iterator> ItOrErr = SymbolRef.getSection();
+
+                    if (!ItOrErr) {
+                      llvm::consumeError(ItOrErr.takeError());
+                      return false;
+                    }
+
+                    obj::section_iterator it = *ItOrErr;
+                    if (it == O.section_end())
+                      return false;
+
+                    const obj::coff_section *Section = O.getCOFFSection(*it);
+                    return Section && Section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+                  },
+                  [&](obj::SymbolRef SymbolRef) -> void {
+                    obj::COFFSymbolRef Symbol = O.getCOFFSymbol(SymbolRef);
+
+#if 0
+                    llvm::Expected<llvm::StringRef> NameOrErr = O.getSymbolName(Symbol);
+                    assert(NameOrErr);
+
+                    llvm::errs() << "exploring " << *NameOrErr << ' ' << Symbol.getValue() <<  " @ " << taddr2str(coff::va_of_rva(O, Symbol.getValue())) << '\n';
+#endif
+
+                    auto AddrOrErr = SymbolRef.getAddress();
+                    assert(AddrOrErr);
+
+                    ABIAtAddress(*AddrOrErr);
+                  });
+
+      // XXX we cannot completely rely on isCode() to tell us whether something
+      // is code, so the following is #ifdef'd out- none of these addresses are
+      // necessarily functions.
+#if 0
+      coff::for_each_base_relocation(
+          O, [&](uint8_t RelocType, uint64_t RVA) -> void {
+            if (!coff_is_dir_relocation(RelocType))
+              return;
+
+            const void *Ptr = coff::toMappedAddr(O, coff::va_of_rva(O, RVA));
+            if (!Ptr)
+              return;
+            uint64_t Addr = B::extractAddress(O, Ptr);
+            if (coff::isCode(O, Addr))
+              ABIAtAddress(Addr);
+          });
+#endif
+    }
+  );
+
+  if (Options.SjLj)
+    ScanForSjLj(b, cachedb, *this);
+}
+
+template <bool MT, bool MinSize>
+bool explorer_t<MT, MinSize>::fix_ambiguous_indirect_jump(
+    binary_t &b,
+    B::cached::type<> &cachedb,
+    taddr_t TermAddr) {
+  std::vector<taddr_t> SuccAddrVec;
+
+  typename ip_icfg_base_t<MT>::vertex_descriptor bb;
+
+  auto &ICFG = b.Analysis.ICFG;
+  aassert(maybe_jv);
+  jv_t &jv = *maybe_jv;
+
+  {
+    auto s_lck_bbmap = b.BBMap.shared_access();
+
+    bb = basic_block_at_address(TermAddr, b);
+
+    if (!IsAmbiguousIndirectJump(ICFG, bb))
+      return false;
+
+    auto e_lck = ICFG[bb].template exclusive_access<MT>();
+
+    auto succ_it_pair = ICFG.adjacent_vertices(bb);
+
+    SuccAddrVec.resize(ICFG.template out_degree<false>(bb));
+    std::transform(
+        succ_it_pair.first,
+        succ_it_pair.second, SuccAddrVec.begin(),
+        [&](bb_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
+  }
+
+  std::vector<function_index_t> SuccFIdxVec;
+  SuccFIdxVec.resize(SuccAddrVec.size());
+  std::transform(std::execution::seq,
+                 SuccAddrVec.begin(),
+                 SuccAddrVec.end(),
+                 SuccFIdxVec.begin(), [&](taddr_t Addr) -> function_index_t {
+                   function_index_t res =
+                       this->explore_function(b, cachedb, Addr);
+                   assert(is_function_index_valid(res));
+                   return res;
+                 });
+
+  {
+    aassert(maybe_jv);
+    jv_t &jv = *maybe_jv;
+
+    auto s_lck_bbmap = b.BBMap.shared_access();
+
+    ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
+
+    bb_t bb = basic_block_at_address(TermAddr, b);
+    auto &bbprop = ICFG[bb];
+    std::for_each(maybe_par_unseq,
+                  SuccFIdxVec.cbegin(),
+                  SuccFIdxVec.cend(), [&](function_index_t FIdx) {
+                    bbprop.insertDynTarget(index_of_binary(b, jv),
+                                           {index_of_binary(b, jv), FIdx}, jv);
+                  });
+    bbprop.InvalidateAnalyses(jv, b, index_of_basic_block(ICFG, bb));
+  }
+
+  return true;
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

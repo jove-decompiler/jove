@@ -31,7 +31,7 @@ class ScanTool : public JVTool<ToolKind::Standard> {
   } opts;
 
 public:
-  tiny_code_generator_t tcg;
+  tiny_code_generator_t<> tcg;
   disas_t disas;
   explorer_t<IsToolMT, IsToolMinSize> E;
 
@@ -74,10 +74,11 @@ int ScanTool::Run(void) {
 }
 
 void ScanTool::ScanBinary(binary_t &b) {
-  auto Bin = B::Create(b.data());
+  B::cached::type cachedb;
+  B::cached::create(cachedb, b.data());
 
   if (opts.What == "sjlj") {
-    ScanForSjLj(b, *Bin, E);
+    ScanForSjLj(b, cachedb, E);
   } else {
     WithColor::error() << llvm::formatv(
         "do not know how to interpret \"{0}\"\n", opts.What);

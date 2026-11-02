@@ -3,6 +3,7 @@
 #include "fd.h"
 #include "B.h"
 #include "ptrace.h"
+#include "tcg.h"
 
 #include <boost/container/flat_set.hpp>
 
@@ -14,7 +15,6 @@ namespace jove {
 
 namespace cl = llvm::cl;
 
-struct tiny_code_generator_t;
 struct disas_t;
 struct symbolizer_t;
 struct ptrace_emulator_t;
@@ -35,7 +35,7 @@ struct binary_state_t {
            LoadOffset != std::numeric_limits<taddr_t>::max();
   }
 
-  B::unique_ptr Bin;
+  B::cached::type<> cachedb;
   struct {
     elf::DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
@@ -49,10 +49,13 @@ struct binary_state_t {
     elf::DynRegionInfo DynPLTRelRegion;
   } _elf;
 
-  binary_state_t(const auto &b) {
-    Bin = B::Create(b.data());
+  B::unique_ptr &Bin(void) { return cachedb.first; }
+  B::sections_t<> &sections(void) { return cachedb.second; }
 
-    B::_elf(Bin.get(), [&](ELFO &Obj) {
+  binary_state_t(const auto &b) {
+    B::cached::create(cachedb, b.data());
+
+    B::_elf(Bin().get(), [&](ELFO &Obj) {
     elf::loadDynamicTable(Obj, _elf.DynamicTable);
 
     _elf.OptionalDynSymRegion =
@@ -244,13 +247,15 @@ struct BootstrapTool
 
   const bool IsCOFF;
   unordered_set<pid_t> forked;
+#if 0
   unordered_set<pid_t> ignore_sigchld;
   unordered_set<pid_t> ignore_sigstop;
+#endif
   unordered_set<pid_t> exited;
 
   std::unique_ptr<ptrace_emulator_t> emulator;
 
-  std::unique_ptr<tiny_code_generator_t> tcg;
+  std::unique_ptr<tiny_code_generator_t<>> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
   std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> E;
@@ -329,7 +334,7 @@ struct BootstrapTool
 public:
   BootstrapTool()
       : opts(JoveCategory),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())) {}
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin().get())) {}
   ~BootstrapTool();
 
   int Run(void) override;

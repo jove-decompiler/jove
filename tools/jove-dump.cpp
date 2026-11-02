@@ -93,7 +93,7 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
       {}
   } opts;
 
-  std::unique_ptr<tiny_code_generator_t> TCG;
+  std::unique_ptr<tiny_code_generator_t<>> TCG;
   std::unique_ptr<symbolizer_t> symbolizer;
 
 public:
@@ -114,7 +114,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
     symbolizer = std::make_unique<symbolizer_t>(jv, locator(), opts.Addr2Line);
 
   if (opts.TCGGlobalNames)
-    TCG = std::make_unique<tiny_code_generator_t>();
+    TCG = std::make_unique<tiny_code_generator_t<>>();
 
   std::unique_ptr<llvm::raw_fd_ostream> ostream;
   if (!opts.Output.empty()) {
@@ -475,7 +475,6 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
     }
   }
 }
-
 
 int DumpTool::Run(void) {
     if (opts.ListBinaries) {

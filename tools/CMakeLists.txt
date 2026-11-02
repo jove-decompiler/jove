@@ -339,9 +339,9 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     ${arch_extra_cflags}
   )
 
-  if (JOVE_HAVE_MEMFD)
-    target_compile_definitions(jove-${arch} PRIVATE JOVE_HAVE_MEMFD)
-  endif()
+# if (JOVE_HAVE_MEMFD)
+#   target_compile_definitions(jove-${arch} PRIVATE JOVE_HAVE_MEMFD)
+# endif()
 
 endfunction()
 

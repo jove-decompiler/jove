@@ -338,8 +338,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     if (Options.Objdump) {
       B::unique_ptr Bin = B::Create(b.data());
 
-      b.Analysis.objdump_thinks.run(b.is_file() ? b.Name.c_str() : nullptr,
-                                    Bin.get());
+      b.Analysis.objdump_thinks.run(b.is_file() ? b.Name.c_str() : nullptr);
     }
 
     on_newbin(b);
@@ -389,7 +388,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
       explorer_t<false /* !MT */, MinSize> explorer_(explorer);
       explorer_.set_jv(boost::none);
 
-      jv.DoAdd(b, explorer_, Bin.get(), Options);
+      B::cached::type cachedb;
+      B::cached::create(cachedb, b.data());
+      explorer_.explore_binary(b, cachedb, Options);
     }
 
     //

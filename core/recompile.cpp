@@ -1400,7 +1400,7 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
     }
 
     bin_llvm_options->Output = bcfp;
-    bin_llvm_options->BinaryIndex = std::to_string(BIdx);
+    bin_llvm_options->BinaryIndex = BIdx;
 
     llvm_t<MT, MinSize> llvm(jv,
                              *bin_llvm_options,

@@ -1,11 +1,12 @@
 #pragma once
+#include "section.h"
+
 #include <llvm/Object/COFF.h>
 #include <llvm/Support/DataExtractor.h>
 
 #include <functional>
 
 namespace jove {
-
 typedef llvm::object::COFFObjectFile COFFO;
 
 namespace coff {
@@ -70,6 +71,56 @@ std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
 std::string link_subsystem(COFFO &);
 
 std::string getBaseRelocTypeName(uint8_t Type);
+
+template <typename extra_t>
+static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
+  const size_t M = O.getMemoryBufferRef().getBufferSize();
+
+  const auto beg = O.section_begin();
+  const auto end = O.section_end();
+
+  out.reserve(std::distance(beg, end));
+
+  for (auto it = beg; it != end; ++it) {
+    const llvm::object::SectionRef &SectionRef = *it;
+    const llvm::object::coff_section &Sect = *O.getCOFFSection(SectionRef);
+
+    const auto size = Sect.SizeOfRawData;
+    if (!size)
+      continue;
+
+    const auto length = Sect.VirtualSize;
+    if (size > length)
+      continue;
+
+    const auto off = Sect.PointerToRawData;
+    if (off >= M)
+      continue;
+
+    const unsigned idx = out.size();
+    auto &section = out.emplace_back(off, size, va_of_rva(O, Sect.VirtualAddress), length);
+
+    const char *const pbeg = &Sect.Name[0];
+    const char *pend = (const char *)memrchr(pbeg, '\0', sizeof(Sect.Name));
+    if (!pend)
+      pend = &Sect.Name[sizeof(Sect.Name)];
+
+    section.Name = llvm::StringRef(Sect.Name, pend - pbeg);
+
+    const auto Characteristics = Sect.Characteristics;
+
+    section.perm.r = !!(Characteristics & llvm::COFF::IMAGE_SCN_MEM_READ);
+    section.perm.w = !!(Characteristics & llvm::COFF::IMAGE_SCN_MEM_WRITE);
+    section.perm.x = !!(Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
+
+    const bool code = !!(Characteristics & llvm::COFF::IMAGE_SCN_CNT_CODE);
+    if (!section.perm.x && code)
+      section.perm.x = 1; /* FIXME? */
+  }
+
+  return !out.empty();
+}
+
 
 }
 }

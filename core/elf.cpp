@@ -262,9 +262,9 @@ std::optional<DynRegionInfo> loadDynamicSymbols(
   //
   // examine the sections
   //
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
-  if (ExpectedSections && !(*ExpectedSections).empty()) {
-    for (const Elf_Shdr &Sec : *ExpectedSections) {
+  llvm::Expected<Elf_Shdr_Range> MaybeSections = Elf.sections();
+  if (MaybeSections && !(*MaybeSections).empty()) {
+    for (const Elf_Shdr &Sec : *MaybeSections) {
       switch (Sec.sh_type) {
       case llvm::ELF::SHT_DYNSYM:
         if (!DotDynsymSec)
@@ -1039,9 +1039,9 @@ addr_pair bounds_of_binary(ELFO &O) {
   uint64_t SectsStartAddr = std::numeric_limits<uint64_t>::max();
   uint64_t SectsEndAddr = 0;
 
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
-  if (ExpectedSections && !(*ExpectedSections).empty()) {
-    for (const Elf_Shdr &Sec : *ExpectedSections) {
+  llvm::Expected<Elf_Shdr_Range> MaybeSections = Elf.sections();
+  if (MaybeSections && !(*MaybeSections).empty()) {
+    for (const Elf_Shdr &Sec : *MaybeSections) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
         continue;
 

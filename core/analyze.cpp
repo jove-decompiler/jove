@@ -41,16 +41,15 @@ static constexpr bool ReentrancyCheckDisabled =
 template <bool MT, bool MinSize>
 analyzer_t<MT, MinSize>::analyzer_t(
     analyzer_options_t &options,
-    tiny_code_generator_t &tcg,
     SafeLLVMContext &SafeContext,
     tcg_helpers_t &helpers,
     jv_file_t &jv_file,
     jv_t &jv,
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
-    : options(options), tcg(tcg), SafeContext(SafeContext), helpers(helpers),
+    : options(options), SafeContext(SafeContext), helpers(helpers),
       jv_file(jv_file), jv(jv), state(jv),
-      IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
+      IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cachedb.first.get())),
       inflight(inflight), done(done) {
   for_each_function(maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
     (void)f.Analysis.ReverseCGVert(jv);
@@ -194,61 +193,6 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
             racy::set(caller_bbprop.Sj);
         });
       });
-}
-
-template <bool MT, bool MinSize>
-int analyzer_t<MT, MinSize>::analyze_blocks(
-    boost::optional<invalidated_t &> invalidated) {
-  std::atomic<unsigned> count = 0;
-
-  for_each_basic_block(
-      std::execution::seq, /* FIXME */
-      jv, [&](binary_t &b, bb_t bb) {
-          auto &ICFG = b.Analysis.ICFG;
-          auto &bbprop = ICFG[bb];
-          if (AnalyzeBasicBlock(state.for_binary(b).Bin.get(),
-                                bbprop,
-                                tcg,
-                                helpers,
-                                options)) {
-            count.fetch_add(1u, std::memory_order_relaxed);
-            if (invalidated) {
-              auto &bin_invalidated = (*invalidated).at(index_of_binary(b));
-
-              const auto &ParentsVec = bbprop.Parents.template get<MT>();
-
-              std::for_each(maybe_par_unseq,
-                            ParentsVec.cbegin(),
-                            ParentsVec.cend(),
-                            [&](function_index_t FIdx) {
-                              bin_invalidated.insert(FIdx);
-                            });
-            }
-          }
-      });
-
-  if (options.IsVerbose())
-  if (unsigned c = count.load())
-    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
-                                       c == 1 ? "" : "s");
-
-  //
-  // if libs are foreign, we won't necessarily see all the dynamic targets in
-  // those libraries, period. bootstrap might give us those targets, or it might
-  // not. therefore, unless told otherwise, do the following: assume that any
-  // function call which crosses binaries could lead to code for which we have
-  // *not* seen all the targets for.
-  //
-  if (options.Conservative >= 1)
-    for_each_function_if(
-        maybe_par_unseq, jv, [](function_t &f) { return f.IsABI; },
-        [](function_t &f, binary_t &b) {
-          auto &ICFG = b.Analysis.ICFG;
-          assert(is_basic_block_index_valid(f.Entry));
-          ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
-        });
-
-  return 0;
 }
 
 template <bool MT, bool MinSize>

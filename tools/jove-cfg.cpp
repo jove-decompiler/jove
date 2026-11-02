@@ -41,8 +41,9 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  B::unique_ptr Bin;
-  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
+  B::cached::type<> cachedb;
+
+  binary_state_t(const auto &b) { B::cached::create(cachedb, b.data()); }
 };
 
 }
@@ -112,7 +113,7 @@ class CFGTool
   binary_index_t BinaryIndex = invalid_binary_index;
 
   disas_t disas;
-  tiny_code_generator_t TCG;
+  tiny_code_generator_t<> TCG;
 
 public:
   uint64_t Addr = 0x0;
@@ -186,10 +187,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   assert(BinaryIndex != invalid_binary_index);
 
   auto &b = jv.Binaries.at(BinaryIndex);
-
-  B::ref Bin(state.for_binary(b).Bin.get());
-
-  TCG.set_binary(state.for_binary(b).Bin.get());
+  auto &x = state.for_binary(b);
 
   uint64_t End = G[V].Addr + G[V].Size;
 
@@ -204,7 +202,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   for (uint64_t A = G[V].Addr; A < End; A += InstLen) {
     llvm::MCInst Inst;
 
-    const void *ExpectedContents = B::toMappedAddr(Bin, A);
+    const void *ExpectedContents = B::cached::toMappedAddr(x.cachedb, A);
     if (!ExpectedContents)
       break;
 
@@ -342,9 +340,10 @@ int CFGTool::Run(void) {
 
   auto &b = jv.Binaries.at(BinaryIndex);
   auto &ICFG = b.Analysis.ICFG;
+  auto &x = state.for_binary(b);
   Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
   if (opts.Off)
-    Addr = B::va_of_offset(state.for_binary(b).Bin.get(), Addr);
+    Addr = B::cached::va_of_offset(x.cachedb, Addr);
 
   basic_block_index_t source_BBIdx = invalid_basic_block_index;
   if (exists_function_at_address(b, Addr)) {

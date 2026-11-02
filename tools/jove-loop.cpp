@@ -48,9 +48,9 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  B::unique_ptr Bin;
+  B::cached::type<> cachedb;
 
-  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { B::cached::create(cachedb, b.data()); }
 };
 
 }
@@ -375,7 +375,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 public:
   LoopTool()
       : opts(JoveCategory),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin.get())),
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cachedb.first.get())),
         SavedNumBinaries(jv.Binaries.size()) {}
 
   int Run(void) override;
@@ -448,7 +448,7 @@ int LoopTool::Run(void) {
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&LoopTool::get_child_pid, this));
 
-  tiny_code_generator_t TCG;
+  tiny_code_generator_t<> TCG;
 
 #ifndef JOVE_NO_BACKEND
   boost::concurrent_flat_set<dynamic_target_t> inflight;
@@ -503,7 +503,6 @@ int LoopTool::Run(void) {
   tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
 
   analyzer_t analyzer(analyzer_options,
-                      TCG,
                       SafeContext,
                       helpers,
                       jv_file, jv, inflight, done);
@@ -1312,13 +1311,13 @@ skip_run:
       if (LaunchedLLVM && opts.Daemonize) {
         invalidated.resize(jv.Binaries.size());
 
-        int rc = analyzer.analyze_blocks(invalidated);
+        int rc = analyzer.analyze_blocks(TCG, invalidated);
         if (rc)
           return rc;
 
         rc = analyzer.analyze_functions(invalidated);
       } else {
-        rc = (analyzer.analyze_blocks() || analyzer.analyze_functions());
+        rc = (analyzer.analyze_blocks(TCG) || analyzer.analyze_functions());
       }
 #endif
 

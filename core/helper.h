@@ -1,13 +1,13 @@
 #pragma once
-#include "jove/tcg.h"
+#include "tcg.h"
 
 #include <array>
 #include <atomic>
 #include <memory>
 
+#include <llvm/IR/Module.h>
+
 namespace llvm {
-class LLVMContext;
-class Module;
 class Function;
 }
 
@@ -15,7 +15,6 @@ struct TCGHelperInfo;
 
 namespace jove {
 
-struct tiny_code_generator_t;
 struct analyzer_options_t;
 struct SafeLLVMContext;
 
@@ -50,9 +49,18 @@ struct tcg_helpers_t {
 
   SafeLLVMContext &SafeContext;
 
-  tcg_helpers_t(tiny_code_generator_t &,
-                SafeLLVMContext &,
-                analyzer_options_t &);
+  template <typename extra_t>
+  tcg_helpers_t(tiny_code_generator_t<extra_t> &tcg,
+                SafeLLVMContext &SafeContext,
+                analyzer_options_t &options)
+      : table{}, SafeContext(SafeContext), options(options) {
+    const void *const *const special_helpers = tcg.special_helpers();
+
+    Funcs.lookup_tb_ptr = special_helpers[0];
+    Funcs.memset = special_helpers[1];
+
+    Funcs.syscall_helper = special_helpers[2];
+  }
 
   const tcg_helper_t &
   lookup(TCGHelperInfo &, void *Op /* FIXME */, bool IsCOFF);

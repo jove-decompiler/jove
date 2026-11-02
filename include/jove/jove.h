@@ -2,13 +2,13 @@
 #define JOVE_H
 #define IN_JOVE_H
 
-#include "jove/config.h"
-#include "jove/tcg.h"
-#ifdef __cplusplus
 #ifndef __clang__
 #error "jove is only intended to be built with the clang compiler."
 #endif
 
+#include "jove/config.h"
+#include "jove/tcg.h"
+#ifdef __cplusplus
 #include "jove/macros.h"
 #include "jove/constants.h"
 #include "jove/types.h"
@@ -101,15 +101,6 @@ class Binary;
 }
 
 namespace jove {
-
-template <class T, std::size_t N>
-struct tagged_reference_wrapper2;
-
-namespace B {
-static constexpr std::size_t TagBits = 1;
-
-using ref = tagged_reference_wrapper2<llvm::object::Binary, TagBits>;
-}
 
 #include "jove/host.h.inc"
 #include "jove/target.h.inc"
@@ -1014,17 +1005,6 @@ struct binary_base_t {
 
   void InvalidateBasicBlockAnalyses(void);
 
-  //
-  // we thought this was a goto, but now we know it's definitely a tail
-  // call. translate all sucessors as functions, then store them into the
-  // dynamic targets set for this bb. afterwards, delete the edges in the
-  // ICFG that would originate from this basic block.
-  //
-  bool FixAmbiguousIndirectJump(taddr_t TermAddr,
-                                explorer_t<MT, MinSize> &,
-                                const B::ref &,
-                                jv_base_t<MT, MinSize> &);
-
   std::string_view data(void) const {
     return std::string_view(Data.data(), Data.size());
   }
@@ -1432,7 +1412,6 @@ public:
   template <bool MT2, bool MinSize2>
   void DoAdd(binary_base_t<MT2, MinSize2> &,
              explorer_t<MT2, MinSize2> &,
-             const B::ref &,
              const AddOptions_t &);
 
   friend adds_binary_t;

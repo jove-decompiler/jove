@@ -15,18 +15,19 @@
 namespace jove {
 
 template <bool MT>
-int objdump_thinks_t<MT>::run(const char *filename, const B::ref &Bin) {
+int objdump_thinks_t<MT>::run(const char *filename) {
+  std::vector<uint8_t> BinBytes;
+  B::unique_ptr Bin = B::CreateFromFile(filename, BinBytes);
+
   std::unique_ptr<temp_exe> the_exe;
   if (!filename) {
-    the_exe = std::make_unique<temp_exe>(
-        Bin.get().getMemoryBufferRef().getBufferStart(),
-        Bin.get().getMemoryBufferRef().getBufferSize(),
-        "objdump-" TARGET_ARCH_NAME, false);
+    the_exe = std::make_unique<temp_exe>(BinBytes.data(), BinBytes.size(),
+                                         "objdump-" TARGET_ARCH_NAME, false);
     the_exe->store();
     filename = the_exe->path().c_str();
   }
 
-  std::string path_to_objdump = locator_t::objdump(B::is_coff(Bin));
+  std::string path_to_objdump = locator_t::objdump(B::is_coff(Bin.get()));
 
   int pipefd[2];
   if (::pipe(pipefd) < 0)
