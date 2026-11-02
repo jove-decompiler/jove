@@ -13,10 +13,12 @@ frame_pointer=
 assertions="OFF"
 asan=
 tsan=
+optlvl="2"
 
 function usage() {
   echo "usage: $0 [-T] -a architecture [-t target] [-C] [-A] [-F] [-S sanitizer]"
   echo "    -a architecture: build on specified architecture (aarch64, i386, mips64el, mipsel, or x86_64)"
+  echo "    -O level:        build with optimizations (or not)"
   echo "    -T:              only build llvm-tblgen"
   echo "    -C:              this build is doing cross-compilation"
   echo "    -A:              build with assertions"
@@ -25,10 +27,13 @@ function usage() {
   echo "    -h:              Show this help."
 }
 
-while getopts ":a:t:TFCS:Ah" opt; do
+while getopts ":a:O:t:TFCS:Ah" opt; do
   case "$opt" in
     a)
       arch=$OPTARG
+      ;;
+    O)
+      optlvl=$OPTARG
       ;;
     t)
       target=$OPTARG
@@ -91,7 +96,7 @@ llvm_target_arch=
 llvm_targets=
 jove_targets=
 threads=
-optimization="-O3"
+optimization="-O${optlvl}"
 lto="OFF"
 skip_rpath="FALSE"
 enable_ffi="OFF"
@@ -177,7 +182,7 @@ case "$arch" in
 
   mipsel)
     triple="mipsel-linux-gnu"
-    optimization="-Oz"
+#   optimization="-Oz"
     system_processor="mips"
     llvm_target_arch="mipsel"
     threads="OFF"
@@ -289,12 +294,20 @@ if [ -n "$frame_pointer" ]; then
   )
 fi
 
+case "$optlvl" in
+  0)
+    ourcflags+=(-g)
+    ;;
+  *)
+    ourcflags+=(-g1)
+    ;;
+esac
+
 # faster debugging
-ourcflags+=(
-  -g1
-  -ggdb
-  -gz=none
-)
+ourcflags+=(-gz=none)
+
+# better debugging
+ourcflags+=(-ggdb)
 
 # seems to help with stack traces under WINE
 ourcflags+=(-gdwarf-4)
