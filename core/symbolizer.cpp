@@ -67,12 +67,12 @@ symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &bina
             wfd.close();
           });
 
-      BOOST_SCOPE_DEFER[&] { WaitForProcessToExit(child); };
-
       wfd.close();
 
       pipe_reader pipe(rfd.get());
       A2LOutput = pipe.get();
+
+      WaitForProcessToExit(child);
 
       boost::algorithm::trim_if(A2LOutput, [](char ch) -> bool {
         return ch == ' ' || ch == '\n' || ch == '\t';
