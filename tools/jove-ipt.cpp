@@ -194,7 +194,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   symbolizer_t symbolizer;
 
-  std::unique_ptr<tiny_code_generator_t> tcg;
+  std::unique_ptr<tcg_t> tcg;
   std::unique_ptr<disas_t> Disas;
 
   void gather_all_perf_data_files(std::vector<std::string> &out);
@@ -266,7 +266,7 @@ int IPTTool::Run(void) {
     }
   }
 
-  tcg = std::make_unique<tiny_code_generator_t>();
+  tcg = std::make_unique<tcg_t>();
   Disas = std::make_unique<disas_t>();
 
   const std::string prog_path = fs::canonical(opts.Prog).string();

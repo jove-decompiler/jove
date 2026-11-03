@@ -255,7 +255,7 @@ struct BootstrapTool
 
   std::unique_ptr<ptrace_emulator_t> emulator;
 
-  std::unique_ptr<tiny_code_generator_t<>> tcg;
+  std::unique_ptr<tcg_t<>> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
   std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> E;

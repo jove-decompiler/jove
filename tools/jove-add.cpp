@@ -34,7 +34,7 @@ public:
 JOVE_REGISTER_TOOL("add", AddTool);
 
 int AddTool::Run(void) {
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
   disas_t disas;
   explorer_t E(jv_file, jv, disas, tcg, IsVeryVerbose());
 

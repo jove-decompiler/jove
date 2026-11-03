@@ -448,7 +448,7 @@ int LoopTool::Run(void) {
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&LoopTool::get_child_pid, this));
 
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
 
 #ifndef JOVE_NO_BACKEND
   boost::concurrent_flat_set<dynamic_target_t> inflight;

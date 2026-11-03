@@ -12,7 +12,7 @@ namespace jove {
 template <typename extra_t>
 bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
                        bbprop_t &bbprop,
-                       tiny_code_generator_t<extra_t> &tcg,
+                       tcg_t<extra_t> &tcg,
                        tcg_helpers_t &helpers,
                        analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
@@ -190,7 +190,7 @@ struct analyzer_t {
 
   template <typename extra_t>
   int analyze_blocks(
-      tiny_code_generator_t<extra_t> &tcg,
+      tcg_t<extra_t> &tcg,
       boost::optional<invalidated_t &> invalidated = boost::none) {
     std::atomic<unsigned> count = 0;
 

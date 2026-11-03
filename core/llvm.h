@@ -116,7 +116,7 @@ struct llvm_t {
   llvm_options_t &options;
   analyzer_options_t &analyzer_options;
 
-  tiny_code_generator_t<section_extra_t> tcg;
+  tcg_t<section_extra_t> tcg;
 
   SafeLLVMContext &SafeContext;
   llvm::LLVMContext &Context;
@@ -432,7 +432,7 @@ public:
   llvm_t(const jv_t &jv,
          llvm_options_t &options,
          analyzer_options_t &analyzer_options,
-         tiny_code_generator_t<other_extra_t> &tcg,
+         tcg_t<other_extra_t> &tcg,
          tcg_helpers_t &helpers_,
          disas_t &disas,
          locator_t &locator_)

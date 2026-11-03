@@ -129,7 +129,7 @@ int IDATool::Run(void) {
     return 1;
   }
 
-  tiny_code_generator_t tcg;
+  tcg_t tcg;
   disas_t dis;
   explorer_t E(jv_file, jv, dis, tcg);
 

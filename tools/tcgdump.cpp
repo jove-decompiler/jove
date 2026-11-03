@@ -90,7 +90,7 @@ int TCGDumpTool::Run(void) {
     return 1;
   }
 
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
   disas_t disas;
 
   std::vector<uint8_t> BinBytes;

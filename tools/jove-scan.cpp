@@ -31,7 +31,7 @@ class ScanTool : public JVTool<ToolKind::Standard> {
   } opts;
 
 public:
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
   disas_t disas;
   explorer_t<IsToolMT, IsToolMinSize> E;
 

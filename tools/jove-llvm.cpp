@@ -266,7 +266,7 @@ int LLVMTool::Run(void) {
 
   analyzer_options.ForCBE = options.ForCBE; // XXX
 
-  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> tcg;
+  tcg_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> tcg;
   tcg_helpers_t helpers(tcg, SafeContext, analyzer_options);
 
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {

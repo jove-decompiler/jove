@@ -425,7 +425,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   SafeLLVMContext SafeContext;
 
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
-    tiny_code_generator_t<> tcg;
+    tcg_t<> tcg;
     tcg_helpers_t helpers(tcg, SafeContext, analyzer_options);
 
     bool IsCOFF = false;

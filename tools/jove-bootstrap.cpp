@@ -524,7 +524,7 @@ int BootstrapTool::Run(void) {
   // initialize objects required for exploration.
   //
   disas = std::make_unique<disas_t>();
-  tcg = std::make_unique<tiny_code_generator_t<>>();
+  tcg = std::make_unique<tcg_t<>>();
   if (opts.Symbolize) {
   symbolizer = std::make_unique<symbolizer_t>(jv, locator(), opts.Addr2Line);
   }

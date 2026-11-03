@@ -78,7 +78,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
   disas_t disas;
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
   symbolizer_t symbolizer;
 
   explorer_t<IsToolMT, IsToolMinSize> Explorer;

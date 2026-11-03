@@ -99,7 +99,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
   analyzer_options_t analyzer_options;
 
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
   tcg_helpers_t helpers;
 
   analyzer_t<IsToolMT, IsToolMinSize> analyzer;

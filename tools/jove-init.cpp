@@ -250,7 +250,7 @@ int InitTool::Run(void) {
   //
   // add them
   //
-  tiny_code_generator_t<> tcg;
+  tcg_t<> tcg;
   disas_t disas;
   explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
                                             GetVerbosityLevel());

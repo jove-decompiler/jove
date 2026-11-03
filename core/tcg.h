@@ -53,7 +53,7 @@ struct tiny_code_generator_base_t {
 };
 
 template <typename extra_t = std::monostate>
-struct tiny_code_generator_t : public tiny_code_generator_base_t {
+struct tcg_t : public tiny_code_generator_base_t {
   const void *g2h_(B::cached::type<extra_t> *pcb, uint64_t Addr) {
     assert(pcb);
     return B::cached::toMappedAddr(*pcb, Addr);
@@ -64,19 +64,19 @@ struct tiny_code_generator_t : public tiny_code_generator_base_t {
             uint64_t pc,
             uint64_t pc_end = 0) {
     tiny_code_generator_base_t::context_t ctx;
-    g2h_t g2h = std::bind(&tiny_code_generator_t::g2h_, this, &cb,
+    g2h_t g2h = std::bind(&tcg_t::g2h_, this, &cb,
                           std::placeholders::_1);
 
     return this->do_translate(ctx, g2h, pc, pc_end);
   }
 
-  tiny_code_generator_t() {}
+  tcg_t() {}
 
   template <typename other_extra_t>
-  tiny_code_generator_t(const tiny_code_generator_t<other_extra_t> &) = delete;
+  tcg_t(const tcg_t<other_extra_t> &) = delete;
 
   template <typename other_extra_t>
-  tiny_code_generator_t(tiny_code_generator_t<other_extra_t> &&other) {}
+  tcg_t(tcg_t<other_extra_t> &&other) {}
 };
 
 }

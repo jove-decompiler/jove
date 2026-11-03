@@ -50,7 +50,7 @@ struct tcg_helpers_t {
   SafeLLVMContext &SafeContext;
 
   template <typename extra_t>
-  tcg_helpers_t(tiny_code_generator_t<extra_t> &tcg,
+  tcg_helpers_t(tcg_t<extra_t> &tcg,
                 SafeLLVMContext &SafeContext,
                 analyzer_options_t &options)
       : table{}, SafeContext(SafeContext), options(options) {

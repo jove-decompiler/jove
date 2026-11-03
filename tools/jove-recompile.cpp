@@ -184,7 +184,7 @@ JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
 int RecompileTool::Run(void) {
   disas_t disas;
-  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> tcg;
+  tcg_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> tcg;
 
   for (const std::string &PinnedGlobalName : opts.PinnedEnvGlbs) {
     int idx = tcg.tcg_index_of_named_global(PinnedGlobalName.c_str());
