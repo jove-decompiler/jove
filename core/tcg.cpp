@@ -253,8 +253,6 @@ tiny_code_generator_base_t::tiny_code_generator_base_t() {
   if (!_Done) {
     _Done = true;
 
-    fprintf(stderr, "tiny_code_generator_base_t::tiny_code_generator_base_t\n");
-
 #if 0
     run_all_qemu_ctors();
 #endif
