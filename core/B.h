@@ -195,9 +195,9 @@ namespace cached {
 template <typename extra_t = std::monostate>
 using type = std::pair<B::unique_ptr, sections_t<extra_t>>;
 
-static inline uint64_t va_of_offset(const auto &cachedb, uint64_t off) {
-  auto &Bin      = cachedb.first;
-  auto &sections = cachedb.second;
+static inline uint64_t va_of_offset(const auto &cb, uint64_t off) {
+  auto &Bin      = cb.first;
+  auto &sections = cb.second;
 
   auto it = intvl_map_find(sections.omap, off);
   aassert(it != sections.omap.end());
@@ -211,9 +211,9 @@ static inline uint64_t va_of_offset(const auto &cachedb, uint64_t off) {
   return section.addr() + soff;
 }
 
-static inline const void *toMappedAddr(const auto &cachedb, uint64_t addr) {
-  auto &Bin      = cachedb.first;
-  auto &sections = cachedb.second;
+static inline const void *toMappedAddr(const auto &cb, uint64_t addr) {
+  auto &Bin      = cb.first;
+  auto &sections = cb.second;
 
   auto it = intvl_map_find(sections.amap, addr);
   aassert(it != sections.amap.end());
@@ -228,11 +228,11 @@ static inline const void *toMappedAddr(const auto &cachedb, uint64_t addr) {
   return reinterpret_cast<const void *>(reinterpret_cast<uintptr_t>(base) + section.off() + soff);
 }
 
-static inline uint64_t offset_of_va(const auto &cachedb, uint64_t va) {
-  auto &Bin      = cachedb.first;
-  auto &sections = cachedb.second;
+static inline uint64_t offset_of_va(const auto &cb, uint64_t va) {
+  auto &Bin      = cb.first;
+  auto &sections = cb.second;
 
-  const void *ptr = cached::toMappedAddr(cachedb, va);
+  const void *ptr = cached::toMappedAddr(cb, va);
   if (!ptr)
     return UINT64_MAX;
 

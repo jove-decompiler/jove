@@ -136,10 +136,10 @@ int IDATool::Run(void) {
   symbolizer_t symbolizer(jv, locator());
 
   auto process_binary = [&](binary_t &binary) -> void {
-    B::cached::type cachedb;
+    B::cached::type cb;
 
     try {
-      B::cached::create(cachedb, binary.data());
+      B::cached::create(cb, binary.data());
     } catch (const std::exception &) {
       return;
     }
@@ -155,7 +155,7 @@ int IDATool::Run(void) {
     //
     // hide split debug information from IDA Pro (XXX HACK)
     //
-    B::_must_be_elf<void>(cachedb.first.get(), [&](ELFO &Obj) -> void {
+    B::_must_be_elf<void>(cb.first.get(), [&](ELFO &Obj) -> void {
 
     const ELFF &Elf = Obj.getELFFile();
 
@@ -277,12 +277,12 @@ int IDATool::Run(void) {
         //
         try {
           basic_block_index_t BBIdx =
-              E.explore_basic_block(binary, cachedb, entry_addr);
+              E.explore_basic_block(binary, cb, entry_addr);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
 
-          E.explore_function(binary, cachedb, entry_addr);
+          E.explore_function(binary, cb, entry_addr);
         } catch (const std::exception &e) {
           if (IsVerbose())
             WithColor::warning()
@@ -315,7 +315,7 @@ int IDATool::Run(void) {
         uint64_t node_addr = flowgraph[node].start_ea;
         try {
           basic_block_index_t BBIdx =
-              E.explore_basic_block(binary, cachedb, node_addr);
+              E.explore_basic_block(binary, cb, node_addr);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());

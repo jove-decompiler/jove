@@ -388,9 +388,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
       explorer_t<false /* !MT */, MinSize> explorer_(explorer);
       explorer_.set_jv(boost::none);
 
-      B::cached::type cachedb;
-      B::cached::create(cachedb, b.data());
-      explorer_.explore_binary(b, cachedb, Options);
+      B::cached::type cb;
+      B::cached::create(cb, b.data());
+      explorer_.explore_binary(b, cb, Options);
     }
 
     //

@@ -295,8 +295,8 @@ int InitTool::Run(void) {
           break;
         }
 
-        B::cached::type cachedb;
-        if (catch_exception([&]() { B::cached::create(cachedb, b.data()); })) {
+        B::cached::type cb;
+        if (catch_exception([&]() { B::cached::create(cb, b.data()); })) {
           WithColor::error()
               << llvm::formatv("not valid binary: \"{0}\"\n", b.Name.c_str());
           exit(1);
@@ -320,7 +320,7 @@ int InitTool::Run(void) {
         // explore them for real
         //
         try {
-          explorer.explore_binary(b, cachedb, AddOptions);
+          explorer.explore_binary(b, cb, AddOptions);
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());

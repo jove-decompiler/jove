@@ -30,7 +30,7 @@ typedef boost::format fmt;
 template <bool MT, bool MinSize>
 function_index_t explorer_t<MT, MinSize>::_explore_function(
     binary_t &b,
-    B::cached::type<> &cachedb,
+    B::cached::type<> &cb,
     const taddr_t Addr,
     const bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
@@ -70,7 +70,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   get_newfn_proc()(b, f);
 
   const basic_block_index_t EntryIdx =
-      _explore_basic_block<false>(b, cachedb, Addr, Speculative, Idx);
+      _explore_basic_block<false>(b, cb, Addr, Speculative, Idx);
 
   assert(is_basic_block_index_valid(EntryIdx));
 
@@ -111,7 +111,7 @@ template <bool MT, bool MinSize>
 template <bool WithOnBlockProc>
 bool explorer_t<MT, MinSize>::split(
     binary_t &b,
-    B::cached::type<> &cachedb,
+    B::cached::type<> &cb,
     bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
     bbmap_t::iterator it,
     const taddr_t Addr,
@@ -148,7 +148,7 @@ bool explorer_t<MT, MinSize>::split(
         llvm::raw_string_ostream ErrorStrStream(errmsg);
 
         const uint8_t *Ptr =
-            reinterpret_cast<const uint8_t *>(B::cached::toMappedAddr(cachedb, A));
+            reinterpret_cast<const uint8_t *>(B::cached::toMappedAddr(cb, A));
 
         Disassembled = disas.DisAsm->getInstruction(
             Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, len), A,
@@ -323,7 +323,7 @@ template <bool MT, bool MinSize>
 template <bool WithOnBlockProc>
 basic_block_index_t
 explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
-                                              B::cached::type<> &cachedb,
+                                              B::cached::type<> &cb,
                                               const taddr_t Addr,
                                               bool Speculative,
                                               const function_index_t ParentIdx,
@@ -405,9 +405,9 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (it != bbmap.end()) {
       bool success;
       if constexpr (WithOnBlockProc)
-        success = split<true>(b, cachedb, boost::move(e_lck_bb), it, Addr, Idx, obp);
+        success = split<true>(b, cb, boost::move(e_lck_bb), it, Addr, Idx, obp);
       else
-        success = split<false>(b, cachedb, boost::move(e_lck_bb), it, Addr, Idx);
+        success = split<false>(b, cb, boost::move(e_lck_bb), it, Addr, Idx);
       if (likely(success)) {
         return Idx;
       } else {
@@ -442,7 +442,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
   do {
     try {
       unsigned size;
-      std::tie(size, T) = tcg.translate(cachedb, Addr + Size);
+      std::tie(size, T) = tcg.translate(cb, Addr + Size);
 
       Size += size;
       StartWasValid = true;
@@ -466,7 +466,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
       //
       const bool CanDisassemble = ({
         const uint8_t *const Ptr =
-            reinterpret_cast<const uint8_t *>(B::cached::toMappedAddr(cachedb, e.pc));
+            reinterpret_cast<const uint8_t *>(B::cached::toMappedAddr(cb, e.pc));
         assert(Ptr);
 
         std::string errmsg;
@@ -551,7 +551,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     uint64_t InstLen;
     for (uint64_t A = Addr; A < Addr + Size; A += InstLen) {
-      const uint8_t *Ptr = static_cast<const uint8_t *>(B::cached::toMappedAddr(cachedb, A));
+      const uint8_t *Ptr = static_cast<const uint8_t *>(B::cached::toMappedAddr(cb, A));
       if (!Ptr)
         throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
@@ -615,7 +615,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 #endif
 
     _control_flow_to(
-        b, cachedb, T.Addr ?: Addr, Target, Speculative,
+        b, cb, T.Addr ?: Addr, Target, Speculative,
         basic_block_of_index(Idx, ICFG) /* unused if !Speculative */);
   };
 
@@ -659,7 +659,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     assert(T.Addr);
     function_index_t CalleeFIdx =
-        _explore_function(b, cachedb, CalleeAddr, Speculative);
+        _explore_function(b, cb, CalleeAddr, Speculative);
 
     assert(is_function_index_valid(CalleeFIdx));
 
@@ -727,7 +727,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 template <bool MT, bool MinSize>
 void explorer_t<MT, MinSize>::_control_flow_to(
     binary_t &b,
-    B::cached::type<> &cachedb,
+    B::cached::type<> &cb,
     const taddr_t TermAddr,
     const taddr_t Target,
     const bool Speculative, bb_t bb /* unused if !Speculative */) {
@@ -738,7 +738,7 @@ void explorer_t<MT, MinSize>::_control_flow_to(
 
   basic_block_index_t SuccBBIdx = invalid_basic_block_index;
   try {
-    SuccBBIdx = _explore_basic_block<false>(b, cachedb, Target, Speculative);
+    SuccBBIdx = _explore_basic_block<false>(b, cb, Target, Speculative);
   } catch (const invalid_control_flow_exception &e) {
     if (1 /* IsVerbose() */)
       llvm::errs() << llvm::formatv(
@@ -766,19 +766,19 @@ void explorer_t<MT, MinSize>::_control_flow_to(
 
 template <bool MT, bool MinSize>
 basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(binary_t &b,
-                                                                 B::cached::type<> &cachedb,
+                                                                 B::cached::type<> &cb,
                                                                  taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<false>(b, cachedb, Addr, false);
+  return _explore_basic_block<false>(b, cb, Addr, false);
 }
 
 template <bool MT, bool MinSize>
 basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(
     binary_t &b,
-    B::cached::type<> &cachedb,
+    B::cached::type<> &cb,
     taddr_t Addr,
     onblockproc_t<MT> obp,
     onblockproc_u_t obp_u) {
@@ -786,19 +786,19 @@ basic_block_index_t explorer_t<MT, MinSize>::explore_basic_block(
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<true>(b, cachedb, Addr, false, invalid_function_index,
+  return _explore_basic_block<true>(b, cb, Addr, false, invalid_function_index,
                                     obp, obp_u);
 }
 
 template <bool MT, bool MinSize>
 function_index_t explorer_t<MT, MinSize>::explore_function(binary_t &b,
-                                                           B::cached::type<> &cachedb,
+                                                           B::cached::type<> &cb,
                                                            taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_function(b, cachedb, Addr, false);
+  return _explore_function(b, cb, Addr, false);
 }
 
 #include "relocs_common.hpp"
@@ -806,9 +806,9 @@ function_index_t explorer_t<MT, MinSize>::explore_function(binary_t &b,
 template <bool MT, bool MinSize>
 void explorer_t<MT, MinSize>::explore_binary(
     binary_t &b,
-    B::cached::type<> &cachedb,
+    B::cached::type<> &cb,
     const AddOptions_t &Options) {
-  B::ref Bin = cachedb.first.get();
+  B::ref Bin = cb.first.get();
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
@@ -832,7 +832,7 @@ void explorer_t<MT, MinSize>::explore_binary(
       llvm::errs() << llvm::formatv("exploring {0}:{1:x}\n", b.Name.c_str(),
                                     Entrypoint);
 
-    return this->explore_basic_block(b, cachedb, Entrypoint);
+    return this->explore_basic_block(b, cb, Entrypoint);
   };
   auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
     if (!Entrypoint)
@@ -842,7 +842,7 @@ void explorer_t<MT, MinSize>::explore_binary(
     if (unlikely(!is_basic_block_index_valid(BasicBlockAtAddress(Entrypoint))))
       return invalid_function_index;
 
-    return this->explore_function(b, cachedb, Entrypoint);
+    return this->explore_function(b, cb, Entrypoint);
   };
   auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
     function_index_t FIdx = FunctionAtAddress(Entrypoint);
@@ -1365,13 +1365,13 @@ void explorer_t<MT, MinSize>::explore_binary(
   );
 
   if (Options.SjLj)
-    ScanForSjLj(b, cachedb, *this);
+    ScanForSjLj(b, cb, *this);
 }
 
 template <bool MT, bool MinSize>
 bool explorer_t<MT, MinSize>::fix_ambiguous_indirect_jump(
     binary_t &b,
-    B::cached::type<> &cachedb,
+    B::cached::type<> &cb,
     taddr_t TermAddr) {
   std::vector<taddr_t> SuccAddrVec;
 
@@ -1407,7 +1407,7 @@ bool explorer_t<MT, MinSize>::fix_ambiguous_indirect_jump(
                  SuccAddrVec.end(),
                  SuccFIdxVec.begin(), [&](taddr_t Addr) -> function_index_t {
                    function_index_t res =
-                       this->explore_function(b, cachedb, Addr);
+                       this->explore_function(b, cb, Addr);
                    assert(is_function_index_valid(res));
                    return res;
                  });

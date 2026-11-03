@@ -14,11 +14,11 @@ namespace jove {
 
 template <bool MT, bool MinSize>
 void ScanForSjLj(binary_base_t<MT, MinSize> &b,
-                 B::cached::type<> &cachedb,
+                 B::cached::type<> &cb,
                  explorer_t<MT, MinSize> &E) {
   auto &ICFG = b.Analysis.ICFG;
 
-  B::ref Bin = cachedb.first.get();
+  B::ref Bin = cb.first.get();
 
   std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
@@ -508,7 +508,7 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     if (E.IsVerbose())
       OS << llvm::formatv("found setjmp @ {0}:{1:x}\n", b.Name.c_str(), A);
 
-    basic_block_index_t BBIdx = E.explore_basic_block(b, cachedb, A);
+    basic_block_index_t BBIdx = E.explore_basic_block(b, cb, A);
     assert(is_basic_block_index_valid(BBIdx));
 
     ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
@@ -518,7 +518,7 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     if (E.IsVerbose())
       OS << llvm::formatv("found longjmp @ {0}:{1:x}\n", b.Name.c_str(), A);
 
-    basic_block_index_t BBIdx = E.explore_basic_block(b, cachedb, A);
+    basic_block_index_t BBIdx = E.explore_basic_block(b, cb, A);
     assert(is_basic_block_index_valid(BBIdx));
 
     auto &ICFG = b.Analysis.ICFG;

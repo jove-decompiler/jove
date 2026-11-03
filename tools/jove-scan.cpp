@@ -74,11 +74,11 @@ int ScanTool::Run(void) {
 }
 
 void ScanTool::ScanBinary(binary_t &b) {
-  B::cached::type cachedb;
-  B::cached::create(cachedb, b.data());
+  B::cached::type cb;
+  B::cached::create(cb, b.data());
 
   if (opts.What == "sjlj") {
-    ScanForSjLj(b, cachedb, E);
+    ScanForSjLj(b, cb, E);
   } else {
     WithColor::error() << llvm::formatv(
         "do not know how to interpret \"{0}\"\n", opts.What);

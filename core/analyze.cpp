@@ -49,7 +49,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
     std::atomic<uint64_t> &done)
     : options(options), SafeContext(SafeContext), helpers(helpers),
       jv_file(jv_file), jv(jv), state(jv),
-      IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cachedb.first.get())),
+      IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cb.first.get())),
       inflight(inflight), done(done) {
   for_each_function(maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
     (void)f.Analysis.ReverseCGVert(jv);

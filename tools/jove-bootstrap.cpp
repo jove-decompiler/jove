@@ -636,7 +636,7 @@ taddr_t BootstrapTool::pc_of_va(taddr_t Addr, binary_index_t BIdx) {
     return Addr;
   }
 
-  uint64_t off = B::cached::offset_of_va(x.cachedb, Addr);
+  uint64_t off = B::cached::offset_of_va(x.cb, Addr);
   return off + (x.LoadAddr - x.LoadOffset);
 }
 
@@ -654,7 +654,7 @@ taddr_t BootstrapTool::va_of_pc(taddr_t pc, binary_index_t BIdx) {
   }
 
   uint64_t off = pc - (x.LoadAddr - x.LoadOffset);
-  return B::cached::va_of_offset(x.cachedb, off);
+  return B::cached::va_of_offset(x.cb, off);
 }
 
 int BootstrapTool::TracerLoop(pid_t child) {
@@ -1187,7 +1187,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (!TermAddr)
           break;
 
-        if (E->fix_ambiguous_indirect_jump(b, state.for_binary(b).cachedb, TermAddr)) {
+        if (E->fix_ambiguous_indirect_jump(b, state.for_binary(b).cb, TermAddr)) {
           eager_invalidate_block(ICFG[bb], b);
           ++NumChanged;
         }
@@ -1853,7 +1853,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       on_return(child, BIdx, AddrOfRet, RetAddr);
     } else if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx = E->explore_function(
-          TargetBinary, x.cachedb, va_of_pc(TargetAddr, Target.BIdx));
+          TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
 
@@ -1882,7 +1882,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         // non-local goto (aka "long jump")
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
-            TargetBinary, x.cachedb, va_of_pc(TargetAddr, Target.BIdx));
+            TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
 
         assert(is_basic_block_index_valid(BBIdx));
 
@@ -1908,7 +1908,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
         if (isTailCall) {
           function_index_t FIdx = E->explore_function(
-              TargetBinary, x.cachedb, va_of_pc(TargetAddr, Target.BIdx));
+              TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
 
@@ -1933,7 +1933,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           trapmap.at(SavedPC).DT = 1;
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
-              TargetBinary, x.cachedb, va_of_pc(TargetAddr, Target.BIdx));
+              TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, TargetICFG);
@@ -2847,12 +2847,12 @@ BootstrapTool::function_at_program_counter(pid_t child, taddr_t pc) {
   assert(x.Loaded());
 
   basic_block_index_t BBIdx =
-      E->explore_basic_block(binary, x.cachedb, va_of_pc(pc, BIdx));
+      E->explore_basic_block(binary, x.cb, va_of_pc(pc, BIdx));
   if (!is_basic_block_index_valid(BBIdx))
     return std::make_pair(BIdx, invalid_function_index);
 
   function_index_t FIdx =
-      E->explore_function(binary, x.cachedb, va_of_pc(pc, BIdx));
+      E->explore_function(binary, x.cb, va_of_pc(pc, BIdx));
 
   /* FIXME is new? */
   eager_invalidate_block(binary.Analysis.ICFG[basic_block_of_index(binary.Analysis.Functions.at(FIdx).Entry, binary)], binary);
@@ -2872,7 +2872,7 @@ BootstrapTool::block_at_program_counter(pid_t child, taddr_t pc) {
   assert(x.Loaded());
 
   basic_block_index_t BBIdx =
-      E->explore_basic_block(binary, x.cachedb, va_of_pc(pc, BIdx));
+      E->explore_basic_block(binary, x.cb, va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, BBIdx);
 }
@@ -2972,7 +2972,7 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
 
           taddr_t Addr;
           try {
-            Addr = B::cached::va_of_offset(x.cachedb, off);
+            Addr = B::cached::va_of_offset(x.cb, off);
 
             symbolizer_t *const psymbolizer = symbolizer.get();
             if (psymbolizer) {

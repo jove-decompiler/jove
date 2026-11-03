@@ -135,7 +135,7 @@ struct llvm_t {
   using unordered_set = boost::unordered::unordered_flat_set<Args...>;
 
   struct binary_state_t {
-    B::cached::type<section_extra_t> cachedb;
+    B::cached::type<section_extra_t> cb;
     struct {
       elf::DynRegionInfo DynamicTable;
       llvm::StringRef DynamicStringTable;
@@ -158,12 +158,12 @@ struct llvm_t {
     uint64_t SectsEndAddr = 0;
 
     binary_state_t(const binary_t &b) {
-      B::cached::create(cachedb, b.data());
+      B::cached::create(cb, b.data());
 
       std::tie(SectsStartAddr, SectsEndAddr) =
-          B::bounds_of_binary(cachedb.first.get());
+          B::bounds_of_binary(cb.first.get());
 
-      B::_elf(cachedb.first.get(), [&](ELFO &O) {
+      B::_elf(cb.first.get(), [&](ELFO &O) {
         elf::loadDynamicTable(O, _elf.DynamicTable);
 
         if (_elf.DynamicTable.Addr) {
@@ -176,7 +176,7 @@ struct llvm_t {
         }
       });
 
-      B::_coff(cachedb.first.get(), [&](COFFO &O) {
+      B::_coff(cb.first.get(), [&](COFFO &O) {
         coff::for_each_exported_function(
             O, [&](uint32_t Ordinal, llvm::StringRef Name, uint64_t RVA) {
               _coff.Name2RVA.emplace(Name, RVA);
@@ -449,11 +449,11 @@ public:
       BinaryIndex(options.BinaryIndex),
       Binary(jv.Binaries.at(options.BinaryIndex)),
       x(state.for_binary(Binary)),
-      IsCOFF(B::is_coff(x.cachedb.first.get())),
-      NumSections(x.cachedb.second.svec.size()),
-      SectMap(x.cachedb.second.amap),
-      SectTable(x.cachedb.second.svec),
-      SectIdxMap(x.cachedb.second.amap),
+      IsCOFF(B::is_coff(x.cb.first.get())),
+      NumSections(x.cb.second.svec.size()),
+      SectMap(x.cb.second.amap),
+      SectTable(x.cb.second.svec),
+      SectIdxMap(x.cb.second.amap),
       disas(disas),
       DL("")
 {}

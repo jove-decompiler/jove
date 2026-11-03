@@ -35,7 +35,7 @@ struct binary_state_t {
            LoadOffset != std::numeric_limits<taddr_t>::max();
   }
 
-  B::cached::type<> cachedb;
+  B::cached::type<> cb;
   struct {
     elf::DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
@@ -49,11 +49,11 @@ struct binary_state_t {
     elf::DynRegionInfo DynPLTRelRegion;
   } _elf;
 
-  B::unique_ptr &Bin(void) { return cachedb.first; }
-  B::sections_t<> &sections(void) { return cachedb.second; }
+  B::unique_ptr &Bin(void) { return cb.first; }
+  B::sections_t<> &sections(void) { return cb.second; }
 
   binary_state_t(const auto &b) {
-    B::cached::create(cachedb, b.data());
+    B::cached::create(cb, b.data());
 
     B::_elf(Bin().get(), [&](ELFO &Obj) {
     elf::loadDynamicTable(Obj, _elf.DynamicTable);

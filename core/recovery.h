@@ -26,9 +26,9 @@ class recoverer_base_t {
   boost::optional<symbolizer_t &> symbolizer;
 
   struct binary_state_t {
-    B::cached::type<> cachedb;
+    B::cached::type<> cb;
 
-    binary_state_t(const binary_t &b) { B::cached::create(cachedb, b.data()); }
+    binary_state_t(const binary_t &b) { B::cached::create(cb, b.data()); }
   };
 
   jv_state_t<binary_state_t, void, void, MT, MinSize> state;

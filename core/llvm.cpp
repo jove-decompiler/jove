@@ -502,7 +502,7 @@ static bool is_builtin_sym(const std::string &);
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::go(void) {
-  aassert(x.cachedb.first.get());
+  aassert(x.cb.first.get());
 
   if (IsCOFF) {
     if (!options.ForeignLibs)
@@ -544,7 +544,7 @@ int llvm_t<MT, MinSize>::go(void) {
     for_each_binary_if(
         jv,
         [&](auto &b) -> bool {
-          return state.for_binary(b).cachedb.first.get() &&
+          return state.for_binary(b).cb.first.get() &&
                  state.for_binary(b)._elf.OptionalDynSymRegion;
         },
         [&](auto &b) {
@@ -583,7 +583,7 @@ int llvm_t<MT, MinSize>::go(void) {
   for_each_binary_if(
       jv,
       [&](auto &b) -> bool {
-        return state.for_binary(b).cachedb.first.get() != nullptr &&
+        return state.for_binary(b).cb.first.get() != nullptr &&
                state.for_binary(b)._elf.OptionalDynSymRegion;
       },
       [&](auto &b) {
@@ -626,7 +626,7 @@ int llvm_t<MT, MinSize>::go(void) {
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
 
-  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
+  B::_elf(x.cb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -777,7 +777,7 @@ int llvm_t<MT, MinSize>::go(void) {
       (rc = CreatePossibleTramps()))
     return rc;
 
-  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
+  B::_elf(x.cb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -1024,7 +1024,7 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
                                          state.for_binary(b).SectsStartAddr);
     });
 
-    B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
+    B::_elf(x.cb.first.get(), [&](ELFO &O) {
       loadDynamicRelocations(O,
                              x._elf.DynamicTable,
                              x._elf.DynRelRegion,
@@ -1037,7 +1037,7 @@ int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
     if (!b.is_file())
       return;
 
-    if (B::is_coff(state.for_binary(b).cachedb.first.get()))
+    if (B::is_coff(state.for_binary(b).cb.first.get()))
       _coff.DLL2Binary.emplace(
           lowered_string(fs::path(b.path_str()).filename().string()),
           index_of_binary(b, jv));
@@ -1711,7 +1711,7 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   auto &b = jv.Binaries.at(BinaryIndex);
 
-  B::_elf(state.for_binary(b).cachedb.first.get(), [&](ELFO &O) {
+  B::_elf(state.for_binary(b).cb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -1982,7 +1982,7 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
-  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
+  B::_elf(x.cb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -2855,8 +2855,8 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
 
     binary_state_t &x = state.for_binary(jv.Binaries.at((*b_it).second));
 
-    assert(B::is_coff(x.cachedb.first.get()));
-    COFFO &O = llvm::cast<COFFO>(*x.cachedb.first);
+    assert(B::is_coff(x.cb.first.get()));
+    COFFO &O = llvm::cast<COFFO>(*x.cb.first);
 
     bool isCode = true;
 
@@ -3035,7 +3035,7 @@ void llvm_t<MT, MinSize>::elf_compute_tpoff_relocation(IRBuilderTy &IRB,
 
 template <bool MT, bool MinSize>
 uint64_t llvm_t<MT, MinSize>::ExtractWordAtAddress(uint64_t Addr) {
-  auto &Bin = x.cachedb.first;
+  auto &Bin = x.cb.first;
 
   const void *Ptr = B::toMappedAddr(Bin.get(), Addr);
   return B::extractAddress(Bin.get(), Ptr);
@@ -3085,7 +3085,7 @@ struct unhandled_relocation_exception {};
 template <bool MT, bool MinSize>
 template <bool LayOutSections>
 int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
-  auto &Bin = x.cachedb.first;
+  auto &Bin = x.cb.first;
 
   struct PatchContents {
     llvm_t &tool;
@@ -3107,7 +3107,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
       Saved.resize(Binary.Analysis.Functions.size());
 
-      auto &Bin = tool.x.cachedb.first;
+      auto &Bin = tool.x.cb.first;
 
       //
       // backup
@@ -3140,7 +3140,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       if (!tool.options.PlaceSectionBreakpoints)
         return;
 
-      auto &Bin = tool.x.cachedb.first;
+      auto &Bin = tool.x.cb.first;
 
       //
       // restore
@@ -3193,7 +3193,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 #endif
 
   assert(NumSections > 0);
-  const auto sortedsr = x.cachedb.second.sorted_by_addr();
+  const auto sortedsr = x.cb.second.sorted_by_addr();
 
   if (B::is_coff(Bin.get())) {
     auto it = std::ranges::find_if(sortedsr, [](const auto &section) -> bool {
@@ -3535,7 +3535,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       auto &section = *it;
       const unsigned i = std::distance(beg, it);
 
-      auto Contents = B::contents_of_section(x.cachedb.first.get(), section);
+      auto Contents = B::contents_of_section(x.cb.first.get(), section);
 
       if (options.IsVeryVerbose())
         llvm::errs() << llvm::formatv(
@@ -3677,7 +3677,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     auto it = intvl_map_find(SectIdxMap, Addr);
     assert(it != SectIdxMap.end());
     auto &section = SectTable[(*it).second];
-    auto Contents = B::contents_of_section(x.cachedb.first.get(), section);
+    auto Contents = B::contents_of_section(x.cb.first.get(), section);
     const unsigned Off = Addr - section.addr();
 
     if (is_integral_size(Size)) {
@@ -3867,7 +3867,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
   auto clear_section_stuff = [&](void) -> void {
     ConstantRelocations.clear();
-    for (auto &section : x.cachedb.second.sorted_by_addr()) {
+    for (auto &section : x.cb.second.sorted_by_addr()) {
       section.extra.Stuff.Constants.clear();
       section.extra.Stuff.Types.clear();
       section.extra.Stuff.Intervals.clear();
@@ -4638,7 +4638,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   // Global Ctors/Dtors
   //
   // XXX this should go somewhere else
-  for (auto &section : x.cachedb.second.sorted_by_addr()) {
+  for (auto &section : x.cb.second.sorted_by_addr()) {
     const bool InInitArray = section._elf.init;
     const bool InFiniArray = section._elf.fini;
     if (!InInitArray && !InFiniArray)
@@ -4795,12 +4795,12 @@ llvm_t<MT, MinSize>::decipher_copy_relocation(const elf::RelSymbol &S) {
     if (b.IsDynamicLinker)
       continue;
 
-    if (!state.for_binary(b).cachedb.first)
+    if (!state.for_binary(b).cb.first)
       continue;
 
     if (auto MaybeRes = B::_must_be_elf<std::optional<
             std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>>(
-            state.for_binary(b).cachedb.first.get(),
+            state.for_binary(b).cb.first.get(),
             [&](ELFO &Obj)
                 -> std::optional<
                     std::pair<binary_index_t, std::pair<uint64_t, unsigned>>> {
@@ -4874,7 +4874,7 @@ template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
   std::map<uint64_t, llvm::Function *> ManualRelocs;
 
-  B::_elf(x.cachedb.first.get(), [&](ELFO &O) {
+  B::_elf(x.cb.first.get(), [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
 
   auto OptionalDynSymRegion = x._elf.OptionalDynSymRegion;
@@ -5169,7 +5169,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
               return llvm::ConstantInt::get(
                   WordType(),
                   B::offset_of_va(
-                      state.for_binary(dynl_binary).cachedb.first.get(),
+                      state.for_binary(dynl_binary).cb.first.get(),
                       ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
@@ -5204,7 +5204,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
               return llvm::ConstantInt::get(
                   WordType(),
                   B::offset_of_va(
-                      state.for_binary(vdso_binary).cachedb.first.get(),
+                      state.for_binary(vdso_binary).cb.first.get(),
                       ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
@@ -5270,7 +5270,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
               auto &binary = jv.Binaries.at(BIdx);
               auto &ICFG = binary.Analysis.ICFG;
 
-              auto &Bin = state.for_binary(binary).cachedb.first;
+              auto &Bin = state.for_binary(binary).cb.first;
 
               llvm::ArrayType *TblTy =
                 llvm::ArrayType::get(WordType(),
@@ -7473,7 +7473,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     unsigned len;
 
     try {
-      std::tie(len, T) = TCG.translate(x.cachedb, Addr + size, Addr + Size);
+      std::tie(len, T) = TCG.translate(x.cb, Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
                                           Addr);

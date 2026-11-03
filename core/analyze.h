@@ -10,7 +10,7 @@ namespace jove {
 
 // returns whether the block was actually analyzed
 template <typename extra_t>
-bool AnalyzeBasicBlock(B::cached::type<extra_t> &cachedb,
+bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
                        bbprop_t &bbprop,
                        tiny_code_generator_t<extra_t> &TCG,
                        tcg_helpers_t &helpers,
@@ -22,7 +22,7 @@ bool AnalyzeBasicBlock(B::cached::type<extra_t> &cachedb,
     bbprop.Analysis.Stale.clear(boost::memory_order_release);
   };
 
-  const bool IsCOFF = B::is_coff(cachedb.first.get());
+  const bool IsCOFF = B::is_coff(cb.first.get());
 
   const auto Addr = bbprop.Addr;
   const auto Size = bbprop.Size;
@@ -41,7 +41,7 @@ bool AnalyzeBasicBlock(B::cached::type<extra_t> &cachedb,
   do {
     unsigned len;
     try {
-      std::tie(len, T) = TCG.translate(cachedb, Addr + size, Addr + Size);
+      std::tie(len, T) = TCG.translate(cb, Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       break;
     }
@@ -136,9 +136,9 @@ struct analyzer_t {
   using exit_vertex_pair_t = std::pair<flow_vertex_t, bool>;
 
   struct binary_state_t {
-    B::cached::type<> cachedb;
+    B::cached::type<> cb;
 
-    binary_state_t(const binary_t &b) { B::cached::create(cachedb, b.data()); }
+    binary_state_t(const binary_t &b) { B::cached::create(cb, b.data()); }
   };
 
   struct function_state_t {
@@ -198,7 +198,7 @@ struct analyzer_t {
         jv, [&](binary_t &b, bb_t bb) {
             auto &ICFG = b.Analysis.ICFG;
             auto &bbprop = ICFG[bb];
-            if (AnalyzeBasicBlock(state.for_binary(b).cachedb,
+            if (AnalyzeBasicBlock(state.for_binary(b).cb,
                                   bbprop,
                                   tcg,
                                   helpers,

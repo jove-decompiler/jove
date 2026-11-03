@@ -48,9 +48,9 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  B::cached::type<> cachedb;
+  B::cached::type<> cb;
 
-  binary_state_t(const auto &b) { B::cached::create(cachedb, b.data()); }
+  binary_state_t(const auto &b) { B::cached::create(cb, b.data()); }
 };
 
 }
@@ -375,7 +375,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 public:
   LoopTool()
       : opts(JoveCategory),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cachedb.first.get())),
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cb.first.get())),
         SavedNumBinaries(jv.Binaries.size()) {}
 
   int Run(void) override;

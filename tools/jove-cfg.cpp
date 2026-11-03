@@ -41,9 +41,9 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  B::cached::type<> cachedb;
+  B::cached::type<> cb;
 
-  binary_state_t(const auto &b) { B::cached::create(cachedb, b.data()); }
+  binary_state_t(const auto &b) { B::cached::create(cb, b.data()); }
 };
 
 }
@@ -202,7 +202,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   for (uint64_t A = G[V].Addr; A < End; A += InstLen) {
     llvm::MCInst Inst;
 
-    const void *ExpectedContents = B::cached::toMappedAddr(x.cachedb, A);
+    const void *ExpectedContents = B::cached::toMappedAddr(x.cb, A);
     if (!ExpectedContents)
       break;
 
@@ -343,7 +343,7 @@ int CFGTool::Run(void) {
   auto &x = state.for_binary(b);
   Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
   if (opts.Off)
-    Addr = B::cached::va_of_offset(x.cachedb, Addr);
+    Addr = B::cached::va_of_offset(x.cb, Addr);
 
   basic_block_index_t source_BBIdx = invalid_basic_block_index;
   if (exists_function_at_address(b, Addr)) {
