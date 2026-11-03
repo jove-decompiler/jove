@@ -113,7 +113,7 @@ class CFGTool
   binary_index_t BinaryIndex = invalid_binary_index;
 
   disas_t disas;
-  tiny_code_generator_t<> TCG;
+  tiny_code_generator_t<> tcg;
 
 public:
   uint64_t Addr = 0x0;

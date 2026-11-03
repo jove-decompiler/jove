@@ -194,7 +194,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   symbolizer_t symbolizer;
 
-  std::unique_ptr<tiny_code_generator_t> TCG;
+  std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> Disas;
 
   void gather_all_perf_data_files(std::vector<std::string> &out);
@@ -266,7 +266,7 @@ int IPTTool::Run(void) {
     }
   }
 
-  TCG = std::make_unique<tiny_code_generator_t>();
+  tcg = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
@@ -660,10 +660,10 @@ int IPTTool::Analyze(void) {
   std::unique_ptr<explorer_t<false, IsToolMinSize>> st_Explorer;
 
   if constexpr (IsToolMT) {
-    mt_Explorer = MakeExplorer<true, IsToolMinSize>(jv_file, jv, *Disas, *TCG,
+    mt_Explorer = MakeExplorer<true, IsToolMinSize>(jv_file, jv, *Disas, *tcg,
                                                     GetVerbosityLevel());
   } else {
-    st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, jv, *Disas, *TCG,
+    st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, jv, *Disas, *tcg,
                                                      GetVerbosityLevel());
   }
 
@@ -779,7 +779,7 @@ int IPTTool::Analyze(void) {
   if constexpr (IsToolMT) {
     if (jv2)
       st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, *jv2, *Disas,
-                                                       *TCG, GetVerbosityLevel());
+                                                       *tcg, GetVerbosityLevel());
   }
 
   std::vector<char *> ptdump_argv;

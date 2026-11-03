@@ -425,8 +425,8 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
   SafeLLVMContext SafeContext;
 
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
-    tiny_code_generator_t<> TCG;
-    tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+    tiny_code_generator_t<> tcg;
+    tcg_helpers_t helpers(tcg, SafeContext, analyzer_options);
 
     bool IsCOFF = false;
 
@@ -460,7 +460,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     analyzer.identify_Sjs();
     analyzer.refine_analyses();
 
-    (int)(analyzer.analyze_blocks(TCG) || analyzer.analyze_functions());
+    (int)(analyzer.analyze_blocks(tcg) || analyzer.analyze_functions());
     });
 
     if (rc)
@@ -469,7 +469,7 @@ int ServerTool::ConnectionProc(const ConnectionProcArgs &args) {
     fs::create_directory(sysroot_dir);
 
     rc = ({
-    recompiler_t recompiler(jv, recompiler_options, TCG, helpers, disas, locator());
+    recompiler_t recompiler(jv, recompiler_options, tcg, helpers, disas, locator());
     recompiler.go();
     });
 

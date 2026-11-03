@@ -44,7 +44,7 @@ class TCGDumpTool : public Tool {
         : Binary(cl::Positional, cl::desc("<binary>"), cl::Required,
                  cl::cat(JoveCategory)),
 
-          DoTCGOpt("do-tcg-opt", cl::desc("Run QEMU TCG optimizations"),
+          DoTCGOpt("do-tcg-opt", cl::desc("Run QEMU tcg optimizations"),
                    cl::cat(JoveCategory)),
 
           BreakOnAddr("break-on-addr",
@@ -143,7 +143,7 @@ int TCGDumpTool::Run(void) {
       printf("\n");
 
       //
-      // print TCG
+      // print tcg
       //
       tcg.dump_ops(stdout);
 

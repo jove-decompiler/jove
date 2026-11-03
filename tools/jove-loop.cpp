@@ -249,7 +249,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               "pinned-globals", cl::CommaSeparated,
               cl::value_desc("glb_1,glb_2,...,glb_n"),
               cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
+                  "force specified tcg globals to always go through CPUState"),
               cl::cat(JoveCategory)),
 
           ChangeDirectory("cd",
@@ -448,7 +448,7 @@ int LoopTool::Run(void) {
   SetupSignalsRedirection(ToRedirect, *this,
                           std::bind(&LoopTool::get_child_pid, this));
 
-  tiny_code_generator_t<> TCG;
+  tiny_code_generator_t<> tcg;
 
 #ifndef JOVE_NO_BACKEND
   boost::concurrent_flat_set<dynamic_target_t> inflight;
@@ -457,7 +457,7 @@ int LoopTool::Run(void) {
   recompiler_options_t recompiler_options;
 
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    int idx = tcg.tcg_index_of_named_global(PinnedGlobalName.c_str());
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
@@ -500,7 +500,7 @@ int LoopTool::Run(void) {
   disas_t disas;
   SafeLLVMContext SafeContext;
 
-  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+  tcg_helpers_t helpers(tcg, SafeContext, analyzer_options);
 
   analyzer_t analyzer(analyzer_options,
                       SafeContext,
@@ -509,7 +509,7 @@ int LoopTool::Run(void) {
 
   recompiler_t recompiler(jv,
                           recompiler_options,
-                          TCG,
+                          tcg,
                           helpers,
                           disas,
                           locator());
@@ -1311,13 +1311,13 @@ skip_run:
       if (LaunchedLLVM && opts.Daemonize) {
         invalidated.resize(jv.Binaries.size());
 
-        int rc = analyzer.analyze_blocks(TCG, invalidated);
+        int rc = analyzer.analyze_blocks(tcg, invalidated);
         if (rc)
           return rc;
 
         rc = analyzer.analyze_functions(invalidated);
       } else {
-        rc = (analyzer.analyze_blocks(TCG) || analyzer.analyze_functions());
+        rc = (analyzer.analyze_blocks(tcg) || analyzer.analyze_functions());
       }
 #endif
 

@@ -15,7 +15,7 @@ extern "C" {
 
 //
 // The following include a *minimal* subset of QEMU which is, roughly speaking,
-// semantically equivalent C/C++, and which allow us to make use of the TCG.
+// semantically equivalent C/C++, and which allow us to make use of the tcg.
 //
 
 #if defined(__x86_64__)

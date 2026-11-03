@@ -95,7 +95,7 @@ struct LLVMTool : public JVTool<ToolKind::Standard> {
               cl::cat(JoveCategory)),
 
           DumpTCG("dump-tcg",
-                  cl::desc("Dump TCG operations when translating basic blocks"),
+                  cl::desc("Dump tcg operations when translating basic blocks"),
                   cl::cat(JoveCategory)),
           ForAddr("for-addr", cl::desc("Do stuff for the given address"),
                   cl::cat(JoveCategory)),
@@ -145,7 +145,7 @@ struct LLVMTool : public JVTool<ToolKind::Standard> {
               "pinned-globals", cl::CommaSeparated,
               cl::value_desc("glb_1,glb_2,...,glb_n"),
               cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
+                  "force specified tcg globals to always go through CPUState"),
               cl::cat(JoveCategory)),
 
           ABICalls("abi-calls",
@@ -266,11 +266,11 @@ int LLVMTool::Run(void) {
 
   analyzer_options.ForCBE = options.ForCBE; // XXX
 
-  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> TCG;
-  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> tcg;
+  tcg_helpers_t helpers(tcg, SafeContext, analyzer_options);
 
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    int idx = tcg.tcg_index_of_named_global(PinnedGlobalName.c_str());
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
@@ -281,7 +281,7 @@ int LLVMTool::Run(void) {
   llvm_t llvm(jv,
               options,
               analyzer_options,
-              TCG,
+              tcg,
               helpers,
               disas,
               locator());

@@ -12,7 +12,7 @@ namespace jove {
 template <typename extra_t>
 bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
                        bbprop_t &bbprop,
-                       tiny_code_generator_t<extra_t> &TCG,
+                       tiny_code_generator_t<extra_t> &tcg,
                        tcg_helpers_t &helpers,
                        analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.test(boost::memory_order_acquire))
@@ -41,14 +41,14 @@ bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
   do {
     unsigned len;
     try {
-      std::tie(len, T) = TCG.translate(cb, Addr + size, Addr + Size);
+      std::tie(len, T) = tcg.translate(cb, Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       break;
     }
 
-    TCG.for_each_operation([&](void *op) {
+    tcg.for_each_operation([&](void *op) {
       tcg_global_set_t iglbs, oglbs;
-      std::tie(iglbs, oglbs) = TCG.analyze_operation(helpers, op);
+      std::tie(iglbs, oglbs) = tcg.analyze_operation(helpers, op);
 
       bbprop.Analysis.live.use |= (iglbs & ~bbprop.Analysis.live.def);
       bbprop.Analysis.live.def |= (oglbs & ~bbprop.Analysis.live.use);

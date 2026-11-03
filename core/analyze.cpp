@@ -540,7 +540,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   //
 #if 0
   for (bb_t bb : bbvec)
-    AnalyzeBasicBlock(TCG, helpers, *Module, state.for_binary(b).Bin.get(),
+    AnalyzeBasicBlock(tcg, helpers, *Module, state.for_binary(b).Bin.get(),
                       ICFG[bb], options);
 #endif
 

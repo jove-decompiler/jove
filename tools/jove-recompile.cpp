@@ -112,7 +112,7 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
               "pinned-globals", cl::CommaSeparated,
               cl::value_desc("glb_1,glb_2,...,glb_n"),
               cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
+                  "force specified tcg globals to always go through CPUState"),
               cl::cat(JoveCategory)),
 
           ABICalls("abi-calls",
@@ -184,10 +184,10 @@ JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
 int RecompileTool::Run(void) {
   disas_t disas;
-  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> TCG;
+  tiny_code_generator_t<typename llvm_t<IsToolMT, IsToolMinSize>::section_extra_t> tcg;
 
   for (const std::string &PinnedGlobalName : opts.PinnedEnvGlbs) {
-    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    int idx = tcg.tcg_index_of_named_global(PinnedGlobalName.c_str());
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
@@ -227,9 +227,9 @@ int RecompileTool::Run(void) {
   SafeLLVMContext SafeContext;
 
   analyzer_options_t analyzer_options = options.to_analyzer_options();
-  tcg_helpers_t helpers(TCG, SafeContext, analyzer_options);
+  tcg_helpers_t helpers(tcg, SafeContext, analyzer_options);
 
-  recompiler_t recompiler(jv, options, TCG, helpers, disas, locator());
+  recompiler_t recompiler(jv, options, tcg, helpers, disas, locator());
   return recompiler.go();
 }
 

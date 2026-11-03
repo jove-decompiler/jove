@@ -59,7 +59,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
               "pinned-globals", cl::CommaSeparated,
               cl::value_desc("glb_1,glb_2,...,glb_n"),
               cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
+                  "force specified tcg globals to always go through CPUState"),
               cl::cat(JoveCategory)),
 
           Conservative(
@@ -99,7 +99,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
   analyzer_options_t analyzer_options;
 
-  tiny_code_generator_t<> TCG;
+  tiny_code_generator_t<> tcg;
   tcg_helpers_t helpers;
 
   analyzer_t<IsToolMT, IsToolMinSize> analyzer;
@@ -111,7 +111,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 public:
   AnalyzeTool()
       : opts(JoveCategory),
-        helpers(TCG,
+        helpers(tcg,
                 SafeContext,
                 analyzer_options),
         analyzer(analyzer_options,
@@ -128,7 +128,7 @@ typedef boost::format fmt;
 
 int AnalyzeTool::Run(void) {
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    int idx = tcg.tcg_index_of_named_global(PinnedGlobalName.c_str());
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
@@ -151,7 +151,7 @@ int AnalyzeTool::Run(void) {
 }
 
 int AnalyzeTool::AnalyzeBlocks(void) {
-  return analyzer.analyze_blocks(TCG);
+  return analyzer.analyze_blocks(tcg);
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {

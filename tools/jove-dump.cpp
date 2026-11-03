@@ -81,7 +81,7 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
         cl::cat(JoveCategory)),
 
       TCGGlobalNames("tcg-names",
-                     cl::desc("Translate TCG global set bits into names"),
+                     cl::desc("Translate tcg global set bits into names"),
                      cl::init(true), cl::cat(JoveCategory)),
 
       Symbolize("symbolize", cl::desc("Whether to run addr2line"),
@@ -93,7 +93,7 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
       {}
   } opts;
 
-  std::unique_ptr<tiny_code_generator_t<>> TCG;
+  std::unique_ptr<tiny_code_generator_t<>> tcg;
   std::unique_ptr<symbolizer_t> symbolizer;
 
 public:
@@ -114,7 +114,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
     symbolizer = std::make_unique<symbolizer_t>(jv, locator(), opts.Addr2Line);
 
   if (opts.TCGGlobalNames)
-    TCG = std::make_unique<tiny_code_generator_t<>>();
+    tcg = std::make_unique<tiny_code_generator_t<>>();
 
   std::unique_ptr<llvm::raw_fd_ostream> ostream;
   if (!opts.Output.empty()) {
@@ -254,7 +254,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
                 std::transform(glbv.begin(), glbv.end(), descv.begin(),
                                [&](unsigned glb) -> std::string {
-                                 return TCG->tcg_name_of_global(glb);
+                                 return tcg->tcg_name_of_global(glb);
                                });
 
                 Writer.printList("def", descv);
@@ -273,7 +273,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
                 std::transform(glbv.begin(), glbv.end(), descv.begin(),
                                [&](unsigned glb) -> std::string {
-                                 return TCG->tcg_name_of_global(glb);
+                                 return tcg->tcg_name_of_global(glb);
                                });
 
                 Writer.printList("use", descv);
@@ -296,7 +296,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
                 std::transform(glbv.begin(), glbv.end(), descv.begin(),
                                [&](unsigned glb) -> std::string {
-                                 return TCG->tcg_name_of_global(glb);
+                                 return tcg->tcg_name_of_global(glb);
                                });
 
                 Writer.printList("def", descv);
@@ -408,7 +408,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
               std::transform(glbv.begin(), glbv.end(), descv.begin(),
                              [&](unsigned glb) -> std::string {
-                               return TCG->tcg_name_of_global(glb);
+                               return tcg->tcg_name_of_global(glb);
                              });
 
               Writer.printList("Args", descv);
@@ -427,7 +427,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
               std::transform(glbv.begin(), glbv.end(), descv.begin(),
                              [&](unsigned glb) -> std::string {
-                               return TCG->tcg_name_of_global(glb);
+                               return tcg->tcg_name_of_global(glb);
                              });
 
               Writer.printList("Rets", descv);

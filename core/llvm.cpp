@@ -6587,7 +6587,7 @@ int llvm_t<MT, MinSize>::PrepareForCBE(void) {
   assert(options.ForCBE);
 
   //
-  // delete function bodies for TCG helpers
+  // delete function bodies for tcg helpers
   //
   for (llvm::Function *pF : our_helper_table) {
     if (!pF)
@@ -7473,7 +7473,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     unsigned len;
 
     try {
-      std::tie(len, T) = TCG.translate(x.cb, Addr + size, Addr + Size);
+      std::tie(len, T) = tcg.translate(x.cb, Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
                                           Addr);
@@ -7481,7 +7481,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(ForAddrMatch))
-      TCG.dump_ops(stderr);
+      tcg.dump_ops(stderr);
 
     TCGContext *s = get_tcg_context();
 
@@ -7602,7 +7602,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     int ret = TranslateTCGOps(ExitBB, IRB, TC);
     if (unlikely(ret)) {
       WithColor::warning() << "!TranslateTCGOp\n";
-      TCG.dump_ops(stderr);
+      tcg.dump_ops(stderr);
       return ret;
     }
 
@@ -9863,7 +9863,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   goto *jumps[opc];
 
   //
-  // Broadly speaking, for each TCG operation, our C++ code should be:
+  // Broadly speaking, for each tcg operation, our C++ code should be:
   //
   ///*
   //<ANY RELEVANT C CODE>
@@ -9883,7 +9883,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   // In other words, we'd like to be able to just stupidly copy-and-paste the
   // contents of this source file into a ChatGPT prompt,, okay??
   //
-  // We will omit the TCI implementations for those TCG operations which do not
+  // We will omit the TCI implementations for those tcg operations which do not
   // have a straightforward translation, or for where it simply makes no sense
   // to do so. Note: some of these operations do not have a corresponding TCI
   // implementation (this state of things is suboptimal). [1]
