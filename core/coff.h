@@ -101,7 +101,7 @@ static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
     auto &section = out.emplace_back(off, size, va_of_rva(O, Sect.VirtualAddress), length);
 
     const char *const pbeg = &Sect.Name[0];
-    const char *pend = (const char *)memrchr(pbeg, '\0', sizeof(Sect.Name));
+    const char *pend = (const char *)memchr(pbeg, '\0', sizeof(Sect.Name));
     if (!pend)
       pend = &Sect.Name[sizeof(Sect.Name)];
 
@@ -120,7 +120,6 @@ static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
 
   return !out.empty();
 }
-
 
 }
 }
