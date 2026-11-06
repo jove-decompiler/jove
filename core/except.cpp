@@ -62,6 +62,20 @@ bool handle_exceptions(std::function<void(void)> f, std::string &msg) {
     msg.append(taddr2str(x.addr));
     msg.append("\n");
     msg.append(boost::stacktrace::to_string(trace));
+  } catch (const jove::dynamic_assertion_failure_base &x) {
+    auto trace = boost::stacktrace::stacktrace::from_current_exception();
+
+    msg = (fmt(
+      "==================================================\n"
+      "%sJOVE ASSERTION FAILURE%s %s%s (%s)%s\n%s"
+      "==================================================\n")
+      % (st ? __ANSI_BOLD_RED : "")
+      % (st ? __ANSI_NORMAL_COLOR : "")
+      % (st ? __ANSI_YELLOW : "")
+      % x.what()
+      % x.what_more()
+      % (st ? __ANSI_NORMAL_COLOR : "")
+      % boost::stacktrace::to_string(trace)).str();
   } catch (const jove::assertion_failure_base &x) {
     auto trace = boost::stacktrace::stacktrace::from_current_exception();
 
