@@ -81,17 +81,16 @@ using section_amap_t = boost::container::flat_map<addr_intvl, unsigned, addr_int
 
 template <typename extra_t>
 struct sections_t {
-  section_vec_t<extra_t> svec; /* unsorted (original order) */
-
   section_omap_t omap;
   section_amap_t amap;
 
+  section_vec_t<extra_t> svec; /* unsorted (original order) */
+
   auto sorted_by_addr() {
     return amap |
-           std::views::transform(
-               [this](const auto &entry) -> section_t<extra_t> & {
-                 return svec[entry.second];
-               });
+           std::views::transform([this](auto &entry) -> section_t<extra_t> & {
+             return svec[entry.second];
+           });
   }
 };
 
