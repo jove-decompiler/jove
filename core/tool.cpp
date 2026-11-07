@@ -12,6 +12,7 @@
 
 #include <stdexcept>
 #include <fstream>
+#include <locale>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -42,6 +43,13 @@ void RegisterTool(const char *name, ToolCreationProc proc) {
   AllTools.emplace(name, proc);
 }
 
+[[maybe_unused]] void initialize_ctype_cache() {
+  const auto &facet = std::use_facet<std::ctype<char>>(std::locale());
+
+  for (unsigned i = 0; i < 256; ++i)
+    facet.narrow(static_cast<char>(i), '\0');
+}
+
 }
 
 using llvm::WithColor;
@@ -49,6 +57,10 @@ using llvm::WithColor;
 int main(int argc, char **argv) {
   const int saved_argc = argc;
   char **const saved_argv = argv;
+
+#ifdef JOVE_TSAN
+  jove::initialize_ctype_cache();
+#endif
 
 #if !defined(__mips64) && !defined(__mips__) /* ld.lld --wrap is broken on MIPS. FIXME */
   boost::stacktrace::this_thread::set_capture_stacktraces_at_throw(true);
