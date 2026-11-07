@@ -304,7 +304,9 @@ struct BootstrapTool
   unordered_set<binary_index_t> Loaded;
   bool AllLoaded(void) const { return Loaded.size() == jv.Binaries.size(); }
 
-  address_space_t AddressSpace;
+  struct SafeAddressSpace_t : public ip_base_rw_accessible_spin<IsToolMT> {
+    address_space_t m;
+  } SafeAddressSpace;
 
   struct {
     std::string path_to_debug_log;
