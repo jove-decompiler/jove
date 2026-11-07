@@ -1,4 +1,8 @@
 #ifndef JOVE_SYSCALL_NO_PARAM_TYPES
+#ifdef __cplusplus
+#error
+#endif
+
 #define __KERNEL__
 #include "linux.copy.h"
 #undef __KERNEL__
@@ -33,7 +37,7 @@
 #define __PARAM_TY(n, i, data) BOOST_PP_COMMA_IF(i) typename BOOST_PP_CAT(T,EXPANDV_(BOOST_PP_INC(i)))
 
 #if defined(JOVE_SYSCALL_NO_PARAM_TYPES) && defined(__cplusplus)
-#define __HEADER(n) template < BOOST_PP_REPEAT(n, __PARAM_TY, void) >
+#define __HEADER(n) template < /* bool Throw, */ BOOST_PP_REPEAT(n, __PARAM_TY, void) >
 #else
 #define __HEADER(n)
 #endif
@@ -42,6 +46,16 @@
 #define __PARAM(i, t) BOOST_PP_IIF(JOVE_SYSCALL_PARAM_TYPES,t,BOOST_PP_CAT(T,EXPANDV_(i)))
 #else
 #define __PARAM(i, t) BOOST_PP_IIF(JOVE_SYSCALL_PARAM_TYPES,t,unsigned long)
+#endif
+
+#ifdef __cplusplus
+#define __RETURN(ret) do {\
+    if constexpr (Throw) {\
+      if (_ret == -ENOSYS)\
+        throw kernel::unimplemented_system_call(_nr);\
+    } while (0)
+#else
+#define __RETURN(ret) do { return ret; } while (0)
 #endif
 
 // XXX
