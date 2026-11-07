@@ -133,7 +133,7 @@ int CallStackTool::Run(void) {
               auto &b = jv.Binaries.at(BIdx);
               auto &ICFG = b.Analysis.ICFG;
               bb_t bb = basic_block_of_index(BBIdx, ICFG);
-              taddr_t x = ICFG[bb].Addr;
+              taddr_t x = ICFG[bb].Addr();
 
               llvm::outs() << llvm::formatv(
                   "{0}:{1:x}\n",

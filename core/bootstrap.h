@@ -4,6 +4,8 @@
 #include "B.h"
 #include "ptrace.h"
 #include "tcg.h"
+#include "kernel.h"
+#include "procmap_query.h"
 
 #include <boost/container/flat_set.hpp>
 
@@ -24,18 +26,18 @@ using indirect_branch_t = trapped_t;
 using return_t          = trapped_t;
 using breakpoint_t      = trapped_t;
 
+struct section_extra_t {
+  bool Loaded = false;
+};
+
 struct binary_state_t {
   bool Skip = false;
 
   taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
-  taddr_t LoadOffset = std::numeric_limits<taddr_t>::max();
+  std::atomic<unsigned> NumSectionsLoaded = 0;
 
-  bool Loaded(void) const {
-    return LoadAddr != std::numeric_limits<taddr_t>::max() &&
-           LoadOffset != std::numeric_limits<taddr_t>::max();
-  }
-
-  B::cached::type<> cb;
+  B::addr_pair bounds;
+  B::cached::type<section_extra_t> cb;
   struct {
     elf::DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
@@ -50,10 +52,37 @@ struct binary_state_t {
   } _elf;
 
   B::unique_ptr &Bin(void) { return cb.first; }
-  B::sections_t<> &sections(void) { return cb.second; }
+
+  const B::sections_t<section_extra_t> &sections(void) const { return cb.second; }
+  B::sections_t<section_extra_t> &sections(void) { return cb.second; }
+
+  void Reset(void) {
+    this->LoadAddr = std::numeric_limits<taddr_t>::max();
+    this->NumSectionsLoaded.store(0, std::memory_order_relaxed);
+  }
+
+  bool HasLoadAddr(void) const {
+    return this->LoadAddr != std::numeric_limits<taddr_t>::max();
+  }
+
+  bool Loaded(void) const {
+    return this->HasLoadAddr() &&
+           this->NumSectionsLoaded.load(std::memory_order_relaxed) == this->sections().svec.size();
+  }
 
   binary_state_t(const auto &b) {
-    B::cached::create(cb, b.data());
+    //
+    // for the purposes of mapping addresses to file offsets, the segments
+    // provide a quicker determination (but ignoring the sections can lead to
+    // less-meaningful resolution of debug information).
+    //
+    const bool segments = true; /* FIXME */
+
+    cb.first = B::Create(b.data());
+    B::_coff(cb.first.get(), [&](COFFO &O) { coff::sections(O, cb.second.svec); });
+    B::_elf(cb.first.get(),  [&](ELFO &O)  { elf::segments(O, cb.second.svec); });
+    B::cached::from_svec(cb.second, cb.second.svec);
+    bounds = B::cached::bounds_of_binary(cb);
 
     B::_elf(Bin().get(), [&](ELFO &Obj) {
     elf::loadDynamicTable(Obj, _elf.DynamicTable);
@@ -240,12 +269,17 @@ struct BootstrapTool
   template <typename Key, typename Value>
   using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
 
+  template <typename Key, typename Value>
+  using unordered_stable_map = boost::unordered::unordered_node_map<Key, Value>;
+
   template <typename T>
   using unordered_set = boost::unordered::unordered_flat_set<T>;
 
   bool Engaged = false;
 
   const bool IsCOFF;
+  const bool has_ProcMapQuery;
+
   unordered_set<pid_t> forked;
 #if 0
   unordered_set<pid_t> ignore_sigchld;
@@ -294,9 +328,16 @@ struct BootstrapTool
 #endif
     unordered_map<pid_t, bool> is_target_map;
     unordered_map<pid_t, scoped_fd> mem_fdmap;
+    unordered_map<pid_t, scoped_fd> maps_fdmap;
   } children;
 
-  unordered_map<taddr_t, trapped_t> trapmap;
+#if 0
+  boost::unordered::concurrent_flat_map<taddr_t, trapped_t> trapmap;
+#else
+  struct safe_trapmap_t : public ip_base_rw_accessible_spin<IsToolMT> {
+    unordered_stable_map<taddr_t, trapped_t> m;
+  } safe_trapmap;
+#endif
 
   struct {
     bool Found = false;
@@ -318,6 +359,11 @@ struct BootstrapTool
   bool ShowMeA = false;
   bool ShowMeS = false;
 
+  binary_index_t found_binary(const taddr_t vma_start,
+                              const taddr_t vma_end,
+                              const taddr_t off,
+                              const binary_index_t);
+
   void on_new_binary(binary_t &b) {
     const binary_index_t BIdx = index_of_binary(b, jv);
 
@@ -334,7 +380,9 @@ struct BootstrapTool
 public:
   BootstrapTool()
       : opts(JoveCategory),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin().get())) {}
+        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin().get())),
+        has_ProcMapQuery(kernel::has_ProcMapQuery()) {}
+
   ~BootstrapTool();
 
   int Run(void) override;
@@ -364,12 +412,13 @@ public:
 
   void place_breakpoint_at_return(pid_t child, taddr_t pc, return_t &Ret);
 
-  void on_binary_loaded(pid_t, binary_index_t, const proc_map_t &);
+  void on_section_loaded(pid_t, binary_t &, auto &section);
+  void on_binary_loaded(pid_t, binary_t &);
 
-  void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
+  void on_dynamic_linker_loaded(pid_t, const binary_index_t);
 
   std::pair<trapped_t &, bool>
-  place_breakpoints_in_block(binary_t &, bbprop_t &, basic_block_index_t);
+  place_breakpoint_in_block(binary_t &, bbprop_t &, basic_block_index_t);
 
   // returns true if notrap_exception would be raised
   bool on_breakpoint(pid_t, ptrace::target_tracee_state_t &);
@@ -384,9 +433,14 @@ public:
   bool UpdateVM(pid_t);
   void ScanAddressSpace(pid_t child, bool VMUpdate = true);
 
-  taddr_t pc_of_offset(taddr_t off, binary_index_t BIdx);
-  taddr_t pc_of_va(taddr_t Addr, binary_index_t BIdx);
-  taddr_t va_of_pc(taddr_t Addr, binary_index_t BIdx);
+  taddr_t compute_load_address(binary_t &b,
+                               binary_state_t &x,
+                               const taddr_t vma_start,
+                               const taddr_t off);
+
+  taddr_t pc_of_offset(taddr_t off, const binary_index_t BIdx);
+  taddr_t pc_of_va(taddr_t addr, const binary_index_t BIdx);
+  taddr_t va_of_pc(taddr_t pc, const binary_index_t BIdx);
 
   binary_index_t binary_at_program_counter(pid_t, taddr_t valid_pc);
   block_t
@@ -413,6 +467,7 @@ public:
 
   void DropPrivileges(void);
 
+  scoped_fd &maps_for_child(void);
   scoped_fd &mem_for_child(void);
 
   template <bool Throw = true>
@@ -426,6 +481,12 @@ public:
 #ifdef JOVE_BOOTSTRAP_EAGER_INVALIDATION
   void invalidate_block(bbprop_t &, binary_t &);
 #endif
+
+  [[always_inline]]
+  void vvmsg(const std::string &s) {
+    if (IsVeryVerbose())
+      this->msg(s);
+  }
 
   void msg(const std::string &);
 };

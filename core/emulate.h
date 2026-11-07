@@ -78,7 +78,7 @@ struct ptrace_emulator_t : public VerboseThing {
 
 struct __attribute__((packed)) trapped_t {
   single_step_proc_t single_step_proc;
-  basic_block_index_t BBIdx;
+  basic_block_index_t BBIdx = invalid_basic_block_index;
   taddr_t TermAddr;
 
   //
@@ -104,9 +104,9 @@ struct __attribute__((packed)) trapped_t {
 #endif
 
   explicit trapped_t(ptrace_emulator_t &,
-                     basic_block_index_t,
                      binary_index_t,
-                     taddr_t pc,
+                     taddr_t termpc,
+                     const taddr_t TermAddr,
                      B::ref);
 };
 

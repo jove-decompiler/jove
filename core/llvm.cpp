@@ -1869,7 +1869,7 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
 
       auto &ICFG = Binary.Analysis.ICFG;
 
-      uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+      uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
 
       IRB.CreateRet(IRB.CreateIntToPtr(
           SectionPointer(Addr), F->getFunctionType()->getReturnType()));
@@ -2346,7 +2346,7 @@ llvm_t<MT, MinSize>::CreateFunction(const function_t &f) {
 
     assert(!state.for_function(f).F);
 
-    const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+    const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
@@ -2524,7 +2524,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
     if (!f.IsABI)
       assert(y.adapterF);
 
-    C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
+    C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr());
 #if 0
     C2 = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
 #else
@@ -5170,7 +5170,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
                   WordType(),
                   B::offset_of_va(
                       state.for_binary(dynl_binary).cb.first.get(),
-                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
+                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()));
             });
 
         constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -5205,7 +5205,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
                   WordType(),
                   B::offset_of_va(
                       state.for_binary(vdso_binary).cb.first.get(),
-                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
+                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()));
             });
 
         constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -5283,7 +5283,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
                 const function_t &f = binary.Analysis.Functions.at(FIdx);
 
                 constantTable[FIdx] = llvm::ConstantInt::get(WordType(),
-                  B::offset_of_va(Bin.get(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
+                  B::offset_of_va(Bin.get(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()));
               }
 
               constantTable.back() = llvm::Constant::getNullValue(WordType());
@@ -5538,7 +5538,7 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(Context, "", F);
   for (bb_t bb : y.bbvec)
     state.for_basic_block(Binary, bb).B = llvm::BasicBlock::Create(
-        Context, (fmt("l%lx") % ICFG[bb].Addr).str(), F);
+        Context, (fmt("l%lx") % ICFG[bb].Addr()).str(), F);
 
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
@@ -5575,7 +5575,7 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
 
     if (!options.Debugify)
     IRB.SetCurrentDebugLocation(
-        llvm::DILocation::get(Context, ICFG[entry_bb].Addr, 0 /* Column */,
+        llvm::DILocation::get(Context, ICFG[entry_bb].Addr(), 0 /* Column */,
                               TC.DebugInformation.Subprogram));
 
     //
@@ -5716,7 +5716,7 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
 
       if (!options.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          Context, ICFG[entry_bb].Addr, 0 /* Column */, Subprogram));
+          Context, ICFG[entry_bb].Addr(), 0 /* Column */, Subprogram));
 
       IRB.CreateCall(JoveRecoverABIFunc, {IRB.getInt32(FIdx)})->setIsNoInline();
 
@@ -7351,7 +7351,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
   const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
 
-  const uint64_t Addr = ICFG[bb].Addr;
+  const uint64_t Addr = ICFG[bb].Addr();
   const unsigned Size = ICFG[bb].Size;
 
   IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
@@ -7543,7 +7543,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             TempAllocaVec.at(idx) =
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
                                   (fmt("%#lx_%s%u")
-                                   % ICFG[bb].Addr
+                                   % ICFG[bb].Addr()
                                    % "tmp"
                                    % (idx - tcg_num_globals)).str());
           }
@@ -7578,7 +7578,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             TempAllocaVec.at(idx) =
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
                               (fmt("%#lx_%s%u")
-                               % ICFG[bb].Addr
+                               % ICFG[bb].Addr()
                                % "tmp"
                                % (idx - tcg_num_globals)).str());
           }
@@ -7591,7 +7591,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     //
     for (unsigned i = 0; i < LabelVec.size(); ++i)
       LabelVec[i] = llvm::BasicBlock::Create(
-          Context, (boost::format("l%lx_%u") % ICFG[bb].Addr % i).str(), state.for_function(f).F);
+          Context, (boost::format("l%lx_%u") % ICFG[bb].Addr() % i).str(), state.for_function(f).F);
 
     lstaddr = Addr;
 
@@ -7620,7 +7620,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   } while (size < Size);
 
   if (T.Type != ICFG[bb].Term.Type) {
-    uint64_t FuncAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+    uint64_t FuncAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
 
     WithColor::error() << llvm::formatv(
         "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
@@ -7772,7 +7772,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       if (options.IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
-                                    ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
+                                    ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr(),
                                     ICFG[bb].Term.Addr, DynTargetDesc);
 
       if (Sj)
@@ -8171,7 +8171,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
         for (auto it = it_pair.first; it != it_pair.second; ++it) {
           bb_t succ = *it;
           SI->addCase(
-              IRB.getIntN(WordBits(), ICFG[succ].Addr - x.SectsStartAddr),
+              IRB.getIntN(WordBits(), ICFG[succ].Addr() - x.SectsStartAddr),
               state.for_basic_block(Binary, succ).B);
         }
       }
@@ -8203,7 +8203,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     if (!IsCall && ICFG[bb].Lj) {
-      llvm::outs() << llvm::formatv("longjmp at {0:x}\n", ICFG[bb].Addr);
+      llvm::outs() << llvm::formatv("longjmp at {0:x}\n", ICFG[bb].Addr());
 
       std::string message =
           (fmt("encountered longjmp @ %s+0x%x") %
@@ -8592,7 +8592,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             assert(Lj ^ Sj);
             llvm::outs() << llvm::formatv("calling {0} from {1:x} (indjmp/indcall)\n",
                                           Lj ? "longjmp" : "setjmp",
-                                          ICFG[bb].Addr);
+                                          ICFG[bb].Addr());
           }
 
           struct {
@@ -9113,7 +9113,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     llvm::Value *EQV = IRB.CreateICmpEQ(
-        PC, IRB.getIntN(WordBits(), ICFG[succ1].Addr));
+        PC, IRB.getIntN(WordBits(), ICFG[succ1].Addr()));
     IRB.CreateCondBr(EQV,
                      state.for_basic_block(Binary, succ1).B,
                      state.for_basic_block(Binary, succ2).B);
@@ -9255,7 +9255,7 @@ std::string llvm_t<MT, MinSize>::dyn_target_desc(dynamic_target_t IdxPair) {
   const function_t &f = b.Analysis.Functions.at(DynTarget.FIdx);
 
   uint64_t Addr =
-      b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr;
+      b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr();
 
   return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
 }
@@ -10602,7 +10602,7 @@ static inline int64_t sextract64(uint64_t value, int start, int length)
     llvm::BasicBlock *lblBB = LabelVec.at(lblidx);
     assert(lblBB);
     llvm::BasicBlock *fallthruBB = llvm::BasicBlock::Create(
-        Context, (boost::format("l%lx_fallthru") % ICFG[bb].Addr).str(),
+        Context, (boost::format("l%lx_fallthru") % ICFG[bb].Addr()).str(),
         state.for_function(f).F);
     IRB.CreateCondBr(
         CondCompare(const_arg(0), get(input_arg(0)), get(input_arg(1))), lblBB,

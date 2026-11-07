@@ -35,7 +35,7 @@ public:
   disas_t disas;
   explorer_t<IsToolMT, IsToolMinSize> E;
 
-  ScanTool() : opts(JoveCategory), E(jv_file, jv, disas, tcg) {}
+  ScanTool() : opts(JoveCategory), E(jv_file, jv, disas) {}
 
   int Run(void) override;
 

@@ -779,7 +779,7 @@ int IPTTool::Analyze(void) {
   if constexpr (IsToolMT) {
     if (jv2)
       st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, *jv2, *Disas,
-                                                       *tcg, GetVerbosityLevel());
+                                                       GetVerbosityLevel());
   }
 
   std::vector<char *> ptdump_argv;

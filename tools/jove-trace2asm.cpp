@@ -129,7 +129,7 @@ int Trace2AsmTool::Run(void) {
     auto &ICFG = binary.Analysis.ICFG;
     bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
-    uint64_t Addr = ICFG[bb].Addr;
+    uint64_t Addr = ICFG[bb].Addr();
     unsigned Size = ICFG[bb].Size;
 
     //std::string res = (fmt("%08x [%u]\n\n") % ICFG[bb].Addr % ICFG[bb].Size).str();

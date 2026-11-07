@@ -61,7 +61,9 @@
 #include <cinttypes>
 #include <mutex>
 #include <condition_variable>
+#include <optional>
 
+#include <linux/fs.h>
 #include <asm/auxvec.h>
 #include <asm/unistd.h>
 #include <fcntl.h>
@@ -164,16 +166,34 @@ static void SignalHandler(int no);
 
 BootstrapTool::~BootstrapTool() {}
 
+scoped_fd &BootstrapTool::maps_for_child(void) {
+  auto &fdmap = children.maps_fdmap;
+
+  auto it = fdmap.find(_child);
+  if (it == fdmap.end()) {
+    std::string path_to_mem = "/proc/" + std::to_string(_child) + "/maps";
+    int fd = sys::retry_eintr(::open, path_to_mem.c_str(), O_RDWR | O_CLOEXEC);
+    if (fd < 0)
+      throw std::runtime_error("failed to open " + path_to_mem + ": " +
+                               strerror(errno));
+
+    return (*fdmap.emplace(_child, fd).first).second;
+  }
+  return (*it).second;
+}
+
 scoped_fd &BootstrapTool::mem_for_child(void) {
-  auto it = children.mem_fdmap.find(_child);
-  if (it == children.mem_fdmap.end()) {
+  auto &fdmap = children.mem_fdmap;
+
+  auto it = fdmap.find(_child);
+  if (it == fdmap.end()) {
     std::string path_to_mem = "/proc/" + std::to_string(_child) + "/mem";
     int fd = sys::retry_eintr(::open, path_to_mem.c_str(), O_RDWR | O_CLOEXEC);
     if (fd < 0)
       throw std::runtime_error("failed to open " + path_to_mem + ": " +
                                strerror(errno));
 
-    return (*children.mem_fdmap.emplace(_child, fd).first).second;
+    return (*fdmap.emplace(_child, fd).first).second;
   }
   return (*it).second;
 }
@@ -295,6 +315,19 @@ ssize_t BootstrapTool::poke(const taddr_t dst,
 int BootstrapTool::Run(void) {
   long ret = -1L;
   pTool = this;
+
+  for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
+    for (const std::string &name : opts.SkipBins) {
+      if (b.Name.find(name) != ip_string::npos) {
+        if (IsVerbose())
+          WithColor::warning()
+              << llvm::formatv("skipping {0}\n", b.Name.c_str());
+
+        state.for_binary(b).Skip = true;
+        return;
+      }
+    }
+  });
 
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
@@ -529,7 +562,7 @@ int BootstrapTool::Run(void) {
   symbolizer = std::make_unique<symbolizer_t>(jv, locator(), opts.Addr2Line);
   }
   E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-      jv_file, jv, *disas, *tcg, std::max<unsigned>(GetVerbosityLevel(), 1u));
+      jv_file, jv, *disas, std::max<unsigned>(GetVerbosityLevel(), 1u));
   emulator = std::make_unique<ptrace_emulator_t>(*this, *disas);
   emulator->SetVerbosityLevel(GetVerbosityLevel());
   E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
@@ -545,28 +578,31 @@ int BootstrapTool::Run(void) {
   //
   _child = child;
   Engaged = true;
-  ScanAddressSpace(child);
 
-  if (IsVerbose()) {
+  llvm::errs() << ProcMapsForPid(_child);
+
+  if (!has_ProcMapQuery)
+    ScanAddressSpace(child);
+
+  if (has_ProcMapQuery || IsVerbose()) {
     //
     // we should be at the entry point of the dynamic linker
     //
     ptrace::target_tracee_state_t tracee_state;
     tracee_state.get(child);
 
-    if (IsVerbose())
-      msg(llvm::formatv("first ptrace-stop @ {0}\n",
-                        description_of_program_counter(
-                            tracee_state.program_counter(), true)).str());
+    const auto pc = tracee_state.program_counter();
 
-    auto BBPair =
-        block_at_program_counter(child, tracee_state.program_counter());
+    auto BBPair = block_at_program_counter(child, pc);
 
     if (unlikely(!is_basic_block_index_valid(BBPair.second)))
       msg(llvm::formatv(
               "failed to translate block at first ptrace-stop @ {0}\n",
-              description_of_program_counter(tracee_state.program_counter(),
-                                             true)).str());
+              description_of_program_counter(pc, true)).str());
+
+    if (IsVerbose())
+      msg(llvm::formatv("first ptrace-stop @ {0}\n",
+                        description_of_program_counter(pc, true)).str());
   }
 
   //
@@ -590,7 +626,10 @@ int BootstrapTool::Run(void) {
 void BootstrapTool::Reset(void) {
   Engaged = true;
 
-  trapmap.clear();
+  {
+  auto e_lck = safe_trapmap.exclusive_access();
+  safe_trapmap.m.clear();
+  }
   Loaded.clear();
   cached_proc_maps.clear();
   pmm.clear();
@@ -612,49 +651,26 @@ void BootstrapTool::Reset(void) {
 #endif
 }
 
-taddr_t BootstrapTool::pc_of_offset(taddr_t off, binary_index_t BIdx) {
-  binary_t &binary = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary(binary);
+taddr_t BootstrapTool::pc_of_offset(taddr_t off, const binary_index_t BIdx) {
+  const auto &x = state.for_binary_of_index(BIdx);
+  aassert(x.HasLoadAddr());
 
-  if (!x.Loaded())
-    throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.Name.c_str() + " is not loaded\n");
-
-  return off + (x.LoadAddr - x.LoadOffset);
+  // TODO? we can use the cached proc maps to get this faster
+  return pc_of_va(B::cached::va_of_offset(x.cb, off), BIdx);
 }
 
-taddr_t BootstrapTool::pc_of_va(taddr_t Addr, binary_index_t BIdx) {
-  binary_t &binary = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary(binary);
+taddr_t BootstrapTool::pc_of_va(taddr_t addr, const binary_index_t BIdx) {
+  const auto &x = state.for_binary_of_index(BIdx);
+  aassert(x.HasLoadAddr());
 
-  if (!x.Loaded())
-    throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.Name.c_str() + " is not loaded\n");
-
-  if (!binary.IsPIC) {
-    //assert(binary.IsExecutable);
-    return Addr;
-  }
-
-  uint64_t off = B::cached::offset_of_va(x.cb, Addr);
-  return off + (x.LoadAddr - x.LoadOffset);
+  return x.LoadAddr + (addr - x.bounds.first);
 }
 
-taddr_t BootstrapTool::va_of_pc(taddr_t pc, binary_index_t BIdx) {
-  binary_t &binary = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary(binary);
+taddr_t BootstrapTool::va_of_pc(taddr_t pc, const binary_index_t BIdx) {
+  auto &x = state.for_binary_of_index(BIdx);
+  aassert(x.HasLoadAddr());
 
-  if (!x.Loaded())
-    throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.Name.c_str() + " is not loaded\n");
-
-  if (!binary.IsPIC) {
-    //assert(binary.IsExecutable);
-    return pc;
-  }
-
-  uint64_t off = pc - (x.LoadAddr - x.LoadOffset);
-  return B::cached::va_of_offset(x.cb, off);
+  return (pc - x.LoadAddr) + x.bounds.first;
 }
 
 int BootstrapTool::TracerLoop(pid_t child) {
@@ -1545,19 +1561,16 @@ bool BootstrapTool::handle_breakpoint(void) {
     return true;
 
   //
-  // someone else (or a forked version of us) could have discovered new code
+  // if we get here, it means trapmap doesn't contain an entry for the current
+  // program counter.
   //
-  ScanAddressSpace(_child);
-  auto &pc = tracee_state.program_counter();
+  const auto pc = tracee_state.program_counter();
+  if (!has_ProcMapQuery)
+    ScanAddressSpace(_child);
+  else
+    (void)binary_at_program_counter(_child, pc);
 
-  taddr_t SavedPC = pc;
-
-#if defined(__x86_64__) || defined(__i386__)
-  //
-  // rewind before the breakpoint instruction (why is this x86-specific?)
-  //
-  SavedPC -= 1; /* int3 */
-#endif
+  const taddr_t SavedPC = pc - IsX86Target;
 
   binary_index_t BIdx;
   basic_block_index_t BBIdx;
@@ -1574,65 +1587,94 @@ bool BootstrapTool::handle_breakpoint(void) {
   auto &ICFG = b.Analysis.ICFG;
   fallthru<void>(
       b, BBIdx,
-      [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
+      [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) {
         if (IsTerminatorIndirect(bbprop.Term.Type))
-          place_breakpoints_in_block(
-              b, ICFG[ICFG.vertex<false>(BBIdx_)], BBIdx_);
+          place_breakpoint_in_block(b, ICFG[ICFG.vertex<false>(TheBBIdx)], TheBBIdx);
       });
 
-  if (on_breakpoint(_child, tracee_state))
-    return false;
+  /* TODO use return value of place_breakpoint_in_block */
+  if (on_breakpoint(_child, tracee_state)) {
+    vvmsg("!on_breakpoint()");
+    return false; /* failure */
+  }
 
   return true;
 }
 
 void BootstrapTool::on_new_basic_block(binary_t &b,
                                        bbprop_t &bbprop,
-                                       basic_block_index_t BBIdx) {
+                                       basic_block_index_t BBIdx) { /* called with bb's lock held */
   if (!IsTerminatorIndirect(bbprop.Term.Type))
-    return;
+    return; /* N/A */
 
-  place_breakpoints_in_block(b, bbprop, BBIdx);
+  place_breakpoint_in_block(b, bbprop, BBIdx);
 }
 
-void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
-  //state.update();
-}
+void BootstrapTool::on_new_function(binary_t &b, function_t &f) {}
 
 std::pair<trapped_t &, bool>
-BootstrapTool::place_breakpoints_in_block(binary_t &b, bbprop_t &bbprop,
-                                          basic_block_index_t BBIdx) {
+BootstrapTool::place_breakpoint_in_block(binary_t &b,
+                                         bbprop_t &bbprop,
+                                         basic_block_index_t BBIdx) {
   auto &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
 
-#if 0
-  if (x.Skip)
-    return;
-#endif
+  assert(!x.Skip);
 
   const binary_index_t BIdx = index_of_binary(b, jv);
 
-  assert(x.Loaded());
+  assert(x.HasLoadAddr());
 
   const auto TermType = bbprop.Term.Type;
-  aassert(IsTerminatorIndirect(TermType));
+  assert(IsTerminatorIndirect(TermType));
 
-  const taddr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
+  const taddr_t TermAddr = bbprop.Term.Addr;
+  const taddr_t termpc = pc_of_va(TermAddr, BIdx);
+
+#if 0
   {
     auto it = trapmap.find(termpc);
     if (it != trapmap.end())
       return {(*it).second, false};
   }
+#endif
 
-  auto trapmap_pair = trapmap.emplace(
-      termpc, trapped_t(*emulator, BBIdx, BIdx, termpc, x.Bin().get()));
-  assert(trapmap_pair.second);
-  trapped_t &trapped = (*trapmap_pair.first).second;
+  const bool IC = IsTerminatorCall(TermType);
+  const bool Lj = bbprop.Lj;
+  const bool NonZeroOutDegree = ICFG.template out_degree<false>(basic_block_of_index(BBIdx, b)) != 0;
+  const bool HasDynTarget = bbprop.hasDynTarget();
 
+  trapped_t *const ptrapped = ({
+    auto e_lck = safe_trapmap.exclusive_access();
+    auto trapped_pair = safe_trapmap.m.emplace(
+        termpc, trapped_t(*emulator, BIdx, termpc, TermAddr, x.Bin().get()));
+    aassert(trapped_pair.second);
+
+    &(*trapped_pair.first).second;
+  });
+
+  assert(ptrapped);
+  trapped_t &trapped = *ptrapped;
+
+  trapped.BBIdx = BBIdx;
+
+  trapped.BIdx = BIdx;
+  trapped.TT = static_cast<unsigned>(TermType);
+  trapped.IC = static_cast<unsigned>(IC);
+  trapped.LJ = static_cast<unsigned>(Lj);
+  trapped.OD = static_cast<unsigned>(NonZeroOutDegree);
+  trapped.DT = static_cast<unsigned>(HasDynTarget);
+
+#if 0
   if (TermType == TERMINATOR::RETURN)
     place_breakpoint_at_return(_child, termpc, trapped);
   else
     place_breakpoint_at_indirect_branch(_child, termpc, trapped);
+#else
+  /* FIXME (mips32/mips64, since we do differently for returns) */
+  scoped_fd &mem_fd = mem_for_child();
+  robust::pwrite(mem_fd.get(), TargetBrkpt, TargetBrkptLen, termpc);
+#endif
 
   return {trapped, true};
 }
@@ -1685,96 +1727,43 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, taddr_t pc,
 
 bool BootstrapTool::on_breakpoint(pid_t child,
                                   ptrace::target_tracee_state_t &tracee_state) {
-  taddr_t SavedPC = ~0UL;
-  trapped_t *ptrapped  = nullptr;
+  auto &pc = tracee_state.program_counter();
+  const taddr_t SavedPC = pc - IsX86Target;
+
+  trapped_t *const ptrapped = ({
+    auto s_lck = safe_trapmap.shared_access();
+    auto it = safe_trapmap.m.find(SavedPC);
+    if (unlikely(it == safe_trapmap.m.end()))
+      return true;
+
+    &(*it).second;
+  });
+
+  assert(ptrapped);
+  trapped_t &trapped = *ptrapped;
 
   const taddr_t TargetAddr = ({
-    auto &pc = tracee_state.program_counter();
-
-    SavedPC = pc;
-
-#if defined(__x86_64__) || defined(__i386__)
-    //
-    // rewind before the breakpoint instruction (why is this x86-specific?)
-    //
-    SavedPC -= 1; /* int3 */
-#endif
-
-    {
-      binary_index_t       BIdx;
-      basic_block_index_t BBIdx;
-
-      auto it = trapmap.find(SavedPC);
-      if (unlikely(it == trapmap.end()))
-        return true;
-
-      {
-        trapped_t &trapped = (*it).second;
-
-        BIdx = trapped.BIdx;
-        BBIdx = trapped.BBIdx;
-      }
-
-      binary_t &b = jv.Binaries.at(BIdx);
-      auto &ICFG = b.Analysis.ICFG;
-      auto &x = state.for_binary(b);
-
-#if 0
-      if (B::is_coff(x.Bin().get())) {
-      trapmap.erase(SavedPC);
-
-      fallthru<void>(jv, BIdx, BBIdx,
-                     [&](bbprop_t &bbprop, basic_block_index_t BBIdx_) {
-        ptrapped = &place_breakpoints_in_block(b, bbprop, BBIdx_);
-      });
-      } else {
-#endif
-      ptrapped = &(*it).second;
-#if 0
-      }
-#endif
-
-      assert(ptrapped);
-    }
-
-    trapped_t &trapped = *ptrapped;
-
-#if defined(__mips64) || defined(__mips__)
-    if (IsVeryVerbose())
-      msg(llvm::formatv("trapped @ {0} <{1:x}>",
-                        description_of_program_counter(SavedPC),
-                        trapped.DelaySlotInsn).str());
-#endif
-
-    const taddr_t ExecutableRegionAddress = emulator->ExecutableRegionAddress;
     pc = SavedPC;
-    const taddr_t NewPC =
-        trapped.single_step_proc(tracee_state, trapped, *emulator);
+    const auto NewPC = trapped.single_step_proc(tracee_state, trapped, *emulator);
 
-#if !defined(__mips64) && !defined(__mips__)
-
-#if 0
-#if defined(__i386__)
-    if (!(pc >= ExecutableRegionAddress && pc < ExecutableRegionAddress + emulator->N))
-#endif
-#endif
+#if !(defined(TARGET_MIPS64) || defined(TARGET_MIPS32))
     pc = NewPC;
 #endif
 
     NewPC;
   });
 
-  assert(ptrapped);
-  trapped_t &trapped = *ptrapped;
-
-#if 0
 #ifndef NDEBUG
-  if (IsVerbose())
+#if 0
+  if (IsVeryVerbose())
     HumanOut() << StringOfMCInst(trapped.Inst) << '\n';
 #endif
 #endif
 
   const binary_index_t BIdx       = trapped.BIdx;
+  binary_t &b = jv.Binaries.at(BIdx);
+  auto &ICFG = b.Analysis.ICFG;
+
   const basic_block_index_t BBIdx = trapped.BBIdx;
 
   const auto TermType = static_cast<TERMINATOR>(trapped.TT);
@@ -1783,6 +1772,10 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   const bool IsLj     = static_cast<bool>(trapped.LJ);
   const unsigned OutDeg = trapped.OD;
   const unsigned HasDynTarget = trapped.DT;
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// TONOTBE(trapped)
+  ///
 
   struct {
     bool isNew = false;
@@ -1818,7 +1811,10 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   if (unlikely(!is_binary_index_valid(Target.BIdx))) {
     auto pm_it = intvl_map_find(pmm, TargetAddr);
     if (unlikely(pm_it == pmm.end())) {
-      ScanAddressSpace(child);
+      if (has_ProcMapQuery)
+        UpdateVM(child);
+      else
+        ScanAddressSpace(child);
       Target.BIdx = binary_at_program_counter(child, TargetAddr);
       pm_it = intvl_map_find(pmm, TargetAddr);
     }
@@ -1873,7 +1869,10 @@ bool BootstrapTool::on_breakpoint(pid_t child,
             return res;
           });
 
-      trapmap.at(SavedPC).DT = 1;
+      {
+        auto s_lck = safe_trapmap.shared_access();
+        safe_trapmap.m.at(SavedPC).DT = 1;
+      }
     } else {
       assert(TermType == TERMINATOR::INDIRECT_JUMP);
 
@@ -1930,7 +1929,10 @@ bool BootstrapTool::on_breakpoint(pid_t child,
                 return res;
               });
 
-          trapmap.at(SavedPC).DT = 1;
+          {
+            auto s_lck = safe_trapmap.shared_access();
+            safe_trapmap.m.at(SavedPC).DT = 1;
+          }
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
               TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
@@ -2011,7 +2013,28 @@ std::pair<int, int> extract_fd_and_off(std::string_view s) {
   return {a, b};
 }
 
+taddr_t BootstrapTool::compute_load_address(binary_t &b,
+                                            binary_state_t &x,
+                                            const taddr_t vma_start,
+                                            const taddr_t off) {
+  //
+  // assuming that there exists a bijection between sections and vma's...
+  //
+  auto &svec = x.cb.second.svec;
+  const auto &omap = x.cb.second.omap;
+  auto it = intvl_map_find(x.cb.second.omap, off);
+  aassert(it != omap.end());
+  auto &section = svec[(*it).second];
+
+  // assuming that there exists a bijection between sections and vma's...
+  const auto bounds = x.bounds;
+  const taddr_t LoadAddr = vma_start - (section.addr() - bounds.first);
+  return LoadAddr;
+}
+
 void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
+  assert(!has_ProcMapQuery);
+
   if (unlikely(!Engaged))
     return;
 
@@ -2024,12 +2047,18 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
   // forget what we think we know
   //
   AddressSpace.clear();
-  for_each_binary(jv, [&](binary_t &b) {
-    state.for_binary(b).LoadAddr =
-    state.for_binary(b).LoadOffset =
-        std::numeric_limits<taddr_t>::max(); /* reset */
-  });
+  for_each_binary(jv, [&](binary_t &b) { state.for_binary(b).Reset(); });
 
+  if (has_ProcMapQuery) {
+    for (const proc_map_t &pm : cached_proc_maps) {
+      if (!pm.x)
+        continue;
+      if (pm.nm.empty())
+        continue;
+
+      binary_at_program_counter(child, pm.beg);
+    }
+  } else {
   for (const proc_map_t &pm : cached_proc_maps) {
 #if 0 /* XXX? */
     if (!pm.x)
@@ -2040,7 +2069,9 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     if (nm.empty())
       continue;
 
-    auto ItsTheBinary = [&](binary_index_t BIdx, taddr_t off) -> void {
+    auto ItsTheBinary = [&](binary_index_t BIdx,
+                            const taddr_t vma_start,
+                            const taddr_t off) -> void {
       if (!is_binary_index_valid(BIdx))
         return;
 
@@ -2050,19 +2081,15 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
       auto &x = state.for_binary(b);
 
-      bool NewlyLoaded = Loaded.insert(BIdx).second;
-      if (updateVariable(x.LoadAddr,
-                         std::min(x.LoadAddr, static_cast<taddr_t>(pm.beg))))
-        x.LoadOffset = off;
-
-      if (NewlyLoaded) {
-        assert(x.Loaded());
-        on_binary_loaded(child, BIdx, pm);
+      x.LoadAddr = compute_load_address(b, x, vma_start, off);
+      if (!x.Loaded()) {
+        x.NumSectionsLoaded.store(x.cb.second.svec.size(), std::memory_order_relaxed); /* FIXME */
+        on_binary_loaded(child, b);
       }
     };
 
     if (nm.front() == '/') {
-      ItsTheBinary(BinaryFromPath<false>(child, nm.c_str()), pm.off);
+      ItsTheBinary(BinaryFromPath<false>(child, nm.c_str()), pm.beg, pm.off);
     } else if (nm.front() == '[') {
       if (boost::algorithm::starts_with(nm , "[anon:")) {
         std::string the_path;
@@ -2086,7 +2113,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
         aassert(len != the_path.size() && len != -1);
         the_path.resize(len);
 
-        ItsTheBinary(BinaryFromPath<false>(child, the_path.c_str()), the_off);
+        ItsTheBinary(BinaryFromPath<false>(child, the_path.c_str()), pm.beg, the_off);
       } else {
         //
         // [vdso], [vsyscall], ...
@@ -2099,7 +2126,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
             HumanOut() << llvm::formatv("ScanAddressSpace: \"{0}\" maps to more "
                                         "than one distinct binary!\n", nm);
 #endif
-          ItsTheBinary(*BIdxSet.begin(), pm.off);
+          ItsTheBinary(*BIdxSet.begin(), pm.beg, pm.off);
         } else {
           if (IsVeryVerbose())
             msg(llvm::formatv("dont recognize {0}", nm).str());
@@ -2109,39 +2136,16 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
       msg(llvm::formatv("WTF? {0}", nm).str());
     }
   }
+  }
 }
 
-void BootstrapTool::on_binary_loaded(pid_t child,
-                                     binary_index_t BIdx,
-                                     const proc_map_t &pm) {
-  binary_t &binary = jv.Binaries.at(BIdx);
+void BootstrapTool::on_binary_loaded(pid_t child, binary_t &binary) {
   auto &ICFG = binary.Analysis.ICFG;
   auto &x = state.for_binary(binary);
+  const binary_index_t BIdx = index_of_binary(binary, jv);
 
-#if 1
-  for (const std::string &name : opts.SkipBins) {
-    if (binary.Name.find(name) != ip_string::npos) {
-      if (IsVerbose())
-        WithColor::warning()
-            << llvm::formatv("skipping {0}\n", binary.Name.c_str());
-
-      x.Skip = true;
-      return;
-    }
-  }
-#else
-  x.Skip = true;
-  return;
-#endif
-
-  auto &Bin = x.Bin();
-
-  if (IsVerbose())
-    HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
-                   % pm.nm
-                   % pm.beg
-                   % pm.end).str()
-               << '\n';
+  assert(x.Loaded());
+  assert(this->Loaded.insert(BIdx).second);
 
   //
   // if it's the dynamic linker, we need to set a breakpoint on the address of a
@@ -2150,9 +2154,10 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   // mapping change is complete.
   //
   if (binary.IsDynamicLinker)
-    on_dynamic_linker_loaded(child, BIdx, pm);
+    on_dynamic_linker_loaded(child, BIdx);
 
   if (binary.IsVDSO) {
+#if 0
     aassert(!emulator->ExecutableRegionAddress);
 
     aassert(pm.end - pm.beg >= emulator->N);
@@ -2205,33 +2210,206 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     if (IsVerbose())
       msg(llvm::formatv("ExecutableRegionAddress = {0:x}",
                         emulator->ExecutableRegionAddress).str());
+#endif
   }
+}
 
-  bool res = false;
-  for_each_basic_block_in_binary(binary, [&](bb_t bb) -> void {
-    bbprop_t &bbprop = ICFG[bb];
+binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
+                                           const taddr_t vma_end,
+                                           const taddr_t off,
+                                           const binary_index_t BIdx) {
+  assert(has_ProcMapQuery);
+  assert(is_binary_index_valid(BIdx));
 
-    aassert(bbprop.pub.is.test(boost::memory_order_acquire));
-    auto s_lck = bbprop.shared_access<IsToolMT>();
+  binary_t &b = jv.Binaries.at(BIdx);
+  auto &x = state.for_binary(b);
 
-    const auto TermType = bbprop.Term.Type;
-    if (!IsTerminatorIndirect(TermType))
+  if (unlikely(x.Skip))
+    return invalid_binary_index;
+
+  //
+  // NOTE: the dynamic linker may be in the middle of loading the binary into
+  // memory. thus we may not see every section immediately. this is more
+  // nontrivial than it actually looks- if we want to get _all the sections_.
+  //
+  // for the purposes of bootstrap's essential functioning, we'll only examine
+  // the loaded sections which are actually executed. TODO
+  //
+  x.LoadAddr = compute_load_address(b, x, vma_start, off);
+
+  //
+  // it may be only half-loaded. nevertheless, we want to be eager about placing
+  // breakpoints. there may already be other mappings that have been created.
+  //
+  struct JustLoadedSectionMap_t : public ip_base_rw_accessible_spin<IsToolMT> {
+    boost::container::flat_map<addr_intvl, unsigned, addr_intvl_cmp> m;
+  } JustLoadedSectionMap;
+
+  std::atomic<unsigned> &NumSectionsLoaded = x.NumSectionsLoaded;
+  NumSectionsLoaded.store(0, std::memory_order_relaxed);
+
+  auto &svec = x.cb.second.svec;
+  std::for_each(maybe_par_unseq, svec.begin(), svec.end(),
+              [&](auto &section) {
+                if (section.extra.Loaded) {
+                  NumSectionsLoaded.fetch_add(1, std::memory_order_relaxed);
+                  return;
+                }
+
+                const taddr_t pc = pc_of_va(section.addr(), BIdx);
+
+                char name[PATH_MAX];
+                name[0] = '\0';
+
+                struct procmap_query q;
+                q.size = sizeof(q);
+                q.query_flags = PROCMAP_QUERY_VMA_READABLE;
+                q.query_addr = pc;
+                (void)q.vma_start;
+                (void)q.vma_end;
+                (void)q.vma_flags;
+                (void)q.vma_page_size;
+                (void)q.vma_offset;
+                (void)q.inode;
+                (void)q.dev_major;
+                (void)q.dev_minor;
+                q.vma_name_size = sizeof(name);   /* in/out */
+                q.vma_name_addr = reinterpret_cast<uintptr_t>(&name[0]);
+                q.build_id_size = 0;   /* in/out */
+                q.build_id_addr = 0;
+
+                scoped_fd &fd = maps_for_child();
+                int ret = ProcMapQuery::get(fd.get(), q);
+                if (likely(ret == 0)) {
+                  if (IsVerbose())
+                    HumanOut() << (fmt(/*just*/ "found section %s mapping [%#lx, %#lx) for %s\n")
+                                   % section.Name.str()
+                                   % q.vma_start
+                                   % q.vma_end
+                                   % name).str();
+
+                  intvl_map_add<false>(
+                      AddressSpace,
+                      right_open_addr_intvl(q.vma_start, q.vma_end), BIdx);
+
+                  const unsigned idx = &section - svec.data();
+                  {
+                    auto e_lck = JustLoadedSectionMap.exclusive_access();
+                    intvl_map_add<true>(
+                        JustLoadedSectionMap.m,
+                        right_open_addr_intvl(q.vma_start, q.vma_end), idx);
+                  }
+
+                  NumSectionsLoaded.fetch_add(1, std::memory_order_relaxed);
+                  on_section_loaded(_child, b, section);
+                } else {
+                  vvmsg(std::string("ProcMapQuery::get() failed: ") + strerror(-ret));
+                }
+              });
+
+  assert(intvl_map_find(AddressSpace, vma_start) != AddressSpace.end());
+  assert(intvl_map_find(AddressSpace, vma_end-1) != AddressSpace.end());
+
+  scoped_fd &mem_fd = mem_for_child();
+
+#if 0
+  scoped_iouring iouring;
+#endif
+
+  auto &ICFG = b.Analysis.ICFG;
+  for_each_basic_block_in_binary(maybe_par_unseq, b, [&](bb_t bb) -> void {
+    bbprop_t &bbprop = b.Analysis.ICFG[bb];
+
+    //
+    // NOTE: we are assuming that the program counter of the start of the block
+    // resides in the same section as the program counter of its terminator.
+    //
+    const taddr_t Addr0 = bbprop.Addr();
+    const taddr_t pc = pc_of_va(Addr0, BIdx);
+    {
+      auto s_lck = JustLoadedSectionMap.shared_access(); /* unnecessary? (constconst) */
+      auto it = intvl_map_find(JustLoadedSectionMap.m, pc);
+      if (it == JustLoadedSectionMap.m.end())
+        return;
+    }
+
+
+    TERMINATOR TermType;
+    bool IC;
+    bool Lj;
+    bool NonZeroOutDegree;
+    bool HasDynTarget;
+
+    basic_block_index_t BBIdx = index_of_basic_block(b, bb);
+    const std::optional<taddr_t> MaybeTermAddr =
+        fallthru<std::optional<taddr_t>>(
+            b, BBIdx,
+            [&](bbprop_t &bbprop,
+                basic_block_index_t TheBBIdx) -> std::optional<taddr_t> {
+              const auto TheTermType = bbprop.Term.Type;
+              if (!IsTerminatorIndirect(TheTermType))
+                return {};
+
+              BBIdx = TheBBIdx;
+              TermType = TheTermType;
+              IC = IsTerminatorCall(TheTermType);
+              Lj = bbprop.Lj;
+              NonZeroOutDegree = ICFG.template out_degree<false>(basic_block_of_index(TheBBIdx, b)) != 0;
+              HasDynTarget = bbprop.hasDynTarget();
+
+              return bbprop.Term.Addr;
+            });
+
+    if (!MaybeTermAddr)
       return;
+    const taddr_t TermAddr = *MaybeTermAddr;
 
-    std::string emsg;
-    res |= catch_exception([&] {
-      place_breakpoints_in_block(binary, bbprop,
-                                 index_of_basic_block(binary, bb));
+    assert(TermAddr);
+    assert(TermAddr >= Addr0);
+    const unsigned diff = TermAddr - Addr0;
+    const taddr_t termpc = pc + diff;
+
+    // NOTE: it's not the end of the world if BBIdx refers to a split block. we
+    // could get a fresh index, but it could be split anyways, in the future.
+    trapped_t *const ptrapped = ({
+      auto e_lck = safe_trapmap.exclusive_access();
+      auto trapped_pair = safe_trapmap.m.try_emplace(
+          termpc, trapped_t(*emulator, BIdx, termpc, TermAddr, x.cb.first.get()));
+      if (!trapped_pair.second)
+        return;
+      &(*trapped_pair.first).second;
     });
 
-    if (!emsg.empty()) {
-      if (IsVerbose()) {
-        msg(llvm::formatv("<{0}:{1}> failed to place breakpoint in block!{2}",
-                          binary.Name.c_str(),
-                          taddr2str(bbprop.Term.Addr, true), emsg).str());
-      }
-    }
+    assert(ptrapped);
+    trapped_t &trapped = *ptrapped;
+
+    trapped.BBIdx = BBIdx;
+
+    trapped.BIdx = BIdx;
+    trapped.TT = static_cast<unsigned>(TermType);
+    trapped.IC = static_cast<unsigned>(IC);
+    trapped.LJ = static_cast<unsigned>(Lj);
+    trapped.OD = static_cast<unsigned>(NonZeroOutDegree);
+    trapped.DT = static_cast<unsigned>(HasDynTarget);
+
+#if 0
+    iouring.prep_pwrite(mem_fd.get(), termpc, TargetBrkpt, TargetBrkptLen);
+#else
+    /* FIXME (mips32/mips64, since we do differently for returns) */
+    robust::pwrite(mem_fd.get(), TargetBrkpt, TargetBrkptLen, termpc);
+#endif
   });
+
+  if (x.Loaded())
+    on_binary_loaded(_child, b);
+
+  return BIdx;
+}
+
+void BootstrapTool::on_section_loaded(pid_t child,
+                                      binary_t &b,
+                                      auto &section) {
+  section.extra.Loaded = true;
 }
 
 bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
@@ -2441,13 +2619,12 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
-  if (IsVeryVerbose())
-    msg(llvm::formatv("BinaryFromPath: \"{0}\"", path).str());
+  vvmsg(llvm::formatv("BinaryFromPath: \"{0}\"", path).str());
 
   using namespace std::placeholders;
 
   return jv.AddFromPath<ValidatePath>(*E, jv_file, path,
-      std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
+                                      std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 
 binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
@@ -2464,8 +2641,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
-  if (IsVeryVerbose())
-    msg(llvm::formatv("BinaryFromData: \"{0}\"", name).str());
+  vvmsg(llvm::formatv("BinaryFromData: \"{0}\"", name).str());
 
   using namespace std::placeholders;
 
@@ -2474,8 +2650,10 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 }
 
 void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
-                                             binary_index_t BIdx,
-                                             const proc_map_t &proc_map) {
+                                             const binary_index_t BIdx) {
+  if (!opts.RtldDbgBrk)
+    return;
+
   binary_t &b = jv.Binaries.at(BIdx);
 
   if (state.for_binary(b)._elf.OptionalDynSymRegion) {
@@ -2493,15 +2671,17 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
       llvm::StringRef SymName = *ExpectedSymName;
       if (SymName == "_r_debug" ||
           SymName == "_dl_debug_addr") {
-        const uint64_t off = Sym.st_value;
-        const taddr_t pc = pc_of_offset(off, BIdx);
+        const taddr_t va = Sym.st_value; /* FIXME? va vs. off */
+        const taddr_t pc = pc_of_va(va, BIdx);
 
         _r_debug.Found = true;
         _r_debug.ptr = pc;
 
         if (IsVerbose())
-          msg(llvm::formatv("_r_debug @ {0} <{1}+{2}>", taddr2str(pc),
-                            b.Name.c_str(), taddr2str(off)).str());
+          msg(llvm::formatv("_r_debug @ {0} ({1}:{2})",
+                            taddr2str(pc),
+                            b.Name.c_str(),
+                            taddr2str(va)).str());
 
         WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
         rendezvous_with_dynamic_linker(child);
@@ -2705,9 +2885,101 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
       return (*it).second;
   }
 
-  //
-  // sanity check
-  //
+  if (has_ProcMapQuery) {
+    scoped_fd &fd = maps_for_child();
+
+    char name[PATH_MAX];
+    name[0] = '\0';
+
+    struct procmap_query q;
+    q.size = sizeof(q);
+    q.query_flags = PROCMAP_QUERY_VMA_READABLE;
+    q.query_addr = pc;
+    (void)q.vma_start;
+    (void)q.vma_end;
+    (void)q.vma_flags;
+    (void)q.vma_page_size;
+    (void)q.vma_offset;
+    (void)q.inode;
+    (void)q.dev_major;
+    (void)q.dev_minor;
+    q.vma_name_addr = reinterpret_cast<uintptr_t>(&name[0]);
+    q.vma_name_size = sizeof(name);   /* in/out */
+    q.build_id_size = 0;   /* in/out */
+    q.build_id_addr = uintptr_t(0);
+
+    int ret = ProcMapQuery::get(fd.get(), q);
+    if (likely(ret == 0)) {
+      if (q.vma_name_size) {
+        const taddr_t the_start = q.vma_start;
+        const taddr_t the_end = q.vma_end;
+        const taddr_t the_off = (pc - q.vma_start) + q.vma_offset;
+        auto the_binary = [&](binary_index_t BIdx) -> binary_index_t {
+          if (!is_binary_index_valid(BIdx))
+            return invalid_binary_index;
+
+          if (state.for_binary(jv.Binaries.at(BIdx)).Loaded())
+            return BIdx;
+
+          return this->found_binary(the_start, the_end, the_off, BIdx);
+        };
+
+        const char front_ch = name[0];
+        switch (front_ch) {
+        case '/':
+          break;
+        case '[': {
+          if (boost::algorithm::starts_with(name, "[anon:")) {
+            //
+            // WINE will sometimes open and read the contents of a section into
+            // memory. we preserve the file and offset of such a mapping
+            // via prctl(PR_SET_VMA_ANON_NAME, ...)
+            //
+            int the_off;
+            ssize_t len = ({
+              int the_fd;
+              std::tie(the_fd, the_off) = extract_fd_and_off(name);
+
+              char buff[1024];
+              snprintf(buff, sizeof(buff), "/proc/%u/fd/%u",
+                       static_cast<unsigned>(child),
+                       static_cast<unsigned>(the_fd));
+              ::readlink(buff, &name[0], sizeof(name));
+            });
+
+            q.vma_offset = the_off;
+            break;
+          }
+
+          binary_index_set BIdxSet;
+          if (jv.LookupByName(name, BIdxSet)) {
+            assert(!BIdxSet.empty());
+            return the_binary(*BIdxSet.begin());
+          }
+
+          vvmsg("unrecognized vma: " + std::string(name));
+          return invalid_binary_index;
+        }
+
+        default:
+          vvmsg("unknown vma: " + std::string(name));
+          return invalid_binary_index;
+        }
+
+        return the_binary(BinaryFromPath<false>(child, name));
+      } else {
+        // anonymous. period. TODO?
+//      vvmsg("anon");
+        return invalid_binary_index;
+      }
+    } else {
+      vvmsg(std::string("ProcMapQuery::get() failed: ") + strerror(-ret));
+      return invalid_binary_index;
+    }
+
+    __compiletime_unreachable();
+  }
+
   auto pm_it = intvl_map_find(pmm, pc);
   if (pm_it == pmm.end()) {
     UpdateVM(child);
@@ -2729,10 +3001,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
     return invalid_binary_index;
 
   // WARN_ON(!pm.x);
-
 #if 0
-  const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
-
   binary_index_t BIdx = invalid_binary_index;
 
   const std::string &nm = pm.nm;
@@ -2844,8 +3113,6 @@ BootstrapTool::function_at_program_counter(pid_t child, taddr_t pc) {
   binary_t &binary = jv.Binaries.at(BIdx);
   auto &x = state.for_binary(binary);
 
-  assert(x.Loaded());
-
   basic_block_index_t BBIdx =
       E->explore_basic_block(binary, x.cb, va_of_pc(pc, BIdx));
   if (!is_basic_block_index_valid(BBIdx))
@@ -2868,8 +3135,6 @@ BootstrapTool::block_at_program_counter(pid_t child, taddr_t pc) {
 
   binary_t &binary = jv.Binaries.at(BIdx);
   auto &x = state.for_binary(binary);
-
-  assert(x.Loaded());
 
   basic_block_index_t BBIdx =
       E->explore_basic_block(binary, x.cb, va_of_pc(pc, BIdx));
@@ -2964,7 +3229,8 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
         binary_t &b = jv.Binaries.at(BIdx);
         auto &x = state.for_binary(b);
 
-        if (x.Loaded()) {
+        assert(x.Loaded());
+        {
           //
           // pc is in binary that's been "loaded"
           //

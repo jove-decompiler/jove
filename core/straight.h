@@ -79,7 +79,7 @@ StraightLineGo(BinaryTy &b,
     bb_t bb = basic_block_of_index(Res, b);
     bbprop_for_binary_t<BinaryTy> &bbprop = the_bbprop.get();
 
-    const auto Addr = bbprop.Addr;
+    const auto Addr = bbprop.Addr();
     const auto Size = bbprop.Size;
     const auto TermType = bbprop.Term.Type;
 

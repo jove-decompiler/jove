@@ -533,7 +533,7 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
           auto bb = ICFG.vertex(BBIdx);
           if (ICFG.out_degree(bb) != 0) {
             if (E.IsVerbose())
-              OS << llvm::formatv("jump aint local! @ {0:x}\n", bbprop.Addr);
+              OS << llvm::formatv("jump aint local! @ {0:x}\n", bbprop.Addr());
             ICFG.clear_out_edges(bb);
           }
 

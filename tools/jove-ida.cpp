@@ -131,7 +131,7 @@ int IDATool::Run(void) {
 
   tcg_t tcg;
   disas_t dis;
-  explorer_t E(jv_file, jv, dis, tcg);
+  explorer_t E(jv_file, jv, dis);
 
   symbolizer_t symbolizer(jv, locator());
 
@@ -371,7 +371,7 @@ int IDATool::Run(void) {
                              our.succ_vec.end(),
                              v.begin(),
                              [&](bb_t succ) -> uint64_t {
-                               return ICFG[succ].Addr;
+                               return ICFG[succ].Addr();
                              });
 
               std::sort(v.begin(), v.end());

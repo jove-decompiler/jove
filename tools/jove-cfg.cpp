@@ -189,7 +189,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   auto &b = jv.Binaries.at(BinaryIndex);
   auto &x = state.for_binary(b);
 
-  uint64_t End = G[V].Addr + G[V].Size;
+  uint64_t End = G[V].Addr() + G[V].Size;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   if (G[V].Term.Type != TERMINATOR::NONE)
@@ -199,7 +199,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   std::string res;
 
   uint64_t InstLen = 0;
-  for (uint64_t A = G[V].Addr; A < End; A += InstLen) {
+  for (uint64_t A = G[V].Addr(); A < End; A += InstLen) {
     llvm::MCInst Inst;
 
     const void *ExpectedContents = B::cached::toMappedAddr(x.cb, A);
@@ -365,7 +365,7 @@ int CFGTool::Run(void) {
       if (Parents.empty()) {
         WithColor::warning()
             << llvm::formatv("failed to find function for block {0:x} in {1}\n",
-                             ICFG[bb].Addr, b.Name.c_str());
+                             ICFG[bb].Addr(), b.Name.c_str());
         return 1;
       }
 
@@ -383,7 +383,7 @@ int CFGTool::Run(void) {
   bb_t source = basic_block_of_index(source_BBIdx, b);
 
   if (IsVerbose() && opts.Function)
-    llvm::errs() << llvm::formatv("function @ {0:x}\n", ICFG[source].Addr);
+    llvm::errs() << llvm::formatv("function @ {0:x}\n", ICFG[source].Addr());
 
   std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();
 

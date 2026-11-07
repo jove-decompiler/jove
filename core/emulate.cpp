@@ -89,25 +89,11 @@ static std::string StringOfMCInst(disas_t &disas, const llvm::MCInst &Inst) {
 }
 
 trapped_t::trapped_t(ptrace_emulator_t &emu,
-                     basic_block_index_t BBIdx,
                      binary_index_t BIdx,
-                     taddr_t pc,
-                     B::ref Bin) {
+                     taddr_t termpc,
+                     const taddr_t TermAddr,
+                     B::ref Bin) : TermAddr(TermAddr), BIdx(BIdx) {
   auto &b = emu.tool.jv.Binaries.at(BIdx);
-  auto &ICFG = b.Analysis.ICFG;
-  auto &bbprop = ICFG[ICFG.template vertex(BBIdx)];
-  const bool isCall = IsTerminatorCall(bbprop.Term.Type);
-
-  this->BBIdx = BBIdx;
-  this->TermAddr = bbprop.Term.Addr;
-  this->BIdx = static_cast<unsigned>(BIdx);
-  this->TT = static_cast<unsigned>(bbprop.Term.Type);
-  this->IC = static_cast<unsigned>(isCall);
-  this->LJ = static_cast<unsigned>(bbprop.Lj);
-  this->OD = static_cast<unsigned>(
-      ICFG.template out_degree<false>(ICFG.template vertex<false>(BBIdx)) != 0);
-  this->DT = static_cast<unsigned>(bbprop.hasDynTarget());
-
 
 #if defined(__mips64) || defined(__mips__)
 #define THE_N 8
@@ -117,11 +103,11 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
 
 
   size_t N = THE_N;
-  while(unlikely(!B::toMappedAddr(Bin, bbprop.Term.Addr + (N-1)))) { /* partially exceeding end of section FIXME */
+  while(unlikely(!B::toMappedAddr(Bin, TermAddr + (N-1)))) { /* partially exceeding end of section FIXME */
 
 #define N_CASE(n, i, data)                            \
   --N;                                                \
-  if (B::toMappedAddr(Bin, bbprop.Term.Addr + (N-1))) \
+  if (B::toMappedAddr(Bin, TermAddr + (N-1))) \
     break;
 
   BOOST_PP_REPEAT(THE_N, N_CASE, void)
@@ -138,13 +124,13 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
   std::vector<uint8_t> InstBytes;
   InstBytes.resize(N);
 
-  aassert(emu.tool.peek(pc, &InstBytes[0], N) == N);
+  aassert(emu.tool.peek(termpc, &InstBytes[0], N) == N);
 
   //
   // TODO: explain this
   //
   {
-    const void *Ptr = B::toMappedAddr(Bin, bbprop.Term.Addr);
+    const void *Ptr = B::toMappedAddr(Bin, TermAddr);
     aassert(Ptr);
     __builtin_memcpy_inline(&InstBytes[0], Ptr, TargetBrkptLen);
   }
@@ -155,8 +141,19 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
   llvm::MCInst &Inst = this->Inst;
 #endif
   uint64_t InstLen;
-  aassert(emu.disas.DisAsm->getInstruction(Inst, InstLen, llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(InstBytes.data()), N), TermAddr,
-                                           llvm::nulls()));
+  aassert_msg(emu.disas.DisAsm->getInstruction(
+      Inst, InstLen,
+      llvm::ArrayRef<uint8_t>(
+          reinterpret_cast<const uint8_t *>(InstBytes.data()), N),
+      TermAddr, llvm::nulls()),
+    [&](void) -> std::string {
+      std::string bytes;
+      for (uint8_t byte : InstBytes)
+        bytes.append((fmt(" %02lx") % byte).str());
+
+      return (fmt("failed to disassemble instruction at 0x%lx (%s:0x%lx), bytes:%s")
+              % termpc % b.Name.c_str() % TermAddr % bytes).str();
+    });
 
   aassert(InstLen <= 0xf);
 

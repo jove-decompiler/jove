@@ -24,7 +24,7 @@ bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
 
   const bool IsCOFF = B::is_coff(cb.first.get());
 
-  const auto Addr = bbprop.Addr;
+  const auto Addr = bbprop.Addr();
   const auto Size = bbprop.Size;
 
   tcg_global_set_reset(bbprop.Analysis.live.use);

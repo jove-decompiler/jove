@@ -510,7 +510,7 @@ int RunTool::DoRun(void) {
     if (opts.Symbolize)
       symbolizer = std::make_unique<symbolizer_t>(jv, locator(), true);
     Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-        jv_file, jv, *disas, *tcg, GetVerbosityLevel());
+        jv_file, jv, *disas, GetVerbosityLevel());
     Recovery = std::make_unique<recoverer_t>(
         jv_file, jv, *Explorer,
         symbolizer ? boost::optional<symbolizer_t &>(*symbolizer) : boost::none);

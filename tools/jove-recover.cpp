@@ -136,7 +136,7 @@ int RecoverTool::Run(void) {
   tcg_t tcg;
   symbolizer_t symbolizer(jv, locator());
 
-  explorer_t Explorer(jv_file, jv, disas, tcg, GetVerbosityLevel());
+  explorer_t Explorer(jv_file, jv, disas, GetVerbosityLevel());
   recoverer_t Recovery(jv_file, jv, Explorer, symbolizer);
 
   std::string msg;

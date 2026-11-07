@@ -225,7 +225,7 @@ int Trace2LinesTool::Run(void) {
       const auto &ICFG = binary.Analysis.ICFG;
       bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
-      taddr_t Addr = ICFG[bb].Addr;
+      taddr_t Addr = ICFG[bb].Addr();
 
       if (binary.IsVDSO)
         die("TODO: [vdso]");

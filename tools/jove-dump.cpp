@@ -150,9 +150,9 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
       for (bb_t bb : boost::make_iterator_range(ICFG.vertices())) {
         std::string detailed_desc;
         if (opts.Symbolize)
-          detailed_desc = symbolizer->addr2line(B, ICFG[bb].Addr);
+          detailed_desc = symbolizer->addr2line(B, ICFG[bb].Addr());
 
-        std::string name = (fmt("0x%lX") % ICFG[bb].Addr).str();
+        std::string name = (fmt("0x%lX") % ICFG[bb].Addr()).str();
         if (!detailed_desc.empty()) {
           name.append(" [");
           name.append(detailed_desc);
@@ -350,7 +350,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
           std::transform(adj_it_pair.first, adj_it_pair.second, succs.begin(),
                          [&](bb_t target) -> taddr_t {
-                           return ICFG[target].Addr;
+                           return ICFG[target].Addr();
                          });
 
           Writer.printHexList("Successors", succs);
@@ -368,7 +368,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
                          [&](function_index_t FIdx) -> taddr_t {
                            basic_block_index_t EntryIdx = B.Analysis.Functions.at(FIdx).Entry;
                            bb_t Entry = basic_block_of_index(EntryIdx, ICFG);
-                           return ICFG[Entry].Addr;
+                           return ICFG[Entry].Addr();
                          });
 
           Writer.printHexList("Parents", avec);
@@ -386,7 +386,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           continue;
         }
 
-        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr).str());
+        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()).str());
 
         //Writer.printHex("Address", ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
 
@@ -505,7 +505,7 @@ int DumpTool::Run(void) {
              ++FIdx) {
           const function_t &function = binary.Analysis.Functions.at(FIdx);
           taddr_t Addr =
-              ICFG[basic_block_of_index(function.Entry, ICFG)].Addr;
+              ICFG[basic_block_of_index(function.Entry, ICFG)].Addr();
 
           llvm::outs() << llvm::formatv("{0:x}\n", Addr);
         }
@@ -535,7 +535,7 @@ int DumpTool::Run(void) {
           std::transform(
               bbvec.begin(),
               bbvec.end(), addrs.begin(),
-              [&](bb_t bb) -> taddr_t { return ICFG[bb].Addr; });
+              [&](bb_t bb) -> taddr_t { return ICFG[bb].Addr(); });
 
           Writer.printHexList("Fn", addrs);
         }

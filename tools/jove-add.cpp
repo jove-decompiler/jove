@@ -34,9 +34,8 @@ public:
 JOVE_REGISTER_TOOL("add", AddTool);
 
 int AddTool::Run(void) {
-  tcg_t<> tcg;
   disas_t disas;
-  explorer_t E(jv_file, jv, disas, tcg, IsVeryVerbose());
+  explorer_t E(jv_file, jv, disas, IsVeryVerbose());
 
   for (const std::string &filename : opts.DSO) {
     if (!fs::exists(filename)) {

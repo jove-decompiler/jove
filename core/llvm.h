@@ -665,7 +665,7 @@ private:
         return llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
       } else {
         auto &ICFG = binary.Analysis.ICFG;
-        return SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
+        return SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr());
       }
     }
 

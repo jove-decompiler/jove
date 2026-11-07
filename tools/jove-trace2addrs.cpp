@@ -115,7 +115,7 @@ void Trace2AddrsTool::ProcessBlock(llvm::raw_ostream &out,
     assert(ICFG[bb].Term.Addr);
     x = ICFG[bb].Term.Addr;
   } else {
-    x = ICFG[bb].Addr;
+    x = ICFG[bb].Addr();
   }
 
   out << llvm::formatv("{0}{1}{2:x}\n",

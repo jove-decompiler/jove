@@ -392,7 +392,9 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
   bool Speculative = false;
 
-  taddr_t Addr = uninit_taddr;
+  /* const */ ip_atomic<taddr_t> addr = uninit_taddr;
+  taddr_t Addr(void) const { return this->addr.load(boost::memory_order_relaxed); }
+
   uint32_t Size = ~uint32_t(0);
 
   struct {
@@ -535,7 +537,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
                        jv_base_t<MT, MinSize> &);
 
 
-  bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
+  bool IsSingleInstruction(void) const { return Addr() == Term.Addr; }
 
   template <bool MT, bool MinSize>
   void InvalidateAnalyses(jv_base_t<MT, MinSize> &,
@@ -545,7 +547,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   explicit bbprop_t() = delete;
   explicit bbprop_t(segment_manager_t *psm) noexcept : psm(psm) {
     //
-    // this happens regardless of !MT
+    // this happens regardless of !MT (FIXME get tag from jv_t header, also, relaxed)
     //
     bool success;
     success = this->pub.mtx.try_lock();
@@ -1134,7 +1136,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT, MinSize> &b,
 
   basic_block_index_t Idx = ICFG.index_of_add_vertex(&b.get_segment_manager());
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
-  bbprop.Addr = Addr;
+  bbprop.addr.store(Addr, boost::memory_order_relaxed);
   bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
 
   store = Idx;

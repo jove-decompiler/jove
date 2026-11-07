@@ -497,7 +497,7 @@ template <class Archive>
 static void save(Archive &ar, const jove::bbprop_t &bbprop, const unsigned int) {
   ar &BOOST_SERIALIZATION_NVP(bbprop.pub.is)
      &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
-     &BOOST_SERIALIZATION_NVP(bbprop.Addr)
+     &BOOST_SERIALIZATION_NVP(bbprop.addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Size)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Type)
@@ -547,7 +547,7 @@ template <class Archive>
 static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
   ar &BOOST_SERIALIZATION_NVP(bbprop.pub.is)
      &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
-     &BOOST_SERIALIZATION_NVP(bbprop.Addr)
+     &BOOST_SERIALIZATION_NVP(bbprop.addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Size)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Type)

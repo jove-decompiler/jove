@@ -7,9 +7,9 @@ static inline std::string description_of_block(const bbprop_t &bbprop,
   std::string res;
 
   res += "[";
-  res += taddr2str(bbprop.Addr, zero_padded);
+  res += taddr2str(bbprop.Addr(), zero_padded);
   res += ", ";
-  res += taddr2str(bbprop.Addr + bbprop.Size, zero_padded);
+  res += taddr2str(bbprop.Addr() + bbprop.Size, zero_padded);
   res += ")";
 
   return res;
@@ -394,7 +394,16 @@ static inline void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
 
 template <class T, class Proc>
 static inline void for_each_basic_block_in_binary(T &b, Proc proc) {
-  return for_each_basic_block_in_binary(std::execution::seq, b, proc);
+  auto &ICFG = b.Analysis.ICFG;
+
+  unsigned N = ICFG.num_vertices();
+
+  auto BBIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
+  auto BBIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
+
+  std::for_each(BBIdxBegin, BBIdxEnd, [proc, &ICFG](unsigned BBIdx) {
+    proc(basic_block_of_index(BBIdx, ICFG));
+  });
 }
 
 template <bool MT, bool MinSize, class _ExecutionPolicy, class Proc>
@@ -853,7 +862,7 @@ static inline taddr_t
 entry_address_of_function(const function_t &f,
                           const binary_base_t<MT, MinSize> &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
-  return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
+  return ICFG[basic_block_of_index(f.Entry, binary)].Addr();
 }
 
 template <bool MT, bool MinSize>

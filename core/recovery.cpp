@@ -293,7 +293,7 @@ std::string recoverer_base_t<MT, MinSize>::Returns(binary_index_t CallBIdx,
     bb_t bb = basic_block_at_address(TermAddr, b);
     auto &bbprop = ICFG[bb];
 
-    bbprop.Addr + bbprop.Size + (unsigned)IsMIPSTarget * 4;
+    bbprop.Addr() + bbprop.Size + (unsigned)IsMIPSTarget * 4;
   });
 
   /* FIXME is new */

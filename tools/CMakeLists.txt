@@ -132,23 +132,22 @@ endif()
 set(JOVE_SOURCES
     ../core/death.cpp # PR_SET_PDEATHSIG before any threads are created
     ../core/tbb_hacks.cpp # we'd like to have this first to disable TBB...
-    ../core/autoreap.cpp
     ../core/B.cpp
     ../core/add.cpp
     ../core/analyze.cpp
+    ../core/autoreap.cpp
     ../core/binary.cpp
     ../core/block.cpp
+    ../core/byval.cpp
     ../core/calls.cpp
     ../core/coff.cpp
     ../core/cpu.cpp
     ../core/crash.cpp
     ../core/crypto.cpp
-    ../core/byval.cpp
     ../core/disas.cpp
     ../core/elf.cpp
     ../core/emulate.cpp
     ../core/except.cpp
-    ../core/explore.cpp
     ../core/fd.cpp
     ../core/flow.cpp
     ../core/fork.cpp
@@ -156,26 +155,28 @@ set(JOVE_SOURCES
     ../core/hash.cpp
     ../core/ida.cpp
     ../core/jv.cpp
-    ../core/locator.cpp
+    ../core/kernel.cpp
     ../core/llvm.cpp
+    ../core/locator.cpp
     ../core/mt.cpp
     ../core/objdump.cpp
     ../core/perf.cpp
-    ../core/pipe.cpp
-    ../core/process.cpp
-    ../core/prefetch.cpp
-    ../core/ptrace.cpp
     ../core/pidfd.cpp
-    ../core/recovery.cpp
+    ../core/pipe.cpp
+    ../core/prefetch.cpp
+    ../core/process.cpp
+    ../core/procmap_query.cpp
+    ../core/ptrace.cpp
     ../core/recompile.cpp
+    ../core/recovery.cpp
     ../core/redirect.cpp
     ../core/reflink.cpp
     ../core/robust.cpp
     ../core/score.cpp
-    ../core/sret.cpp
     ../core/serialize.cpp
     ../core/sideband.cpp
     ../core/sjlj.cpp
+    ../core/sret.cpp
     ../core/symbolizer.cpp
     ../core/tcg.cpp
     ../core/temp.cpp
@@ -203,6 +204,7 @@ set(JOVE_SOURCES
     jove-init.cpp
     jove-invalidate.cpp
     jove-ipt.cpp
+    jove-llvm.cpp
     jove-loop.cpp
     jove-off2addr.cpp
     jove-readtrace.cpp
@@ -213,7 +215,6 @@ set(JOVE_SOURCES
     jove-scan.cpp
     jove-score.cpp
     jove-serialize.cpp
-    jove-llvm.cpp
     jove-server.cpp
     jove-stub.cpp
     jove-trace.cpp

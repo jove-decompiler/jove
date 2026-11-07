@@ -252,7 +252,7 @@ int InitTool::Run(void) {
   //
   tcg_t<> tcg;
   disas_t disas;
-  explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
+  explorer_t<false, IsToolMinSize> explorer(jv_file, disas,
                                             GetVerbosityLevel());
   auto worker =
       [&](unsigned BIdx) -> void {

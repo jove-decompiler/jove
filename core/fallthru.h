@@ -11,6 +11,8 @@ static inline Result fallthru(
     binary_base_t<MT, MinSize> &b,
     basic_block_index_t BBIdx,
     std::function<Result(bbprop_t &, basic_block_index_t)> on_block) {
+  using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
+
   auto &ICFG = b.Analysis.ICFG;
 
   std::reference_wrapper<bbprop_t> the_bbprop =
@@ -20,7 +22,7 @@ static inline Result fallthru(
   for ((void)({
          bbprop_t &bbprop = the_bbprop.get();
 
-         if constexpr (MT) {
+         if constexpr (MT) { /* FIXME (remove) */
            if (!bbprop.pub.is.test(boost::memory_order_acquire))
              bbprop.pub.template shared_access<MT>();
          }
@@ -33,11 +35,11 @@ static inline Result fallthru(
 
          BBIdxSav = BBIdx;
 
-         auto newbb = basic_block_of_index(BBIdx, b);
+         bb_t newbb = basic_block_of_index(BBIdx, b);
          bbprop_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         if constexpr (MT) {
+         if constexpr (MT) { /* FIXME (remove) */
            if (!new_bbprop.pub.is.test(boost::memory_order_acquire))
              bbprop_t::pub_t::template shared_lock_guard<MT>(
                  new_bbprop.pub.mtx);
@@ -46,17 +48,17 @@ static inline Result fallthru(
 
          0;
        })) {
-    auto bb = ICFG.vertex(BBIdx);
+    bb_t bb = ICFG.vertex(BBIdx);
     bbprop_t &bbprop = the_bbprop.get();
 
     if (bbprop.Term.Type == TERMINATOR::NONE) {
-      if (unlikely(ICFG.template out_degree<false>(bb) == 0)) {
+      if (unlikely(ICFG.template out_degree<false /* we are already holding */>(bb) == 0)) {
         assert(false && "cant proceed past NONE");
         abort();
       }
 
       basic_block_index_t NewRes =
-          ICFG.index(ICFG.template adjacent_front<false>(bb));
+          ICFG.index(ICFG.template adjacent_front<false /* we are already holding */>(bb));
 
       BBIdx = NewRes;
       continue;
