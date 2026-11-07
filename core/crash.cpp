@@ -107,10 +107,12 @@ static void terminate_handler(void) {
   try {
     std::stringstream ss;
     {
+#if 0
       auto trace = boost::stacktrace::stacktrace::from_current_exception();
       if (trace)
         ss << trace;
       else
+#endif
         ss << "FAILED TO GET STACKTRACE!\n";
     }
     std::string s = ss.str();
