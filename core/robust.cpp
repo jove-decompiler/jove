@@ -18,8 +18,8 @@ namespace robust {
 int close(int fd) { return sys::retry_eintr(::close, fd); }
 int dup2(int fd, int newfd) { return sys::retry_eintr(::dup2, fd, newfd); }
 
-template <bool IsRead>
-static ssize_t read_or_write(int fd, void *buf, size_t count) {
+template <bool IsRead, bool IsPos>
+static ssize_t read_or_write(int fd, void *buf, size_t count, unsigned long position = 0) {
   if (count == 0)
     return 0;
   __builtin_assume(count > 0);
@@ -34,12 +34,25 @@ static ssize_t read_or_write(int fd, void *buf, size_t count) {
                         ? static_cast<size_t>(SSIZE_MAX)
                         : left;
 
-    const ssize_t ret = IsRead
-      ? _jove_sys_read (fd, reinterpret_cast<char*>(p + n), chunk)
-      : _jove_sys_write(fd, reinterpret_cast<char*>(p + n), chunk);
+    ssize_t ret = -1;
+    if constexpr (IsRead) {
+      if constexpr (IsPos) {
+        ret = _jove_sys_pread64(fd, reinterpret_cast<char*>(p + n), chunk, position);
+      } else {
+        ret = _jove_sys_read(fd, reinterpret_cast<char*>(p + n), chunk);
+      }
+    } else {
+      if constexpr (IsPos) {
+        ret = _jove_sys_pwrite64(fd, reinterpret_cast<char*>(p + n), chunk, position);
+      } else {
+        ret = _jove_sys_write(fd, reinterpret_cast<char*>(p + n), chunk);
+      }
+    }
 
     if (ret > 0) {
       n += static_cast<size_t>(ret);
+      if constexpr (IsPos)
+        position += static_cast<size_t>(ret);
       continue;
     }
 
@@ -58,11 +71,19 @@ static ssize_t read_or_write(int fd, void *buf, size_t count) {
 }
 
 ssize_t read(int fd, void *const buf, const size_t count) {
-  return robust::read_or_write<true /* r */>(fd, buf, count);
+  return robust::read_or_write<true /* r */, false /* pos */>(fd, buf, count);
 }
 
 ssize_t write(int fd, const void *const buf, const size_t count) {
-  return robust::read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
+  return robust::read_or_write<false /* w */, false /* pos */>(fd, const_cast<void *>(buf), count);
+}
+
+ssize_t pread(int fd, void *const buf, const size_t count, const unsigned long position) {
+  return robust::read_or_write<true /* r */, true /* pos */>(fd, buf, count, position);
+}
+
+ssize_t pwrite(int fd, const void *const buf, const size_t count, const unsigned long position) {
+  return robust::read_or_write<false /* w */, true /* pos */>(fd, const_cast<void *>(buf), count, position);
 }
 
 ssize_t copy_file_range(int in_fd, off_t *in_off, int out_fd, off_t *out_off, size_t len) {
