@@ -1,7 +1,5 @@
 #undef JOVE_SYS_ATTR
-#undef t1
-#undef t2
-#undef t3
-#undef t4
-#undef t5
-#undef t6
+#undef __HEADER
+#undef __PARAM
+#undef __RETURN
+#undef JOVE_SYSCALL_PARAM_TYPES
