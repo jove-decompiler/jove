@@ -11,6 +11,8 @@ unique_ptr Create(llvm::StringRef Data) {
   static std::conditional_t<AreWeMT, std::mutex, std::monostate> ContextMtx;
   static std::unique_ptr<llvm::LLVMContext> Context;
 
+  assert(!Data.empty());
+
   std::unique_ptr<llvm::object::Binary> TheBin;
   {
     std::conditional_t<AreWeMT, std::unique_lock<std::mutex>, nop_t>

@@ -384,6 +384,12 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     if (name)
       to_ips(b.Name, name); /* set up name */
 
+    //
+    // success!
+    //
+    b.Data.resize(data.size()); /* lock it in */
+    memcpy(&b.Data[0], data.data(), data.size());
+
     {
       explorer_t<false /* !MT */, MinSize> explorer_(explorer);
       explorer_.set_jv(boost::none);
@@ -392,12 +398,6 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
       B::cached::create(cb, b.data());
       explorer_.explore_binary(b, cb, Options);
     }
-
-    //
-    // success!
-    //
-    b.Data.resize(data.size()); /* lock it in */
-    memcpy(&b.Data[0], data.data(), data.size());
 
     b.Hash = h;
 
