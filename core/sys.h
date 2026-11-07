@@ -1,9 +1,9 @@
 #pragma once
-#ifdef __cplusplus
-#include <cstdint>
-#else
-#include <stdint.h>
-#endif
+
+//
+// NOTE: these functions never use errno. instead, like liburing, they returns
+// the negated errno directly.
+//
 
 #ifdef JOVE_SYS_ATTR
 #error
