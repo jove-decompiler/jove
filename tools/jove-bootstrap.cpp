@@ -633,7 +633,10 @@ void BootstrapTool::Reset(void) {
   Loaded.clear();
   cached_proc_maps.clear();
   pmm.clear();
-  AddressSpace.clear();
+  {
+    auto e_lck = SafeAddressSpace.exclusive_access();
+    SafeAddressSpace.m.clear();
+  }
 #if 0
   children.set.clear();
 #endif
@@ -2046,7 +2049,10 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
   //
   // forget what we think we know
   //
-  AddressSpace.clear();
+  {
+    auto e_lck = SafeAddressSpace.exclusive_access();
+    SafeAddressSpace.m.clear();
+  }
   for_each_binary(jv, [&](binary_t &b) { state.for_binary(b).Reset(); });
 
   if (has_ProcMapQuery) {
@@ -2077,7 +2083,10 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
       binary_t &b = jv.Binaries.at(BIdx);
 
-      intvl_map_add(AddressSpace, right_open_addr_intvl(pm.beg, pm.end), BIdx);
+      {
+        auto e_lck = SafeAddressSpace.exclusive_access();
+        intvl_map_add(SafeAddressSpace.m, right_open_addr_intvl(pm.beg, pm.end), BIdx);
+      }
 
       auto &x = state.for_binary(b);
 
@@ -2288,9 +2297,12 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                                    % q.vma_end
                                    % name).str();
 
-                  intvl_map_add<false>(
-                      AddressSpace,
-                      right_open_addr_intvl(q.vma_start, q.vma_end), BIdx);
+                  {
+                    auto e_lck = SafeAddressSpace.exclusive_access();
+                    intvl_map_add<false>(
+                        SafeAddressSpace.m,
+                        right_open_addr_intvl(q.vma_start, q.vma_end), BIdx);
+                  }
 
                   const unsigned idx = &section - svec.data();
                   {
@@ -2307,8 +2319,14 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                 }
               });
 
-  assert(intvl_map_find(AddressSpace, vma_start) != AddressSpace.end());
-  assert(intvl_map_find(AddressSpace, vma_end-1) != AddressSpace.end());
+#ifndef NDEBUG
+  {
+    auto s_lck = SafeAddressSpace.shared_access();
+
+    assert(intvl_map_find(SafeAddressSpace.m, vma_start) != SafeAddressSpace.m.end());
+    assert(intvl_map_find(SafeAddressSpace.m, vma_end-1) != SafeAddressSpace.m.end());
+  }
+#endif
 
   scoped_fd &mem_fd = mem_for_child();
 
@@ -2880,8 +2898,10 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
 binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
                                                         taddr_t pc) {
   {
-    auto it = intvl_map_find(AddressSpace, pc);
-    if (likely(it != AddressSpace.end()))
+    auto s_lck = SafeAddressSpace.shared_access();
+
+    auto it = intvl_map_find(SafeAddressSpace.m, pc);
+    if (likely(it != SafeAddressSpace.m.end()))
       return (*it).second;
   }
 
@@ -3090,17 +3110,21 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   ScanAddressSpace(child, false);
 
   {
-    auto it = intvl_map_find(AddressSpace, pc);
-    if (it == AddressSpace.end()) {
-      if (IsVeryVerbose()) {
-        const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
-        die("added " + pm.nm + " but AddressSpace unchanged");
-      }
+    const binary_index_t BIdx = ({
+      auto s_lck = SafeAddressSpace.shared_access();
+      auto it = intvl_map_find(SafeAddressSpace.m, pc);
+      unlikely(it == SafeAddressSpace.m.end()) ? invalid_binary_index : (*it).second;
+    });
 
-      return invalid_binary_index;
+    if (is_binary_index_valid(BIdx))
+        return BIdx;
+
+    if (IsVeryVerbose()) {
+      const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+      die("added " + pm.nm + " but AddressSpace unchanged");
     }
 
-    return (*it).second;
+    return invalid_binary_index;
   }
 }
 
@@ -3223,9 +3247,13 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
     }
 
     if (Symbolize) {
-      auto it = intvl_map_find(AddressSpace, pc);
-      if (it != AddressSpace.end()) {
-        binary_index_t BIdx = (*it).second;
+      const binary_index_t BIdx = ({
+        auto s_lck = SafeAddressSpace.shared_access();
+        auto it = intvl_map_find(SafeAddressSpace.m, pc);
+        it == SafeAddressSpace.m.end() ? invalid_binary_index : (*it).second;
+      });
+
+      if (is_binary_index_valid(BIdx)) {
         binary_t &b = jv.Binaries.at(BIdx);
         auto &x = state.for_binary(b);
 
