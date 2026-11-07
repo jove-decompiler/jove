@@ -195,6 +195,17 @@ namespace cached {
 template <typename extra_t = std::monostate>
 using type = std::pair<B::unique_ptr, sections_t<extra_t>>;
 
+static inline addr_pair bounds_of_binary(auto &cb) {
+  assert(!cb.second.svec.empty());
+
+  auto sorted_range = cb.second.sorted_by_addr();
+
+  const auto &the_front = sorted_range.front();
+  const auto &the_back = sorted_range.back();
+
+  return std::make_pair(the_front.addr(), the_back.addr() + the_back.length());
+}
+
 static inline uint64_t va_of_offset(const auto &cb, uint64_t off) {
   auto &Bin      = cb.first;
   auto &sections = cb.second;
