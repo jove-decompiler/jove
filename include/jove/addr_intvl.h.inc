@@ -108,13 +108,15 @@ constexpr bool intvl_map_contains(OrderedIntvlMap &map, T x) {
   return intvl_map_find(map, x) != map.end();
 }
 
-template <typename OrderedIntvlMap, typename Value>
+template <bool MustBeNew = true, typename OrderedIntvlMap, typename Value>
 constexpr auto intvl_map_add(OrderedIntvlMap &map,
                              addr_intvl intvl,
                              Value &&val) {
   auto x = map.insert(typename OrderedIntvlMap::value_type(intvl, std::move(val)));
 
-  aassert(x.second);
+  if constexpr (MustBeNew)
+    aassert(x.second);
+
   return x.first;
 }
 
