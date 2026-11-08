@@ -2025,8 +2025,6 @@ taddr_t BootstrapTool::compute_load_address(binary_t &b,
 }
 
 void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
-  assert(!has_ProcMapQuery);
-
   if (unlikely(!Engaged))
     return;
 
@@ -2249,12 +2247,19 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
   auto &svec = x.cb.second.svec;
   std::for_each(maybe_par_unseq, svec.begin(), svec.end(),
               [&](auto &section) {
+                const taddr_t vma_start = pc_of_va(section.addr(), BIdx);
+                const taddr_t vma_end = vma_start + section.length();
+
                 if (section.extra.Loaded) {
                   NumSectionsLoaded.fetch_add(1, std::memory_order_relaxed);
+
+                  assert(({
+                    auto s_lck = SafeAddressSpace.shared_access();
+                    intvl_map_find(SafeAddressSpace.m, vma_start) != SafeAddressSpace.m.end();
+                  }));
+
                   return;
                 }
-
-                const taddr_t pc = pc_of_va(section.addr(), BIdx);
 
                 char name[PATH_MAX];
                 name[0] = '\0';
@@ -2262,7 +2267,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                 struct procmap_query q;
                 q.size = sizeof(q);
                 q.query_flags = PROCMAP_QUERY_VMA_READABLE;
-                q.query_addr = pc;
+                q.query_addr = vma_start;
                 (void)q.vma_start;
                 (void)q.vma_end;
                 (void)q.vma_flags;
@@ -2293,12 +2298,18 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                         right_open_addr_intvl(q.vma_start, q.vma_end), BIdx);
                   }
 
+#if 0
+                  assert(q.vma_start == vma_start);
+                  assert(q.vma_end == vma_end);
+#endif
+
                   const unsigned idx = &section - svec.data();
                   {
                     auto e_lck = JustLoadedSectionMap.exclusive_access();
                     intvl_map_add<true>(
                         JustLoadedSectionMap.m,
-                        right_open_addr_intvl(q.vma_start, q.vma_end), idx);
+                        right_open_addr_intvl(vma_start, vma_end), idx);
+                    /* TODO subsume */
                   }
 
                   NumSectionsLoaded.fetch_add(1, std::memory_order_relaxed);
