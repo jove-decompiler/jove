@@ -289,7 +289,7 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
       ____exclusive_vert____(L, pvp1->mtx);
       boost::tie(it, inserted) = boost::graph_detail::push(oedges, StoredEdge(V2));
     } else if constexpr (std::is_same_v<DirectedS, boost::bidirectional_simpleS>) {
-      const bool Same = V1 == V2;
+      const bool Same = this->index(V1) == this->index(V2);
 
       if (Same) {
         ____stored_vert____(V1, pvp, psv);
@@ -302,19 +302,36 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
         if (inserted)
           boost::graph_detail::push(iedges, StoredEdge(V1));
       } else {
-        ____stored_vert____(V1, pvp1, psv1);
-        auto &oedges = psv1->m_out_edges;
+        if (this->index(V1) < this->index(V2)) {
+          ____stored_vert____(V1, pvp1, psv1);
+          auto &oedges = psv1->m_out_edges;
 
-        ____exclusive_vert____(L, pvp1->mtx);
-        boost::tie(it, inserted) =
-            boost::graph_detail::push(oedges, StoredEdge(V2));
+          ____exclusive_vert____(L, pvp1->mtx);
+          boost::tie(it, inserted) =
+              boost::graph_detail::push(oedges, StoredEdge(V2));
 
-        if (inserted) {
+          if (inserted) {
+            ____stored_vert____(V2, pvp2, psv2);
+            auto &iedges = psv2->m_in_edges;
+
+            ____exclusive_vert____(L, pvp2->mtx);
+            boost::graph_detail::push(iedges, StoredEdge(V1));
+          }
+        } else {
           ____stored_vert____(V2, pvp2, psv2);
           auto &iedges = psv2->m_in_edges;
 
           ____exclusive_vert____(L, pvp2->mtx);
-          boost::graph_detail::push(iedges, StoredEdge(V1));
+          boost::tie(it, inserted) =
+              boost::graph_detail::push(iedges, StoredEdge(V1));
+
+          if (inserted) {
+            ____stored_vert____(V1, pvp1, psv1);
+            auto &oedges = psv1->m_out_edges;
+
+            ____exclusive_vert____(L, pvp1->mtx);
+            boost::graph_detail::push(oedges, StoredEdge(V2));
+          }
         }
       }
     } else {
