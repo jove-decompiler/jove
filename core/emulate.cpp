@@ -92,7 +92,7 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
                      binary_index_t BIdx,
                      taddr_t termpc,
                      const taddr_t TermAddr,
-                     B::ref Bin) : TermAddr(TermAddr), BIdx(BIdx) {
+                     B::ref Bin) : essential{ .TermAddr = TermAddr, .BIdx = BIdx} {
   auto &b = emu.tool.jv.Binaries.at(BIdx);
 
 #if defined(__mips64) || defined(__mips__)
@@ -114,7 +114,8 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
 
 #undef N_CASE
 
-    throw std::runtime_error((fmt("no data at address 0x%lx in %s\n") % this->TermAddr % b.Name.c_str()).str());
+  throw std::runtime_error((fmt("no data at address 0x%lx in %s\n") %
+                            this->essential.TermAddr % b.Name.c_str()).str());
   }
 
   aassert(N >= TargetBrkptLen);
@@ -157,7 +158,7 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
 
   aassert(InstLen <= 0xf);
 
-  this->IL = InstLen;
+  this->essential.IL = InstLen;
 
 #if 0
   llvm::errs() << StringOfMCInst(emu.disas, Inst) << '\n';
@@ -175,8 +176,8 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
 #endif
 
   try {
-    this->single_step_proc =
-        ptrace_emulation::load_single_step_proc(*this, Inst
+    this->essential.single_step_proc =
+        ptrace_emulation::load_single_step_proc(this->essential, Inst
 #if defined(__mips64) || defined(__mips__)
                                               , DelaySlotInst
 #endif

@@ -337,7 +337,7 @@ struct BootstrapTool
   boost::unordered::concurrent_flat_map<taddr_t, trapped_t> trapmap;
 #else
   struct safe_trapmap_t : public ip_base_rw_accessible_spin<IsToolMT> {
-    unordered_stable_map<taddr_t, trapped_t> m;
+    unordered_map<taddr_t, trapped_t> m;
   } safe_trapmap;
 #endif
 
@@ -419,8 +419,7 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, const binary_index_t);
 
-  std::pair<trapped_t &, bool>
-  place_breakpoint_in_block(binary_t &, bbprop_t &, basic_block_index_t);
+  void place_breakpoint_in_block(binary_t &, bbprop_t &, basic_block_index_t);
 
   // returns true if notrap_exception would be raised
   bool on_breakpoint(pid_t, ptrace::target_tracee_state_t &);

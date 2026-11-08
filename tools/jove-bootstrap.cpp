@@ -1595,7 +1595,6 @@ bool BootstrapTool::handle_breakpoint(void) {
           place_breakpoint_in_block(b, ICFG[ICFG.vertex<false>(TheBBIdx)], TheBBIdx);
       });
 
-  /* TODO use return value of place_breakpoint_in_block */
   if (on_breakpoint(_child, tracee_state)) {
     vvmsg("!on_breakpoint()");
     return false; /* failure */
@@ -1615,10 +1614,9 @@ void BootstrapTool::on_new_basic_block(binary_t &b,
 
 void BootstrapTool::on_new_function(binary_t &b, function_t &f) {}
 
-std::pair<trapped_t &, bool>
-BootstrapTool::place_breakpoint_in_block(binary_t &b,
-                                         bbprop_t &bbprop,
-                                         basic_block_index_t BBIdx) {
+void BootstrapTool::place_breakpoint_in_block(binary_t &b,
+                                              bbprop_t &bbprop,
+                                              basic_block_index_t BBIdx) {
   auto &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -1647,26 +1645,22 @@ BootstrapTool::place_breakpoint_in_block(binary_t &b,
   const bool NonZeroOutDegree = ICFG.template out_degree<false>(basic_block_of_index(BBIdx, b)) != 0;
   const bool HasDynTarget = bbprop.hasDynTarget();
 
-  trapped_t *const ptrapped = ({
+  {
     auto e_lck = safe_trapmap.exclusive_access();
     auto trapped_pair = safe_trapmap.m.emplace(
         termpc, trapped_t(*emulator, BIdx, termpc, TermAddr, x.Bin().get()));
     aassert(trapped_pair.second);
 
-    &(*trapped_pair.first).second;
-  });
+    trapped_t::essential_t &essential = (*trapped_pair.first).second.essential;
 
-  assert(ptrapped);
-  trapped_t &trapped = *ptrapped;
-
-  trapped.BBIdx = BBIdx;
-
-  trapped.BIdx = BIdx;
-  trapped.TT = static_cast<unsigned>(TermType);
-  trapped.IC = static_cast<unsigned>(IC);
-  trapped.LJ = static_cast<unsigned>(Lj);
-  trapped.OD = static_cast<unsigned>(NonZeroOutDegree);
-  trapped.DT = static_cast<unsigned>(HasDynTarget);
+    essential.BBIdx = BBIdx;
+    essential.BIdx = BIdx;
+    essential.TT = static_cast<unsigned>(TermType);
+    essential.IC = static_cast<unsigned>(IC);
+    essential.LJ = static_cast<unsigned>(Lj);
+    essential.OD = static_cast<unsigned>(NonZeroOutDegree);
+    essential.DT = static_cast<unsigned>(HasDynTarget);
+  };
 
 #if 0
   if (TermType == TERMINATOR::RETURN)
@@ -1678,8 +1672,6 @@ BootstrapTool::place_breakpoint_in_block(binary_t &b,
   scoped_fd &mem_fd = mem_for_child();
   robust::pwrite(mem_fd.get(), TargetBrkpt, TargetBrkptLen, termpc);
 #endif
-
-  return {trapped, true};
 }
 
 static void arch_put_breakpoint(void *code);
@@ -1733,21 +1725,20 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   auto &pc = tracee_state.program_counter();
   const taddr_t SavedPC = pc - IsX86Target;
 
-  trapped_t *const ptrapped = ({
+  trapped_t::essential_t essential;
+  {
     auto s_lck = safe_trapmap.shared_access();
+
     auto it = safe_trapmap.m.find(SavedPC);
     if (unlikely(it == safe_trapmap.m.end()))
       return true;
-
-    &(*it).second;
-  });
-
-  assert(ptrapped);
-  trapped_t &trapped = *ptrapped;
+    essential = (*it).second.essential;
+  }
 
   const taddr_t TargetAddr = ({
     pc = SavedPC;
-    const auto NewPC = trapped.single_step_proc(tracee_state, trapped, *emulator);
+    const auto NewPC =
+        essential.single_step_proc(tracee_state, essential, *emulator);
 
 #if !(defined(TARGET_MIPS64) || defined(TARGET_MIPS32))
     pc = NewPC;
@@ -1763,22 +1754,20 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 #endif
 #endif
 
-  const binary_index_t BIdx       = trapped.BIdx;
-  binary_t &b = jv.Binaries.at(BIdx);
-  auto &ICFG = b.Analysis.ICFG;
-
-  const basic_block_index_t BBIdx = trapped.BBIdx;
-
-  const auto TermType = static_cast<TERMINATOR>(trapped.TT);
-  const auto TermAddr = trapped.TermAddr;
-  const bool IsCall   = static_cast<bool>(trapped.IC);
-  const bool IsLj     = static_cast<bool>(trapped.LJ);
-  const unsigned OutDeg = trapped.OD;
-  const unsigned HasDynTarget = trapped.DT;
-
   //////////////////////////////////////////////////////////////////////////////
   /// TONOTBE(trapped)
   ///
+  const binary_index_t BIdx       = essential.BIdx;
+  const basic_block_index_t BBIdx = essential.BBIdx;
+  const TERMINATOR TermType       = static_cast<TERMINATOR>(essential.TT);
+  const taddr_t TermAddr          = essential.TermAddr;
+  const bool IsCall               = static_cast<bool>(essential.IC);
+  const bool IsLj                 = static_cast<bool>(essential.LJ);
+  const unsigned OutDeg           = essential.OD;
+  const unsigned HasDynTarget     = essential.DT;
+
+  binary_t &b = jv.Binaries.at(BIdx);
+  auto &ICFG = b.Analysis.ICFG;
 
   struct {
     bool isNew = false;
@@ -1874,7 +1863,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
       {
         auto s_lck = safe_trapmap.shared_access();
-        safe_trapmap.m.at(SavedPC).DT = 1;
+        safe_trapmap.m.at(SavedPC).essential.DT = 1;
       }
     } else {
       assert(TermType == TERMINATOR::INDIRECT_JUMP);
@@ -1934,7 +1923,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
           {
             auto s_lck = safe_trapmap.shared_access();
-            safe_trapmap.m.at(SavedPC).DT = 1;
+            safe_trapmap.m.at(SavedPC).essential.DT = 1;
           }
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
@@ -2389,26 +2378,23 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
 
     // NOTE: it's not the end of the world if BBIdx refers to a split block. we
     // could get a fresh index, but it could be split anyways, in the future.
-    trapped_t *const ptrapped = ({
+    {
       auto e_lck = safe_trapmap.exclusive_access();
       auto trapped_pair = safe_trapmap.m.try_emplace(
           termpc, trapped_t(*emulator, BIdx, termpc, TermAddr, x.cb.first.get()));
       if (!trapped_pair.second)
         return;
-      &(*trapped_pair.first).second;
-    });
 
-    assert(ptrapped);
-    trapped_t &trapped = *ptrapped;
+      trapped_t::essential_t &essential = (*trapped_pair.first).second.essential;
 
-    trapped.BBIdx = BBIdx;
-
-    trapped.BIdx = BIdx;
-    trapped.TT = static_cast<unsigned>(TermType);
-    trapped.IC = static_cast<unsigned>(IC);
-    trapped.LJ = static_cast<unsigned>(Lj);
-    trapped.OD = static_cast<unsigned>(NonZeroOutDegree);
-    trapped.DT = static_cast<unsigned>(HasDynTarget);
+      essential.BBIdx = BBIdx;
+      essential.BIdx = BIdx;
+      essential.TT = static_cast<unsigned>(TermType);
+      essential.IC = static_cast<unsigned>(IC);
+      essential.LJ = static_cast<unsigned>(Lj);
+      essential.OD = static_cast<unsigned>(NonZeroOutDegree);
+      essential.DT = static_cast<unsigned>(HasDynTarget);
+    }
 
 #if 0
     iouring.prep_pwrite(mem_fd.get(), termpc, TargetBrkpt, TargetBrkptLen);

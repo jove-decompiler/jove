@@ -57,7 +57,7 @@ using RegValue_t = unsigned long long;
   ((unsigned, RetReg0))
 #include "single_step.cpp.inc"
 
-single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t &trapped, llvm::MCInst &Inst) {
+single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_t &trapped, llvm::MCInst &Inst) {
   switch (Inst.getOpcode()) {
 #define JOVE_SINGLESTEP_OPCODE CALL64m
   case llvm::X86::JOVE_SINGLESTEP_OPCODE:

@@ -19,22 +19,39 @@ namespace jove {
 
 struct BootstrapTool;
 
-struct trapped_t;
+struct essential_t;
 struct ptrace_emulator_t;
 
-typedef uintptr_t
+using single_step_proc_t = uintptr_t
 #if !defined(__x86_64__) && defined(__i386__)
     __attribute__((regparm(3)))
 #endif
-    (*single_step_proc_t)(ptrace::target_tracee_state_t &,
-                          trapped_t &,
-                          ptrace_emulator_t &);
+    (*)(ptrace::target_tracee_state_t &,
+        essential_t &,
+        ptrace_emulator_t &);
+
+struct essential_t {
+  single_step_proc_t single_step_proc;
+  basic_block_index_t BBIdx = invalid_basic_block_index;
+  taddr_t TermAddr;
+
+  //
+  // the following variables are cached for performance reasons.
+  //
+  unsigned BIdx : 19;
+  unsigned TT   : 3; /* terminator type */
+  unsigned IC   : 1; /* is call? */
+  unsigned LJ   : 1; /* longjmp? */
+  unsigned OD   : 1; /* (nonzero) out degree? */
+  unsigned DT   : 1; /* (has) dynamic target? */
+  unsigned IL   : 6; /* instruction length */
+};
 
 struct unsupported_opcode_exception {};
 
 struct ptrace_emulation {
   [[noinline]]
-  static single_step_proc_t load_single_step_proc(trapped_t &,
+  static single_step_proc_t load_single_step_proc(essential_t &,
                                                   llvm::MCInst &
 #if defined(__mips64) || defined(__mips__)
                                                 , llvm::MCInst &
@@ -77,20 +94,8 @@ struct ptrace_emulator_t : public VerboseThing {
 };
 
 struct __attribute__((packed)) trapped_t {
-  single_step_proc_t single_step_proc;
-  basic_block_index_t BBIdx = invalid_basic_block_index;
-  taddr_t TermAddr;
-
-  //
-  // the following variables are cached for performance reasons.
-  //
-  unsigned BIdx : 19;
-  unsigned TT   : 3; /* terminator type */
-  unsigned IC   : 1; /* is call? */
-  unsigned LJ   : 1; /* longjmp? */
-  unsigned OD   : 1; /* (nonzero) out degree? */
-  unsigned DT   : 1; /* (has) dynamic target? */
-  unsigned IL   : 6; /* instruction length */
+  using essential_t = essential_t;
+  essential_t essential;
 
 #if defined(__x86_64__) || defined(__i386__)
   int64_t Disp;
