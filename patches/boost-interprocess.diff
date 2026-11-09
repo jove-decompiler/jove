@@ -47,6 +47,130 @@ index dc2fc7c..bbcc94f 100644
  }
  
  inline mapping_handle_t file_wrapper::get_mapping_handle() const
+diff --git a/include/boost/interprocess/detail/managed_open_or_create_impl.hpp b/include/boost/interprocess/detail/managed_open_or_create_impl.hpp
+index d09c941..f8ae957 100644
+--- a/include/boost/interprocess/detail/managed_open_or_create_impl.hpp
++++ b/include/boost/interprocess/detail/managed_open_or_create_impl.hpp
+@@ -275,91 +275,119 @@ class managed_open_or_create_impl
+ 
+    template<bool dummy>
+    static bool check_offset_t_size(std::size_t size, true_)
+    { return size == std::size_t(offset_t(size)); }
+ 
+    //These are templatized to allow explicit instantiations
+    template<bool dummy, class DeviceId>
+    static void create_device(DeviceAbstraction &dev, const DeviceId & id, std::size_t size, const permissions &perm, false_ /*file_like*/)
+    {
+       DeviceAbstraction tmp(create_only, id, read_write, size, perm);
+       tmp.swap(dev);
+    }
+ 
+    template<bool dummy, class DeviceId>
+    static void create_device(DeviceAbstraction &dev, const DeviceId & id, std::size_t, const permissions &perm, true_ /*file_like*/)
+    {
+       DeviceAbstraction tmp(create_only, id, read_write, perm);
+       tmp.swap(dev);
+    }
+ 
++#ifdef BOOST_NO_EXCEPTIONS
++#error
++#endif
++
+    template <class DeviceId>
+    static bool do_create_else_open(DeviceAbstraction &dev, const DeviceId & id, std::size_t size, const permissions &perm)
+    {
+       //This loop is very ugly, but brute force is sometimes better
+       //than diplomacy. In POSIX file-based resources we can' know if we
+       //effectively created the file or not (there is no ERROR_ALREADY_EXISTS equivalent),
+       //so we try to create exclusively and fallback to open if already exists, with
+       //some retries if opening also fails because the file does not exist
+       //(there is a race, the creator just removed the file after creating it).
+       //
+       //We'll put a maximum retry limit just to avoid possible deadlocks, we don't
+       //want to support pathological use cases.
++      const bool DoesNotExist = ({
++        struct stat statbuf;
++        int ret;
++        for (;;) {
++          ret = ::stat(id, &statbuf);
++          if (ret == -1 && errno == EINTR)
++            continue;
++          break;
++        }
++        (ret == -1 && errno == ENOENT);
++      });
++
+       spin_wait swait;
+       unsigned tries = 0; (void)tries;
+       while(1){
++         if (DoesNotExist) {
+          BOOST_INTERPROCESS_TRY{
+             create_device<FileBased>(dev, id, size, perm, file_like_t());
+             return true;
+          }
+          BOOST_INTERPROCESS_CATCH(interprocess_exception &ex){
+             #ifndef BOOST_NO_EXCEPTIONS
+             if(ex.get_error_code() != already_exists_error){
+                BOOST_INTERPROCESS_RETHROW
+             }
+             else if (++tries == MaxCreateOrOpenTries) {
+                //File existing when trying to create, but non-existing when
+                //trying to open, and tried MaxCreateOrOpenTries times. Something fishy
+                //is happening here and we can't solve it
+                throw interprocess_exception(error_info(corrupted_error));
+             }
+             else{
+                BOOST_INTERPROCESS_TRY{
+                   DeviceAbstraction tmp(open_only, id, read_write);
+                   dev.swap(tmp);
+                   return false;
+                }
+                BOOST_INTERPROCESS_CATCH(interprocess_exception &e){
+                   if(e.get_error_code() != not_found_error){
+                      BOOST_INTERPROCESS_RETHROW
+                   }
+                }
+                BOOST_INTERPROCESS_CATCH(...){
+                   BOOST_INTERPROCESS_RETHROW
+                } BOOST_INTERPROCESS_CATCH_END
+             }
+             #endif   //#ifndef BOOST_NO_EXCEPTIONS
+          }
+          BOOST_INTERPROCESS_CATCH(...){
+             BOOST_INTERPROCESS_RETHROW
+          } BOOST_INTERPROCESS_CATCH_END
+          swait.yield();
++         } else {
++         BOOST_INTERPROCESS_TRY{
++            DeviceAbstraction tmp(open_only, id, read_write);
++            dev.swap(tmp);
++            return false;
++         }
++         BOOST_INTERPROCESS_CATCH(...){
++           std::abort();
++         } BOOST_INTERPROCESS_CATCH_END
++         swait.yield();
++         }
+       }
+       return false;
+    }
+ 
+    template <class ConstructFunc>
+    static void do_map_after_create
+       (DeviceAbstraction &dev, mapped_region &final_region,
+        std::size_t size, const void *addr, ConstructFunc construct_func)
+    {
+       BOOST_INTERPROCESS_TRY{
+          //If this throws, we are lost
+          truncate_device<FileBased>(dev, static_cast<offset_t>(size), file_like_t());
+ 
+          //If the following throws, we will truncate the file to 1
+          mapped_region region(dev, read_write, 0, 0, addr);
+          boost::uint32_t *patomic_word = 0;  //avoid gcc warning
+          patomic_word = static_cast<boost::uint32_t*>(region.get_address());
+          boost::uint32_t previous = atomic_cas32(patomic_word, InitializingSegment, UninitializedSegment);
+ 
+          if(previous == UninitializedSegment){
 diff --git a/include/boost/interprocess/detail/os_file_functions.hpp b/include/boost/interprocess/detail/os_file_functions.hpp
 index 137409d..0c5460c 100644
 --- a/include/boost/interprocess/detail/os_file_functions.hpp
