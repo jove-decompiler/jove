@@ -59,6 +59,8 @@ struct binary_state_t {
   void Reset(void) {
     this->LoadAddr = std::numeric_limits<taddr_t>::max();
     this->NumSectionsLoaded.store(0, std::memory_order_relaxed);
+    for (auto &section : this->sections().svec)
+      section.extra.Loaded = false;
   }
 
   bool HasLoadAddr(void) const {
