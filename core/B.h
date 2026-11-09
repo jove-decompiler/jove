@@ -262,7 +262,12 @@ void from_svec(sections_t<extra_t> &out, const section_vec_t<extra_t> &svec) {
 
   {
     auto pairs =
-        svec | std::views::transform([svec_base](const auto &section) {
+        svec | std::views::filter([](const auto &section) {
+          if (section._elf.tls && section._elf.nobits)
+            return false; /* .tbss */
+          return section.ai.second > 0u;
+        }) |
+        std::views::transform([svec_base](const auto &section) {
           return section_amap_t::value_type(section.ai, &section - svec_base);
         });
 
@@ -271,7 +276,9 @@ void from_svec(sections_t<extra_t> &out, const section_vec_t<extra_t> &svec) {
 
   {
     auto pairs =
-        svec | std::views::transform([svec_base](const auto &section) {
+        svec | std::views::filter([](const auto &section) {
+          return section.oi.second > 0u;
+        }) | std::views::transform([svec_base](const auto &section) {
           return section_omap_t::value_type(section.oi, &section - svec_base);
         });
 

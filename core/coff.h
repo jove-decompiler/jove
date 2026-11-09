@@ -86,8 +86,10 @@ static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
     const llvm::object::coff_section &Sect = *O.getCOFFSection(SectionRef);
 
     const auto size = Sect.SizeOfRawData;
+#if 0
     if (!size)
       continue;
+#endif
 
     const auto length = Sect.VirtualSize;
     if (size > length)
@@ -99,6 +101,8 @@ static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
 
     const unsigned idx = out.size();
     auto &section = out.emplace_back(off, size, va_of_rva(O, Sect.VirtualAddress), length);
+    __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
+//  __builtin_memset_inline(&section._coff, 0, sizeof(section._coff));
 
     const char *const pbeg = &Sect.Name[0];
     const char *pend = (const char *)memchr(pbeg, '\0', sizeof(Sect.Name));

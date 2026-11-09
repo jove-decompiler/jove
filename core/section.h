@@ -50,6 +50,7 @@ public:
   } perm;
 
   struct {
+    unsigned tls    : 1;
     unsigned init   : 1;
     unsigned fini   : 1;
     unsigned nobits : 1;

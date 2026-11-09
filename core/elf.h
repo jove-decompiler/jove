@@ -368,9 +368,11 @@ static inline bool sections(ELFO &O, B::section_vec_t<extra_t> &out) {
         continue;
 
       const auto stype = Sec.sh_type;
-      const auto size = stype == llvm::ELF::SHT_NOBITS ? 1 /* XXX */ : length;
+      const auto size = stype == llvm::ELF::SHT_NOBITS ? 0 : length;
+#if 0
       if (!size)
         continue;
+#endif
 
       const auto off = Sec.sh_offset;
       if (off >= M)
@@ -378,14 +380,10 @@ static inline bool sections(ELFO &O, B::section_vec_t<extra_t> &out) {
 
       auto MaybeName = Elf.getSectionName(Sec);
 
-      // TODO this is definitely desired but explain
-      if ((flags & llvm::ELF::SHF_TLS) &&
-          MaybeName && *MaybeName == ".tbss")
-        continue;
-
       const unsigned idx = out.size();
       auto &section = out.emplace_back(off, size, Sec.sh_addr, length);
       __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
+//    __builtin_memset_inline(&section._coff, 0, sizeof(section._coff));
 
       if (MaybeName)
         section.Name = *MaybeName;
@@ -396,6 +394,7 @@ static inline bool sections(ELFO &O, B::section_vec_t<extra_t> &out) {
       section.perm.w = !!(flags & llvm::ELF::SHF_WRITE);
       section.perm.x = !!(flags & llvm::ELF::SHF_EXECINSTR);
 
+      section._elf.tls = !!(flags & llvm::ELF::SHF_TLS);
       section._elf.init   = stype == llvm::ELF::SHT_INIT_ARRAY;
       section._elf.fini   = stype == llvm::ELF::SHT_FINI_ARRAY;
       section._elf.nobits = stype == llvm::ELF::SHT_NOBITS;
