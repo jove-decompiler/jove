@@ -135,7 +135,7 @@ index c9abfb32..1f6b5b7f 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index 113143a7..777f55d2 100644
+index 113143a7..bc538f33 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
 @@ -18,153 +18,289 @@
@@ -230,7 +230,7 @@ index 113143a7..777f55d2 100644
  
 +template < class ValueType > struct container_gen< listS_ip, ValueType >
 +{
-+    typedef interprocess::cached_adaptive_pool<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
 +    typedef interprocess::list< ValueType, _Allocator > type;
 +};
 +
@@ -263,7 +263,7 @@ index 113143a7..777f55d2 100644
  
 +template < class ValueType > struct container_gen< setS_ip, ValueType >
 +{
-+    typedef interprocess::cached_adaptive_pool<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
 +    typedef interprocess::set< ValueType, std::less<ValueType>, _Allocator > type;
 +};
 +
