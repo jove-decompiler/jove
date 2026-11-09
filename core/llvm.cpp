@@ -1,5 +1,5 @@
 #ifndef JOVE_NO_BACKEND
-#define NO_JOVE_ASSERT
+//#define NO_JOVE_ASSERT
 #include "jove/assert.h"
 #include "llvm.h"
 
@@ -79,8 +79,9 @@
 #include <signal.h>
 
 #include "jove_constants.h"
+#undef NO_JOVE_ASSERT
+#include "jove/assert.h"
 //#define NO_JOVE_ASSERT
-//#undef NO_JOVE_ASSERT
 
 extern "C" {
 void __attribute__((noinline))
@@ -1852,7 +1853,7 @@ llvm::GlobalIFunc *
 llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
                                       dynamic_target_t IdxPair,
                                       llvm::StringRef SymName) {
-  assert(SectsGlobal);
+//assert(SectsGlobal);
 
   llvm::FunctionType *FTy = is_dynamic_target_valid(IdxPair)
                                 ? DetermineFunctionType(IdxPair)
@@ -3220,7 +3221,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
     auto it = intvl_map_find(SectIdxMap, Addr);
-    assert(it != SectIdxMap.end());
+    assert_msg(it != SectIdxMap.end(), [&](void) -> std::string { return taddr2str(Addr); });
 
     auto &Sect = SectTable[(*it).second];
     unsigned Off = Addr - Sect.addr();
@@ -3675,7 +3676,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
 
     auto it = intvl_map_find(SectIdxMap, Addr);
-    assert(it != SectIdxMap.end());
+    assert_msg(it != SectIdxMap.end(),
+               [&](void) -> std::string { return taddr2str(Addr); });
     auto &section = SectTable[(*it).second];
     auto Contents = B::contents_of_section(x.cb.first.get(), section);
     const unsigned Off = Addr - section.addr();
@@ -3711,7 +3713,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         if (Contents.empty()) {
           Initializer = llvm::Constant::getNullValue(IntTy);
         } else {
-          assert(Contents.size() >= Size);
+          assert_msg(Contents.size() >= Size,
+                     [&](void) -> std::string { return SymName.str(); });
           assert(Off + (Size - 1) < Contents.size());
 
           llvm::APInt X(Size * 8, 0u, false);
