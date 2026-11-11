@@ -5,6 +5,7 @@
 #include "B.h"
 #include "helper.h"
 #include "tcg.h"
+#include "timed.h"
 
 namespace jove {
 
@@ -200,6 +201,8 @@ struct analyzer_t {
   int analyze_blocks(
       tcg_t<extra_t> &tcg,
       boost::optional<invalidated_t &> invalidated = boost::none) {
+    ____scoped_timed____(!options.IsVeryVerbose());
+
     std::atomic<unsigned> count = 0;
 
     for_each_basic_block( /* FIXME (parunseq) */

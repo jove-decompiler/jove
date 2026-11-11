@@ -275,6 +275,8 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
       Boost::scope
       Boost::stacktrace
       Boost::atomic
+      Boost::timer
+      Boost::chrono
   )
 
   if(JOVE_NO_BOOST_BACKTRACE)

@@ -3,6 +3,7 @@
 #include "locator.h"
 #include "llvm.h"
 #include "except.h"
+#include "timed.h"
 
 #include <llvm/IR/Module.h>
 
@@ -51,6 +52,8 @@ analyzer_t<MT, MinSize>::analyzer_t(
       jv_file(jv_file), jv(jv), state(jv),
       IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).cb.first.get())),
       inflight(inflight), done(done) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   for_each_function(maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
     (void)f.Analysis.ReverseCGVert(jv);
   });
@@ -58,6 +61,8 @@ analyzer_t<MT, MinSize>::analyzer_t(
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::examine_callers(void) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   for_each_basic_block(
       maybe_par_unseq, jv,
       [&](binary_t &b, bb_t bb) {
@@ -119,6 +124,8 @@ void analyzer_t<MT, MinSize>::examine_callers(void) {
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::examine_blocks(void) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   for_each_function(maybe_par_unseq, jv,
                     [&](function_t &f, binary_t &b) {
     function_state_t &x = state.for_function(f);
@@ -144,6 +151,8 @@ void analyzer_t<MT, MinSize>::examine_blocks(void) {
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::identify_ABIs(void) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   //
   // If a function is called from a different binary, it is an ABI.
   //
@@ -168,6 +177,8 @@ void analyzer_t<MT, MinSize>::identify_ABIs(void) {
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::identify_Sjs(void) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   for_each_function_if(
       maybe_par_unseq, jv,
       [&](function_t &f) -> bool {
@@ -199,6 +210,8 @@ template <bool MT, bool MinSize>
 template <bool BottomUp>
 int analyzer_t<MT, MinSize>::analyze_functions(
     boost::optional<invalidated_t &> invalidated) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   unsigned N = ~0u;
 
 #ifdef JOVE_CG_IS_BIDIRECTIONAL
@@ -1025,6 +1038,8 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
 template <bool MT, bool MinSize>
 void
 analyzer_t<MT, MinSize>::refine_analyses(void) {
+  ____scoped_timed____(!options.IsVeryVerbose());
+
   if (options.Precision < 1)
     return;
 
