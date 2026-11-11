@@ -36,6 +36,10 @@ bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
 #endif
   tcg_global_set_reset(bbprop.Analysis.reach.def);
 
+  tcg_global_set_t reach_def{0};
+  tcg_global_set_t live_use{0};
+  tcg_global_set_t live_def{0};
+
   unsigned size = 0;
   jove::terminator_info_t T;
   do {
@@ -50,14 +54,18 @@ bool AnalyzeBasicBlock(B::cached::type<extra_t> &cb,
       tcg_global_set_t iglbs, oglbs;
       std::tie(iglbs, oglbs) = tcg.analyze_operation(helpers, op);
 
-      bbprop.Analysis.live.use |= (iglbs & ~bbprop.Analysis.live.def);
-      bbprop.Analysis.live.def |= (oglbs & ~bbprop.Analysis.live.use);
+      live_use |= (iglbs & ~live_def);
+      live_def |= (oglbs & ~live_use);
 
-      bbprop.Analysis.reach.def |= oglbs;
+      reach_def |= oglbs;
     });
 
     size += len;
   } while (size < Size);
+
+  bbprop.Analysis.reach.def = reach_def;
+  bbprop.Analysis.live.use = live_use;
+  bbprop.Analysis.live.def = live_def;
 
 #if 0
   if (false /* options::PrintDefAndUse */) {
