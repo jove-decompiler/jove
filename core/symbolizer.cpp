@@ -8,6 +8,7 @@
 #include <boost/algorithm/string.hpp>
 
 namespace fs = boost::filesystem;
+namespace obj = llvm::object;
 
 namespace jove {
 
@@ -17,8 +18,8 @@ template <bool MT, bool MinSize>
 symbolizer_base_t<MT, MinSize>::symbolizer_base_t(const jv_t &jv, locator_t &locator, bool Addr2Line)
   : locator(locator), Addr2Line(Addr2Line), state(jv) {
   llvm::symbolize::LLVMSymbolizer::Options Opts;
-  Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
-  Opts.UseSymbolTable = false;
+  Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::ShortName;
+  Opts.UseSymbolTable = true;
   Opts.Demangle = false;
   Opts.RelativeAddresses = true;
 
@@ -29,11 +30,15 @@ template <bool MT, bool MinSize>
 symbolizer_base_t<MT, MinSize>::~symbolizer_base_t() {}
 
 template <bool MT, bool MinSize>
-std::string
-symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &binary,
-                                     uint64_t Addr) {
-  if (!binary.is_file())
+std::string symbolizer_base_t<MT, MinSize>::addr2line(
+    const binary_base_t<MT, MinSize> &b, uint64_t Addr) {
+  if (!b.is_file())
     return std::string();
+  auto &x = state.for_binary(b);
+
+  const auto &omap = x.cb.second.omap;
+  const auto off = B::cached::offset_of_va(x.cb, Addr);
+  auto oit = intvl_map_find(omap, off);
 
   auto do_addr2line = [&](void) -> std::pair<bool, std::string> {
     std::string A2LOutput;
@@ -47,7 +52,7 @@ symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &bina
       scoped_fd wfd(pipefd[1]);
 
       const std::string path_to_addr2line =
-          B::is_coff(state.for_binary(binary).Bin.get())
+          B::is_coff(x.cb.first.get())
               ? locator.mingw_addr2line(IsTarget32)
               : locator.addr2line();
 
@@ -56,11 +61,31 @@ symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &bina
           [&](auto Arg) {
             Arg(path_to_addr2line);
             Arg("-e");
-            Arg(binary.Name.c_str());
-            Arg((fmt("0x%" PRIx64) % Addr).str());
+            Arg(b.Name.c_str());
+            Arg("-f");
+            if (oit == omap.end()) {
+              Arg((fmt("0x%" PRIx64) % Addr).str());
+            } else {
+              const unsigned idx = (*oit).second;
+              auto &section = x.cb.second.svec[idx];
+              Arg("--section=" + section.Name.str());
+              Arg((fmt("0x%" PRIx64) % (off - section.off())).str());
+            }
           },
           "", "",
           [&](const char **argv, const char **envp) {
+
+#if 0
+  for (const char **argp = argv; *argp; ++argp) {
+  llvm::errs() << *argp;
+
+    if (*(argp + 1))
+      llvm::errs() << ' ';
+  }
+
+  llvm::errs() << '\n';
+#endif
+
             rfd.close();
             (void)robust::dup2(wfd.get(), STDOUT_FILENO);
             (void)robust::dup2(wfd.get(), STDERR_FILENO);
@@ -78,10 +103,32 @@ symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &bina
         return ch == ' ' || ch == '\n' || ch == '\t';
       });
 
-      A2LOutput != "??:?" && A2LOutput != "??:0" && A2LOutput != ":?" &&
-          A2LOutput != "fake:" && A2LOutput != "fake:?";
-    });
+      std::string fnnm;
+      const auto nl_pos = A2LOutput.find('\n');
+      if (nl_pos != std::string::npos) {
+        const auto nl_it = std::next(A2LOutput.begin(), nl_pos);
+        aassert(std::distance(nl_it, A2LOutput.end()) > 0);
 
+        fnnm = A2LOutput.substr(0, nl_pos);
+        A2LOutput = A2LOutput.substr(nl_pos+1);
+
+#if 0
+      if (boost::algorithm::starts_with(A2LOutput, "??\n"))
+        A2LOutput = A2LOutput.substr(3);
+#endif
+      }
+
+      const bool res = !boost::algorithm::ends_with(A2LOutput, ":?") &&
+          A2LOutput != "??:?" &&
+          A2LOutput != "??:0" &&
+          A2LOutput != ":?" &&
+          A2LOutput != "fake:" &&
+          A2LOutput != "fake:?";
+
+      if (res && !fnnm.empty())
+        A2LOutput.append(" <" + fnnm + '>');
+      res;
+    });
 
     return std::make_pair(IsA2LOutputValid, A2LOutput);
   };
@@ -95,59 +142,90 @@ symbolizer_base_t<MT, MinSize>::addr2line(const binary_base_t<MT, MinSize> &bina
       return A2LOutput;
   }
 
-  llvm::DILineInfo LnInfo;
-  {
-  // LLVMSymbolizer is *not* thread-safe. It caches binaries.
-  std::unique_lock<std::mutex> lck(mtx);
+  obj::SectionedAddress TheSectionedAddress;
+  if (oit == omap.end()) {
+    TheSectionedAddress = {Addr, llvm::object::SectionedAddress::UndefSection};
+  } else {
+    const unsigned idx = (*oit).second;
+    auto &section = x.cb.second.svec[idx];
+    TheSectionedAddress = {off - section.off(), idx};
+  }
 
-  auto ResOrErr = Symbolizer->symbolizeCode(
-      binary.path_str(),
-      {Addr, llvm::object::SectionedAddress::UndefSection});
-  if (!ResOrErr) {
+  llvm::Expected<llvm::DILineInfo> LineInfoOrErr = ({
+    /* NOTE: LLVMSymbolizer is not thread-safe (it caches binaries). */
+    std::unique_lock<std::mutex> lck(mtx);
+    Symbolizer->symbolizeCode(b.path_str(), TheSectionedAddress);
+  });
+
+  if (LineInfoOrErr) {
+    llvm::DILineInfo LnInfo = *LineInfoOrErr;
+
+    if (LnInfo.FileName == llvm::DILineInfo::BadString) {
+      if (!this->Addr2Line) {
+        bool IsA2LOutputValid;
+        std::string A2LOutput;
+        std::tie(IsA2LOutputValid, A2LOutput) = do_addr2line();
+
+        if (IsA2LOutputValid)
+          return A2LOutput;
+      }
+    } else {
+      fs::path sourcePath = LnInfo.FileName;
+
+#if 0
+      if (fs::path(sourcePath).is_relative())
+        sourcePath = /* fs::path("/usr/src/debug") / */
+                     fs::path(binary.path_str()).stem() /
+                     LnInfo.FileName;
+      else
+        sourcePath = fs::path(LnInfo.FileName).filename();
+#endif
+
+      if (fs::exists(sourcePath))
+        sourcePath = fs::canonical(sourcePath);
+      else
+        sourcePath = sourcePath.lexically_normal();
+
+      std::string line_desc = std::to_string(LnInfo.Line);
+      std::string col_desc = std::to_string(LnInfo.Column);
+
+      boost::trim(line_desc);
+      boost::trim(col_desc);
+
+      std::string res = sourcePath.string() + ":" + line_desc + ":" + col_desc;
+      if (LnInfo.FunctionName != llvm::DILineInfo::BadString)
+        res.append(" <" + LnInfo.FunctionName + '>');
+      return res;
+    }
+  } else {
     std::string Buf;
     {
       llvm::raw_string_ostream OS(Buf);
-      llvm::logAllUnhandledErrors(ResOrErr.takeError(), OS, "");
+      llvm::logAllUnhandledErrors(LineInfoOrErr.takeError(), OS, "");
     }
-    return std::string();
-  }
-  LnInfo = ResOrErr.get();
-  }
-
-  if (LnInfo.FileName == llvm::DILineInfo::BadString) {
-    bool IsA2LOutputValid;
-    std::string A2LOutput;
-    std::tie(IsA2LOutputValid, A2LOutput) = do_addr2line();
-
-    if (IsA2LOutputValid)
-      return A2LOutput;
-
-    return std::string();
-  }
-
-  fs::path sourcePath = LnInfo.FileName;
-
 #if 0
-  if (fs::path(sourcePath).is_relative())
-    sourcePath = /* fs::path("/usr/src/debug") / */
-                 fs::path(binary.path_str()).stem() /
-                 LnInfo.FileName;
-  else
-    sourcePath = fs::path(LnInfo.FileName).filename();
+    return std::string();
 #endif
+  }
 
-  if (fs::exists(sourcePath))
-    sourcePath = fs::canonical(sourcePath);
-  else
-    sourcePath = sourcePath.lexically_normal();
+  if (oit != omap.end()) {
+    const char *nm = b.Name.c_str();
 
-  std::string line_desc = std::to_string(LnInfo.Line);
-  std::string col_desc = std::to_string(LnInfo.Column);
+    if (b.is_file()) {
+      auto &shortnm = x.shortnm;
+      if (shortnm.empty())
+        shortnm = fs::path(b.Name.c_str()).filename().string();
+      nm = shortnm.c_str();
+    }
 
-  boost::trim(line_desc);
-  boost::trim(col_desc);
+    const unsigned idx = (*oit).second;
+    auto &section = x.cb.second.svec[idx];
+    return nm +
+         ('[' + std::string(section.Name) + '+')
+         + taddr2str(off - section.off(), false) + ']';
+  }
 
-  return sourcePath.string() + ":" + line_desc + ":" + col_desc;
+  return {};
 }
 
 template <bool MT, bool MinSize>

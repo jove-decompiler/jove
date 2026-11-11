@@ -23,9 +23,12 @@ class symbolizer_base_t {
   bool Addr2Line = false;
 
   struct binary_state_t {
-    B::unique_ptr Bin;
+    B::cached::type<> cb;
+    std::string shortnm;
 
-    binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
+    binary_state_t(const auto &b) {
+      B::cached::create(cb, b.data());
+    }
   };
 
   jv_state_t<binary_state_t, void, void, MT, MinSize> state;
