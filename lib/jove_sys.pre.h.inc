@@ -1,6 +1,6 @@
 #ifndef JOVE_SYSCALL_NO_PARAM_TYPES
 #ifdef __cplusplus
-#error
+#error "linux types are only available from C."
 #endif
 
 #define __KERNEL__
