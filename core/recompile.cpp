@@ -1213,7 +1213,7 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
                                   options.IsVeryVerbose() ? " -vv" : "",
                                   (!options.IsVeryVerbose() && options.IsVerbose()) ? " -v" : "");
 
-  if (options.Daemonize) {
+  if (options.DaemonizeLLVM) {
     auto &request_wfd = x.Daemon.request_wfd;
     auto &completion_rfd = x.Daemon.completion_rfd;
 
@@ -1259,8 +1259,7 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
         Arg("-o");
         Arg(bcfp);
 
-        Arg("--daemonize=" + std::to_string(request_pipefd[0]) + "," +
-                             std::to_string(completion_pipefd[1]));
+        Arg("--daemonize=1");
 
         if (IsCOFF) {
           if (b.IsExecutable) {
@@ -1337,6 +1336,9 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
         InitWithEnviron(Env);
 
         Env("JVPATH=" + Tool::get_path_to_jv());
+
+        Env("JOVE_LLVM_DAEMON_FDPAIR=" + std::to_string(request_pipefd[0]) +
+                                   "," + std::to_string(completion_pipefd[1]));
       },
       std::string(), std::string(),
 //    path_to_stdout, path_to_stderr,

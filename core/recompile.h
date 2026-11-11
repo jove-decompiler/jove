@@ -21,7 +21,6 @@ typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
 typedef dso_graph_t::vertex_descriptor dso_t;
 
 struct recompiler_options_t : public VerboseThing {
-  bool Daemonize = false;
   bool ForCBE = false;
   std::string Output;
   bool ForeignLibs = true;
@@ -35,6 +34,7 @@ struct recompiler_options_t : public VerboseThing {
   bool DebugSjlj = false;
   bool ABICalls = true;
   bool InlineHelpers = false;
+  bool DaemonizeLLVM = true;
   bool BreakBeforeUnreachables = false;
   bool LayOutSections = false;
   bool PlaceSectionBreakpoints = false;

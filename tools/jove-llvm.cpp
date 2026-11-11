@@ -15,7 +15,7 @@ struct LLVMTool : public JVTool<ToolKind::Standard> {
     cl::opt<unsigned> BinaryIndex;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
-    cl::list<std::string> Daemonize;
+    cl::opt<bool> Daemonize;
     cl::opt<std::string> VersionScript;
     cl::opt<std::string> LinkerScript;
     cl::opt<bool> Trace;
@@ -62,9 +62,8 @@ struct LLVMTool : public JVTool<ToolKind::Standard> {
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
                       cl::cat(JoveCategory)),
 
-          Daemonize("daemonize", cl::CommaSeparated,
-                    cl::value_desc("fd,fd"),
-                    cl::desc("request_fd,completion_fd"),
+          Daemonize("daemonize", cl::desc("Run `jove llvm` as daemon"),
+                    cl::desc("internal use by recompile. set JOVE_LLVM_DAEMON_FDPAIR=request_fd,completion_fd"),
                     cl::cat(JoveCategory)),
 
           VersionScript("version-script",
@@ -255,11 +254,20 @@ int LLVMTool::Run(void) {
   PROPOGATE_OPTION(SoftfpuBitcode);
   PROPOGATE_OPTION(LoadRelocSectionPointers);
 
-  if (!opts.Daemonize.empty()) {
-    aassert(opts.Daemonize.size() == 2);
+  if (opts.Daemonize) {
+    auto *env_cstr = getenv("JOVE_LLVM_DAEMON_FDPAIR");
+    aassert(env_cstr);
 
-    options.Daemon.request_rfd    = atoi(opts.Daemonize[0].c_str());
-    options.Daemon.completion_wfd = atoi(opts.Daemonize[1].c_str());
+    std::string s(env_cstr);
+    const auto commapos = s.find(',');
+    aassert(commapos != std::string::npos);
+    const auto comma_it = std::next(s.begin(), commapos);
+
+    aassert(std::distance(comma_it, s.end()) > 1);
+    aassert(std::distance(s.begin(), comma_it) > 0);
+
+    options.Daemon.request_rfd    = atoi(std::string(s.begin(), comma_it).c_str());
+    options.Daemon.completion_wfd = atoi(std::string(comma_it+1, s.end()).c_str());
 
     options.Daemonize = true;
   }

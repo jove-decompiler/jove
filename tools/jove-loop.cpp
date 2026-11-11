@@ -64,8 +64,8 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> ArgsFromFile;
     cl::list<std::string> BindMountDirs;
     cl::opt<std::string> Sysroot;
-    cl::opt<bool> Daemonize;
-    cl::opt<int> DaemonizeThreshold;
+    cl::opt<bool> DaemonizeLLVM;
+    cl::opt<int> DaemonizeLLVMThreshold;
     cl::opt<unsigned> Conservative;
     cl::opt<unsigned> Precision;
     cl::opt<bool> DFSan;
@@ -144,12 +144,13 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           Sysroot("sysroot", cl::desc("Output directory"),
                   cl::cat(JoveCategory)),
 
-          Daemonize("daemonize", cl::desc("Run `jove llvm` as daemon (experimental)"),
-                    cl::cat(JoveCategory)),
+          DaemonizeLLVM("daemonize-llvm", cl::desc("Run `jove llvm` as daemon"),
+                        cl::init(true), cl::cat(JoveCategory)),
 
-          DaemonizeThreshold("daemonize-threshold",
-                             cl::desc("Re-exec when |invalidated| becomes too big"),
-                             cl::init(-1 /* FIXME */), cl::cat(JoveCategory)),
+          DaemonizeLLVMThreshold(
+              "daemonize-llvm-threshold",
+              cl::desc("Re-exec when |invalidated| becomes too big"),
+              cl::init(-1 /* FIXME */), cl::cat(JoveCategory)),
 
           Conservative(
               "conservative",
@@ -190,7 +191,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                   cl::cat(JoveCategory)),
 
           JustOnce("just-once", cl::desc("Just run & recompile, nothing else"),
-                    cl::cat(JoveCategory)),
+                   cl::cat(JoveCategory)),
 
           UseLd("use-ld",
                 cl::desc("Force using particular linker (lld,bfd,gold)"),
@@ -474,7 +475,7 @@ int LoopTool::Run(void) {
   if (opts.Conservative.getNumOccurrences() == 0)
     opts.Conservative = opts.ForeignLibs ? 1 : 0;
 
-  PROPOGATE_OPTION(Daemonize);
+  PROPOGATE_OPTION(DaemonizeLLVM);
   PROPOGATE_OPTION(Conservative);
   PROPOGATE_OPTION(Precision);
   PROPOGATE_OPTION(DFSan);
@@ -718,7 +719,7 @@ run:
       WithColor::warning() << "jove run should have reset the child pid\n";
 
 #ifndef JOVE_NO_BACKEND
-    if (opts.Daemonize) {
+    if (opts.DaemonizeLLVM) {
       if (opts.ForceRecompile)
         PossiblyReexec(invalidated);
       else
@@ -1308,7 +1309,7 @@ skip_run:
       analyzer.identify_Sjs();
       analyzer.refine_analyses();
 
-      if (LaunchedLLVM && opts.Daemonize) {
+      if (LaunchedLLVM && opts.DaemonizeLLVM) {
         invalidated.resize(jv.Binaries.size());
 
         int rc = analyzer.analyze_blocks(tcg, invalidated);
@@ -1403,7 +1404,7 @@ skip_run:
           Env("JOVEDIR=" + jove_dir());
         });
 #else
-      if (opts.Daemonize) {
+      if (opts.DaemonizeLLVM) {
         rc = recompiler.go(invalidated);
         LaunchedLLVM = true;
       } else {
@@ -1419,7 +1420,7 @@ skip_run:
       //
       // undoubtedly, the next thing to do is run.
       //
-      if (opts.Daemonize && !FirstTime) {
+      if (opts.DaemonizeLLVM && !FirstTime) {
         if (opts.ForceRecompile)
           ;                            /* will not */
         else
@@ -1440,11 +1441,11 @@ int LoopTool::PossiblyReexec(const invalidated_t &invalidated,
                              bool ForceRecompile) {
   static const char *extra[] = {"-f"};
 
-  if (opts.Daemonize) {
+  if (opts.DaemonizeLLVM) {
     if (jv.Binaries.size() != SavedNumBinaries)
       aassert(this->reexec(extra));
 
-    if (opts.DaemonizeThreshold > 0) {
+    if (opts.DaemonizeLLVMThreshold > 0) {
       const uint64_t invalidated_functions_count =
           std::accumulate(invalidated.begin(),
                           invalidated.end(), 0u,
@@ -1457,7 +1458,7 @@ int LoopTool::PossiblyReexec(const invalidated_t &invalidated,
             invalidated_functions_count == 1 ? "" : "s");
       }
 
-      if (invalidated_functions_count > opts.DaemonizeThreshold)
+      if (invalidated_functions_count > opts.DaemonizeLLVMThreshold)
         aassert(this->reexec(extra));
     }
   }
