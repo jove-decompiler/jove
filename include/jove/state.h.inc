@@ -371,7 +371,7 @@ private:
     return &inner_state[TheBBIdx];
   }
 
-#define LAZYMAKE(thing, Opts, therep, T)                                       \
+#define LAZY_MAKE_AND_RETURN(thing, Opts, therep, T, ...)                                  \
   do {                                                                         \
     /* we have to be LazyInitialization to get here  */                        \
     CheckFlag<Opts, StateOpt::LazyInitialization>();                           \
@@ -383,7 +383,7 @@ private:
           return *xp;                                                          \
       }                                                                        \
                                                                                \
-      auto new_x = std::make_unique<T>(BOOST_PP_CAT(thing, _NEW_ARGS));        \
+      auto new_x = std::make_unique<T>(__VA_ARGS__);                           \
                                                                                \
       T *expected = nullptr;                                                   \
       T *const desired = new_x.get();                                          \
@@ -399,7 +399,7 @@ private:
       StateSlot<T, Opts> &there = *therep;                                     \
       T *xp = there.get();                                                     \
       if (unlikely(!xp)) {                                                     \
-        auto new_x = std::make_unique<T>(BOOST_PP_CAT(thing, _NEW_ARGS));      \
+        auto new_x = std::make_unique<T>(__VA_ARGS__);                         \
         xp = new_x.get();                                                      \
         there = std::move(new_x);                                              \
       }                                                                        \
@@ -450,11 +450,8 @@ public:
     StateSlot<BinaryStateTy, BOpts> *slotp = &p->b;
 
     if constexpr (has_flag_v<BOpts, StateOpt::LazyInitialization>) {
-#define binary_GET_ARGS b
-#define binary_NEW_ARGS b
-      LAZYMAKE(binary,BOpts,slotp,BinaryStateTy);
-#undef binary_GET_ARGS
-#undef binary_NEW_ARGS
+      LAZY_MAKE_AND_RETURN(binary,BOpts,slotp,BinaryStateTy, b);
+      __compiletime_unreachable();
     } else {
       return *slotp;
     }
@@ -469,11 +466,8 @@ public:
 
     if constexpr (has_flag_v<BOpts, StateOpt::LazyInitialization>) {
       const binary_t &b = jv.Binaries.at(BIdx);
-#define binary_GET_ARGS b
-#define binary_NEW_ARGS b
-      LAZYMAKE(binary,BOpts,slotp,BinaryStateTy);
-#undef binary_GET_ARGS
-#undef binary_NEW_ARGS
+      LAZY_MAKE_AND_RETURN(binary,BOpts,slotp,BinaryStateTy, b);
+      __compiletime_unreachable();
     } else {
       return *slotp;
     }
@@ -508,11 +502,8 @@ public:
     }
 
     if constexpr (has_flag_v<FOpts, StateOpt::LazyInitialization>) {
-#define function_GET_ARGS f
-#define function_NEW_ARGS f, binary_of_function<MT, MinSize>(f, jv)
-      LAZYMAKE(function, FOpts, slotp, FunctionStateTy);
-#undef function_GET_ARGS
-#undef function_NEW_ARGS
+      LAZY_MAKE_AND_RETURN(function, FOpts, slotp, FunctionStateTy, f, binary_of_function<MT, MinSize>(f, jv));
+      __compiletime_unreachable();
     } else {
       return *slotp;
     }
@@ -546,11 +537,20 @@ public:
     }
 
     if constexpr (has_flag_v<BBOpts, StateOpt::LazyInitialization>) {
-#define basic_block_GET_ARGS b, bb
-#define basic_block_NEW_ARGS b, bb
-      LAZYMAKE(basic_block, BBOpts, slotp, BasicBlockStateTy);
-#undef basic_block_GET_ARGS
-#undef basic_block_NEW_ARGS
+      if constexpr (!std::is_void_v<BinaryStateTy>) {
+        if constexpr (std::constructible_from<BasicBlockStateTy,
+                                              const binary_t &, bb_t,
+                                              const BinaryStateTy &>) {
+          LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb, *p->b);
+          __compiletime_unreachable();
+        } else { /* FIXME (style) */
+          LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb);
+          __compiletime_unreachable();
+        }
+      } else {
+        LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb);
+        __compiletime_unreachable();
+      }
     } else {
       return *slotp;
     }
