@@ -53,7 +53,13 @@ using RegValue_t = unsigned long long;
   ((unsigned, RetReg0))
 #include "single_step.cpp.inc"
 
-single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_t &trapped, llvm::MCInst &Inst) {
+#define JOVE_SINGLESTEP_OPCODE BL
+#define JOVE_SINGLESTEP_NO_PARAMS
+#include "single_step.cpp.inc"
+
+single_step_proc_t
+ptrace_emulation::load_single_step_proc(trapped_t::essential_t &essential,
+                                        llvm::MCInst &Inst) {
   switch (Inst.getOpcode()) {
 #define JOVE_SINGLESTEP_OPCODE BR
   case llvm::AArch64::JOVE_SINGLESTEP_OPCODE:
@@ -88,6 +94,16 @@ single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_
           Inst.getNumOperands() == 0 ? llvm::AArch64::LR
                                      : Inst.getOperand(0).getReg()
       ));
+#undef JOVE_SINGLESTEP_OPCODE
+
+#define JOVE_SINGLESTEP_OPCODE BL
+  case llvm::AArch64::JOVE_SINGLESTEP_OPCODE: {
+    assert(Inst.getNumOperands() == 1);
+    assert(Inst.getOperand(0).isImm());
+
+    essential.PCOff = Inst.getOperand(0).getImm();
+    return &single_step_BL_proc<llvm::AArch64::BL>;
+  }
 #undef JOVE_SINGLESTEP_OPCODE
   }
 

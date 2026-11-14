@@ -11,7 +11,12 @@
 #define JOVE_SINGLESTEP_PARAMS_DECL                                            \
   BOOST_PP_SEQ_FOR_EACH_I(JOVE_PARAM_DECL, _, BOOST_PP_CAT(BOOST_PP_CAT(JOVE_SINGLESTEP_,JOVE_SINGLESTEP_OPCODE),_PARAMETERS))
 
+#ifdef JOVE_SINGLESTEP_NO_PARAMS
+#undef JOVE_SINGLESTEP_NO_PARAMS
+template <unsigned Opcode>
+#else
 template <unsigned Opcode, JOVE_SINGLESTEP_PARAMS_DECL>
+#endif
 __attribute__((flatten))
 #if !defined(__x86_64__) && defined(__i386__)
 __attribute__((regparm(3)))
@@ -280,6 +285,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                   Opcode == llvm::AArch64::BLR)
       return RegValue(Reg0);
 
+    if constexpr (Opcode == llvm::AArch64::BL)
+      return savedpc + static_cast<int64_t>(essential.PCOff)*INT64_C(4);
+
     if constexpr (Opcode == llvm::AArch64::RET)
       return RegValue(RetReg0 == llvm::AArch64::NoRegister ? llvm::AArch64::LR
                                                            : RetReg0);
@@ -294,8 +302,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #if 1
   auto emulate_call = [&](void) -> void {
-  //  assert(static_cast<TERMINATOR>(essential.TT) == TERMINATOR::INDIRECT_CALL);
-
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
     const taddr_t newsp =
         static_cast<taddr_t>(gpr.stack_pointer()) - sizeof(taddr_t);
@@ -345,6 +351,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   case llvm::X86::CALL32r:
 #elif defined(TARGET_AARCH64)
   case llvm::AArch64::BLR:
+  case llvm::AArch64::BL:
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   case llvm::Mips::JALR:
 #else

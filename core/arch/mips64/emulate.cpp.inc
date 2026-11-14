@@ -80,7 +80,7 @@ using RegValue_t = unsigned long;
 #include "single_step.cpp.inc"
 
 single_step_proc_t
-ptrace_emulation::load_single_step_proc(trapped_t::essential_t &trapped,
+ptrace_emulation::load_single_step_proc(trapped_t::essential_t &,
                                         llvm::MCInst &Inst,
                                         llvm::MCInst &DelaySlotInst) {
   switch (Inst.getOpcode()) {

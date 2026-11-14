@@ -161,7 +161,7 @@ trapped_t::trapped_t(ptrace_emulator_t &emu,
   this->essential.IL = InstLen;
 
 #if 0
-  llvm::errs() << StringOfMCInst(emu.disas, Inst) << '\n';
+  llvm::outs() << StringOfMCInst(emu.disas, Inst) << '\n';
 #endif
 
 #if defined(__mips64) || defined(__mips__)

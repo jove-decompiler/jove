@@ -57,7 +57,9 @@ using RegValue_t = unsigned long long;
   ((unsigned, RetReg0))
 #include "single_step.cpp.inc"
 
-single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_t &trapped, llvm::MCInst &Inst) {
+single_step_proc_t
+ptrace_emulation::load_single_step_proc(trapped_t::essential_t &essential,
+                                        llvm::MCInst &Inst) {
   switch (Inst.getOpcode()) {
 #define JOVE_SINGLESTEP_OPCODE CALL64m
   case llvm::X86::JOVE_SINGLESTEP_OPCODE:
@@ -74,9 +76,9 @@ single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_
       {
         uint64_t Scale = Inst.getOperand(1).getImm();
         aassert(Scale == 1 || Scale == 2 || Scale == 4 || Scale == 8);
-        trapped.Scale = Scale;
+        essential.Scale = Scale;
       }
-      trapped.Disp = Inst.getOperand(3).getImm();
+      essential.Disp = Inst.getOperand(3).getImm();
       return JOVE_SINGLESTEP_MAP.at(JOVE_SINGLESTEP_MAP_KEY_TYPE(
                                     Inst.getOperand(0).getReg(),
                                     Inst.getOperand(2).getReg()
@@ -98,9 +100,9 @@ single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_
       {
         uint64_t Scale = Inst.getOperand(1).getImm();
         aassert(Scale == 1 || Scale == 2 || Scale == 4 || Scale == 8);
-        trapped.Scale = Scale;
+        essential.Scale = Scale;
       }
-      trapped.Disp = Inst.getOperand(3).getImm();
+      essential.Disp = Inst.getOperand(3).getImm();
       return JOVE_SINGLESTEP_MAP.at(JOVE_SINGLESTEP_MAP_KEY_TYPE(
                                     Inst.getOperand(0).getReg(),
                                     Inst.getOperand(2).getReg()
@@ -135,7 +137,7 @@ single_step_proc_t ptrace_emulation::load_single_step_proc(trapped_t::essential_
              (Inst.getNumOperands() == 1 &&
               Inst.getOperand(0).isImm()));
 
-      trapped.Disp = Inst.getNumOperands() == 1 ? Inst.getOperand(0).getImm() : 0;
+      essential.Disp = Inst.getNumOperands() == 1 ? Inst.getOperand(0).getImm() : 0;
 #include "load_single_step.cpp.inc"
       return JOVE_SINGLESTEP_MAP.at(JOVE_SINGLESTEP_MAP_KEY_TYPE(
                                     llvm::X86::RSP

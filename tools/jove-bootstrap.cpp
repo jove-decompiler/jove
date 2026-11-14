@@ -332,12 +332,16 @@ int BootstrapTool::Run(void) {
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 
-  if (opts.ShowMe.size() == 1) {
-    ShowMeN = opts.ShowMe[0] == 'n';
-    ShowMeA = opts.ShowMe[0] == 'a';
-    ShowMeS = opts.ShowMe[0] == 's';
+  if (opts.ShowMe.size() == 1)
+    ShowMe(opts.ShowMe.front());
 
-    WARN_ON(!ShowMeN && !ShowMeA && !ShowMeS);
+  {
+    auto e_lck = SafeDoNotShow.exclusive_access();
+    auto &_ = SafeDoNotShow.x;
+
+    _.resize(jv.Binaries.size());
+    for (const unsigned idx : opts.NoShow)
+      _.set(idx);
   }
 
   if (!fs::exists(opts.Prog)) {
@@ -943,6 +947,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 DetachFromChild();
               } else if (Engaged) {
                 ScanAddressSpace(child, true);
+
+                if (opts.ShowMeOnExec.size() == 1)
+                  ShowMe(opts.ShowMeOnExec.front());
               }
 
               break;
@@ -1382,6 +1389,14 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
     }
 
     auto on_syscall_exit = [&](void) -> void {
+      if (!Compat) {
+        if (opts.PrintSyscalls)
+          HumanOut() << (no < ARRAY_SIZE(the_syscall_names)
+                             ? std::string(the_syscall_names[no])
+                             : ("unknown syscall " + std::to_string(no)))
+                     << '\n';
+      }
+
       if (unlikely(ret < 0 && ret > -4096))
         return; /* system call probably failed */
 
@@ -1403,12 +1418,6 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
       syscall_names = the_syscall_names;
       num_syscall_names = ARRAY_SIZE(the_syscall_names);
 #endif
-
-      if (IsVeryVerbose())
-        HumanOut() << (no < num_syscall_names
-                           ? std::string(syscall_names[no])
-                           : ("unknown syscall " + std::to_string(no)))
-                   << '\n';
 
 #define VERY_UNIQUE_BASE 0xffffffULL
 #define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
@@ -1591,7 +1600,7 @@ bool BootstrapTool::handle_breakpoint(void) {
   fallthru<void>(
       b, BBIdx,
       [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) {
-        if (IsTerminatorIndirect(bbprop.Term.Type))
+        if (ShouldTrapTerminator(bbprop.Term.Type))
           place_breakpoint_in_block(b, ICFG[ICFG.vertex<false>(TheBBIdx)], TheBBIdx);
       });
 
@@ -1606,7 +1615,7 @@ bool BootstrapTool::handle_breakpoint(void) {
 void BootstrapTool::on_new_basic_block(binary_t &b,
                                        bbprop_t &bbprop,
                                        basic_block_index_t BBIdx) { /* called with bb's lock held */
-  if (!IsTerminatorIndirect(bbprop.Term.Type))
+  if (!ShouldTrapTerminator(bbprop.Term.Type))
     return; /* N/A */
 
   place_breakpoint_in_block(b, bbprop, BBIdx);
@@ -1627,7 +1636,7 @@ void BootstrapTool::place_breakpoint_in_block(binary_t &b,
   assert(x.HasLoadAddr());
 
   const auto TermType = bbprop.Term.Type;
-  assert(IsTerminatorIndirect(TermType));
+  assert(ShouldTrapTerminator(TermType));
 
   const taddr_t TermAddr = bbprop.Term.Addr;
   const taddr_t termpc = pc_of_va(TermAddr, BIdx);
@@ -1735,7 +1744,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     essential = (*it).second.essential;
   }
 
-  const taddr_t TargetAddr = ({
+  const taddr_t TargetPC = ({
     pc = SavedPC;
     const auto NewPC =
         essential.single_step_proc(tracee_state, essential, *emulator);
@@ -1766,6 +1775,8 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   const unsigned OutDeg           = essential.OD;
   const unsigned HasDynTarget     = essential.DT;
 
+  const bool IsDirectCall = TermType == TERMINATOR::CALL;
+
   binary_t &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -1779,36 +1790,64 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       jv.generation.fetch_add(1, boost::memory_order_relaxed);
   };
 
-  Target.BIdx = binary_at_program_counter(child, TargetAddr);
+  Target.BIdx = binary_at_program_counter(child, TargetPC);
 
   struct {
     bool IsGoto = false;
   } ControlFlow;
 
-  auto do_print_thing = [&](const char *extra = "") -> void {
+  auto do_print_thing =
+      [&](std::optional<std::pair<binary_t &, bb_t>> MaybeTargetPair = std::nullopt,
+          const char *extra = "") -> void {
+    const auto SrcRepresentativeAddress =
+        state.for_basic_block(b, basic_block_of_index(BBIdx, ICFG))
+            .RepresentativeAddress;
+    const auto SrcRepresentativePC = pc_of_va(SrcRepresentativeAddress, BIdx);
+
+    taddr_t TargetRepresentativePC = TargetPC;
+    if (MaybeTargetPair) {
+      std::pair<binary_t &, bb_t> &TargetPair = *MaybeTargetPair;
+      TargetRepresentativePC =
+          pc_of_va(state.for_basic_block(TargetPair.first, TargetPair.second).RepresentativeAddress, Target.BIdx);
+    }
+
+    const char *const termdesc =
+        (ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto")
+                            : (IsDirectCall ? "callimm" : "call"));
+
     HumanOut() << llvm::formatv("{5}{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
-                                ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
-                                description_of_program_counter(SavedPC),
-                                description_of_program_counter(TargetAddr),
+                                termdesc,
+                                description_of_program_counter(SrcRepresentativePC/*SavedPC*/),
+                                description_of_program_counter(TargetRepresentativePC /*TargetPC*/),
                                 ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
                                 child,
                                 extra).str();
   };
 
-  auto print_thing = [&](void) -> void {
-    if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
-      do_print_thing();
+  auto print_thing = [&](auto &&...xs) -> void {
+    {
+      auto s_lck = SafeDoNotShow.shared_access();
+      auto &_ = SafeDoNotShow.x;
+      if (Target.BIdx < _.size() && _.test(Target.BIdx))
+        return; /* gtfo */
+    }
+
+    const bool ShowA = __atomic_load_n(&ShowMeA, __ATOMIC_RELAXED);
+
+    if (unlikely(!opts.Quiet && !ShowMeN && (ShowA || (ShowMeS && Target.isNew))))
+      do_print_thing(std::forward<decltype(xs)>(xs)...);
   };
 
   if (unlikely(!is_binary_index_valid(Target.BIdx))) {
-    auto pm_it = intvl_map_find(pmm, TargetAddr);
+    auto pm_it = intvl_map_find(pmm, TargetPC);
     if (unlikely(pm_it == pmm.end())) {
       if (has_ProcMapQuery)
         UpdateVM(child);
       else
         ScanAddressSpace(child);
-      Target.BIdx = binary_at_program_counter(child, TargetAddr);
-      pm_it = intvl_map_find(pmm, TargetAddr);
+      Target.BIdx = binary_at_program_counter(child, TargetPC);
+      pm_it = intvl_map_find(pmm, TargetPC);
+      assert(pm_it != pmm.end());
     }
 
     const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
@@ -1819,7 +1858,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         //
       } else {
         if (IsVeryVerbose())
-          do_print_thing("unknown branch target");
+          do_print_thing(std::nullopt, "unknown branch target");
       }
       return false;
     }
@@ -1836,14 +1875,20 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   try {
     if (TermType == TERMINATOR::RETURN) {
       const taddr_t AddrOfRet = SavedPC;
-      const taddr_t RetAddr = TargetAddr;
+      const taddr_t RetAddr = TargetPC;
 
       on_return(child, BIdx, AddrOfRet, RetAddr);
     } else if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx = E->explore_function(
-          TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
+          TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
+
+      function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
+      basic_block_index_t TargetEntry = TargetFunction.Entry;
+      bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
+
+      print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
 
       /* FIXME is new? */
       eager_invalidate_block(
@@ -1865,15 +1910,13 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         auto s_lck = safe_trapmap.shared_access();
         safe_trapmap.m.at(SavedPC).essential.DT = 1;
       }
-    } else {
-      assert(TermType == TERMINATOR::INDIRECT_JUMP);
-
+    } else if (TermType == TERMINATOR::INDIRECT_JUMP) {
       if (unlikely(IsLj)) {
         //
         // non-local goto (aka "long jump")
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
-            TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
+            TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
 
         assert(is_basic_block_index_valid(BBIdx));
 
@@ -1895,19 +1938,21 @@ bool BootstrapTool::on_breakpoint(pid_t child,
             HasDynTarget /* IsDefinitelyTailCall(TargetICFG, bb) */ ||
             BIdx != Target.BIdx ||
             (OutDeg == 0 &&
-             exists_function_at_address(TargetBinary, va_of_pc(TargetAddr, Target.BIdx)));
+             exists_function_at_address(TargetBinary, va_of_pc(TargetPC, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx = E->explore_function(
-              TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
+              TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
+          function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
+          basic_block_index_t TargetEntry = TargetFunction.Entry;
+          bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
+
+          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
 
           /* FIXME is new? */
-          eager_invalidate_block(
-              TargetICFG[basic_block_of_index(
-                  TargetBinary.Analysis.Functions.at(FIdx).Entry, TargetICFG)],
-              TargetBinary);
+          eager_invalidate_block(TargetICFG[TargetEntryBB], TargetBinary);
 
           Target.isNew = fallthru<bool>(
               binary, BBIdx,
@@ -1927,10 +1972,12 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           }
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
-              TargetBinary, x.cb, va_of_pc(TargetAddr, Target.BIdx));
+              TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, TargetICFG);
+
+          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetBB));
 
           Target.isNew = fallthru<bool>(
               binary, BBIdx,
@@ -1952,9 +1999,22 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           ControlFlow.IsGoto = true;
         }
       }
-    }
+    } else {
+      assert(TermType == TERMINATOR::CALL);
 
-    print_thing();
+      const function_index_t FIdx = fallthru<function_index_t>(
+          binary, BBIdx,
+          [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) -> bool {
+            assert(bbprop.Term.Type == TERMINATOR::CALL);
+            return bbprop.Term._call.Target;
+          });
+
+      function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
+      basic_block_index_t TargetEntry = TargetFunction.Entry;
+      bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
+
+      print_thing();
+    }
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
                              taddr2str(invalid_cf.pc, false) + " in \"" +
@@ -1963,7 +2023,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         what, fs::path(TargetBinary.Name.c_str()).filename().string(),
-        va_of_pc(TargetAddr, Target.BIdx), TargetAddr,
+        va_of_pc(TargetPC, Target.BIdx), TargetPC,
         x.LoadAddr);
 
     if (IsVerbose())
@@ -1973,10 +2033,14 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   return false;
 }
 
-static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
+static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out,
+                           std::string &maps);
 
-bool BootstrapTool::UpdateVM(pid_t child) {
-  if (unlikely(!load_proc_maps(child, cached_proc_maps)))
+bool BootstrapTool::UpdateVM(pid_t child, std::string *pmaps) {
+  std::string maps;
+  if (!pmaps)
+    pmaps = &maps;
+  if (unlikely(!load_proc_maps(child, cached_proc_maps, *pmaps)))
     return false;
 
   pmm.clear();
@@ -2365,7 +2429,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
             [&](bbprop_t &bbprop,
                 basic_block_index_t TheBBIdx) -> std::optional<taddr_t> {
               const auto TheTermType = bbprop.Term.Type;
-              if (!IsTerminatorIndirect(TheTermType))
+              if (!ShouldTrapTerminator(TheTermType))
                 return {};
 
               BBIdx = TheBBIdx;
@@ -2427,9 +2491,42 @@ void BootstrapTool::on_section_loaded(pid_t child,
   section.extra.Loaded = true;
 }
 
-bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
+typedef struct jove_saved_char_t {
+  char *p;
+  char ch;
+} jove_saved_char_t;
+
+static jove_saved_char_t _jove_save_and_set_char(char *const p, const char ch) {
+  jove_saved_char_t sav;
+
+  aassert(p);
+
+  /* save */
+  sav.ch = *p;
+
+  /* set */
+  *p = ch;
+
+  sav.p = p;
+  return sav;
+}
+
+static void _jove_restore_char(const jove_saved_char_t *sav) {
+  *sav->p = sav->ch;
+}
+
+#define ___set_restore_char___(p, ch)                                          \
+  const jove_saved_char_t UNIQUE_VAR_NAME(__set_restore)                       \
+      __attribute__((cleanup(_jove_restore_char))) = _jove_save_and_set_char(p, ch)
+
+#define ___set_restore_char_safe___(p, ch, expected)                           \
+  aassert(*((const char *)(p)) == expected);                                   \
+  ___set_restore_char___(p, ch)
+
+bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out, std::string &maps) {
   std::string path = "/proc/" + std::to_string(child) + "/maps";
-  std::string maps = read_file_into_string(path.c_str());
+
+  maps = read_file_into_string(path.c_str());
 
   if (maps.empty())
     return false;
@@ -2468,11 +2565,15 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
     char *const space = (char *)memchr(line, ' ', left);
     assert(space);
 
-    *dash = '\0';
-    proc_map.beg = strtoul(line, nullptr, 0x10);
+    {
+      ___set_restore_char_safe___(dash, '\0', '-');
+      proc_map.beg = strtoul(line, nullptr, 0x10);
+    }
 
-    *space = '\0';
-    proc_map.end = strtoul(dash + 1, nullptr, 0x10);
+    {
+      ___set_restore_char_safe___(space, '\0', ' ');
+      proc_map.end = strtoul(dash + 1, nullptr, 0x10);
+    }
 
     proc_map.r = space[1] == 'r';
     proc_map.w = space[2] == 'w';
@@ -2485,8 +2586,10 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
     char *const space3 = (char *)memchr(space2 + 1, ' ', eol - (space2 + 1));
     assert(space3);
 
-    *space3 = '\0';
-    proc_map.off = strtoul(space2 + 1, nullptr, 0x10);
+    {
+      ___set_restore_char_safe___(space3, '\0', ' ');
+      proc_map.off = strtoul(space2 + 1, nullptr, 0x10);
+    }
 
     char *const space4 = (char *)memchr(space3 + 1, ' ', eol - (space3 + 1));
     assert(space4);
@@ -2496,8 +2599,10 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
 
     std::string &nm = proc_map.nm;
 
-    *eol = '\0';
-    nm = space5;
+    {
+      ___set_restore_char_safe___(eol, '\0', '\n');
+      nm = space5;
+    }
 
     boost::trim_left(nm);
 
@@ -2740,11 +2845,22 @@ void BootstrapTool::on_return(pid_t child,
                               binary_index_t RetBIdx,
                               taddr_t AddrOfRet,
                               taddr_t RetAddr) {
-  if (unlikely(!opts.Quiet && !ShowMeN && ShowMeA))
+  const bool ShowA = __atomic_load_n(&ShowMeA, __ATOMIC_RELAXED);
+
+  if (unlikely(!opts.Quiet && !ShowMeN && ShowA)) {
+    const bool Should = ({
+      auto s_lck = SafeDoNotShow.shared_access();
+      auto &_ = SafeDoNotShow.x;
+
+      !(RetBIdx < _.size() && _.test(RetBIdx));
+    });
+
+    if (Should)
     HumanOut() << llvm::formatv(__ANSI_YELLOW "[{2}] (ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                 description_of_program_counter(RetAddr),
                                 description_of_program_counter(AddrOfRet),
                                 child).str();
+  }
 
   //
   // examine AddrOfRet
@@ -3188,8 +3304,8 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, taddr_t pc) {
 }
 
 std::string BootstrapTool::description_of_program_counter(taddr_t pc,
-                                                          bool Verbose,
-                                                          bool Symbolize) {
+                                                          bool ForceVerbose,
+                                                          bool DoNotSymbolize) {
 #if 0 /* defined(__mips64) || defined(__mips__) */
   if (ExecutableRegionAddress &&
       pc >= ExecutableRegionAddress &&
@@ -3202,22 +3318,25 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
   if (!pc)
     return taddr2str(0x0, true);
 
-  const std::string simple_desc = (fmt("%#lx") % pc).str();
+  auto do_simple = [&](void) -> std::string {
+    return (fmt("%#lx") % pc).str();
+  };
 
-#if 0
-  return simple_desc;
-#endif
+  std::string maps;
 
   auto pm_it = intvl_map_find(pmm, pc);
   if (pm_it == pmm.end() && _child) {
-    UpdateVM(_child);
+    UpdateVM(_child, &maps);
     pm_it = intvl_map_find(pmm, pc);
   }
 
-  if (pm_it == pmm.end()) {
-    return simple_desc;
+  if (pm_it == pmm.end()) { /* wtf? */
+    robust::write(STDOUT_FILENO, maps.c_str(), maps.size());
+    return do_simple();
   } else {
-    std::string extra = Verbose ? (" (" + simple_desc + ")") : "";
+    std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
+                            ? (" (" + do_simple() + ")")
+                            : "";
 
     const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
 
@@ -3243,7 +3362,7 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
       nm.resize(len);
     }
 
-    if (Symbolize) {
+    if (likely(!DoNotSymbolize) && opts.Symbolize) {
       const binary_index_t BIdx = ({
         auto s_lck = SafeAddressSpace.shared_access();
         auto it = intvl_map_find(SafeAddressSpace.m, pc);
@@ -3269,7 +3388,7 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
             if (psymbolizer) {
               std::string line = psymbolizer->addr2line(b, Addr);
               if (!line.empty())
-                return line;
+                return line + extra;
             }
 
             std::string str = fs::path(nm).filename().string();
@@ -3375,10 +3494,23 @@ void SignalHandler(int no) {
     __builtin_unreachable();
   }
 
+  case SIGUSR1: {
+    __atomic_store_n(&tool.ShowMeA, true, __ATOMIC_RELAXED);
+    break;
+  }
+
+  case SIGUSR2: {
+    __atomic_store_n(&tool.ShowMeA, false, __ATOMIC_RELAXED);
+    break;
+  }
+
+#if 0
   case SIGUSR1:
     tool.ToggleTurbo.store(true);
     break;
+#endif
 
+#if 0
   //
   // SIGUSR2: write jv and exit
   //
@@ -3392,11 +3524,13 @@ void SignalHandler(int no) {
 
     exit(0);
   }
+#endif
 
   default:
     abort();
   }
 
+#if 0
   if (tool.saved_child) {
     //
     // instigate a ptrace-stop
@@ -3407,6 +3541,7 @@ void SignalHandler(int no) {
                                        tool.saved_child, strerror(err));
     }
   }
+#endif
 }
 
 template ssize_t BootstrapTool::poke<true>(const taddr_t, const uint8_t *, const size_t);

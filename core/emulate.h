@@ -30,7 +30,7 @@ using single_step_proc_t = uintptr_t
         essential_t &,
         ptrace_emulator_t &);
 
-struct essential_t {
+struct __attribute__((packed)) essential_t {
   single_step_proc_t single_step_proc;
   basic_block_index_t BBIdx = invalid_basic_block_index;
   taddr_t TermAddr;
@@ -45,6 +45,15 @@ struct essential_t {
   unsigned OD   : 1; /* (nonzero) out degree? */
   unsigned DT   : 1; /* (has) dynamic target? */
   unsigned IL   : 6; /* instruction length */
+
+#if defined(__x86_64__) || defined(__i386__)
+  int64_t Disp;
+  int64_t Scale;
+#elif defined(__aarch64__)
+  int32_t PCOff;
+#elif defined(__mips64) || defined(__mips__)
+  uint32_t DelaySlotInsn;
+#endif
 };
 
 struct unsupported_opcode_exception {};
@@ -96,13 +105,6 @@ struct ptrace_emulator_t : public VerboseThing {
 struct __attribute__((packed)) trapped_t {
   using essential_t = essential_t;
   essential_t essential;
-
-#if defined(__x86_64__) || defined(__i386__)
-  int64_t Disp;
-  int64_t Scale;
-#elif defined(__mips64) || defined(__mips__)
-  uint32_t DelaySlotInsn;
-#endif
 
 #ifndef NDEBUG
   llvm::MCInst Inst;
