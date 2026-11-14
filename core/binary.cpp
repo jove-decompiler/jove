@@ -4,6 +4,20 @@
 namespace jove {
 
 template <bool MT, bool MinSize>
+bool binary_analysis_t<MT, MinSize>::IsFunctionEntrypoint(bb_t bb) const {
+  const bbprop_t &bbprop =  this->ICFG[bb];
+  const basic_block_index_t BBIdx = this->ICFG.index(bb);
+
+  const auto &ParentVec = bbprop.Parents.get<MT>();
+  return std::any_of(ParentVec.cbegin(),
+                     ParentVec.cend(),
+                     [&](function_index_t FIdx) {
+                       const function_t &f = this->Functions.at(FIdx);
+                       return f.Entry == BBIdx;
+                     });
+}
+
+template <bool MT, bool MinSize>
 void binary_analysis_t<MT, MinSize>::move_stuff(void) noexcept {
 #ifdef JOVE_NO_TBB
   move_dyn_targets();

@@ -971,6 +971,8 @@ struct binary_analysis_t {
     return *the_psm;
   }
 
+  bool IsFunctionEntrypoint(bb_t bb) const;
+
 private:
   void move_stuff(void) noexcept;
   void move_callers(void) noexcept;
