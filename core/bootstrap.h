@@ -380,7 +380,7 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
             return SA.Address;
 
           assert(SA.SectionIndex < svec.size());
-          return svec.at(SA.SectionIndex).addr() + SA.Address;
+          return svec[SA.SectionIndex].addr() + SA.Address;
         };
 
         std::stable_sort(Indices.begin(),
