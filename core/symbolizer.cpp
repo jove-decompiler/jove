@@ -37,8 +37,8 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
   auto &x = state.for_binary(b);
 
   const auto &omap = x.cb.second.omap;
-  const auto off = B::cached::offset_of_va(x.cb, Addr);
-  auto oit = intvl_map_find(omap, off);
+  const auto &amap = x.cb.second.omap;
+  auto ait = intvl_map_find(amap, Addr);
 
   auto do_addr2line = [&](void) -> std::pair<bool, std::string> {
     std::string A2LOutput;
@@ -63,6 +63,9 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
             Arg("-e");
             Arg(b.Name.c_str());
             Arg("-f");
+
+            const auto off = B::cached::offset_of_va(x.cb, Addr);
+            auto oit = intvl_map_find(omap, off);
             if (oit == omap.end()) {
               Arg((fmt("0x%" PRIx64) % Addr).str());
             } else {
@@ -143,12 +146,12 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
   }
 
   obj::SectionedAddress TheSectionedAddress;
-  if (oit == omap.end()) {
+  if (ait == amap.end()) {
     TheSectionedAddress = {Addr, llvm::object::SectionedAddress::UndefSection};
   } else {
-    const unsigned idx = (*oit).second;
+    const unsigned idx = (*ait).second;
     auto &section = x.cb.second.svec[idx];
-    TheSectionedAddress = {off - section.off(), idx};
+    TheSectionedAddress = {Addr - section.addr(), idx};
   }
 
   llvm::Expected<llvm::DILineInfo> LineInfoOrErr = ({
@@ -208,7 +211,7 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
 #endif
   }
 
-  if (oit != omap.end()) {
+  if (ait != amap.end()) {
     const char *nm = b.Name.c_str();
 
     if (b.is_file()) {
@@ -218,11 +221,11 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
       nm = shortnm.c_str();
     }
 
-    const unsigned idx = (*oit).second;
+    const unsigned idx = (*ait).second;
     auto &section = x.cb.second.svec[idx];
     return nm +
          ('[' + std::string(section.Name) + '+')
-         + taddr2str(off - section.off(), false) + ']';
+         + taddr2str(Addr - section.addr(), false) + ']';
   }
 
   return {};
