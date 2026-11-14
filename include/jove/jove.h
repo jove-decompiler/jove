@@ -525,6 +525,13 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
     template <bool MT, bool MinSize>
     void insert(function_index_t, binary_base_t<MT, MinSize> &);
+
+    template <bool MT>
+    function_index_t front(void) const {
+      const ip_func_index_vec &FIdxVec = this->get<MT>();
+      assert(!FIdxVec.empty());
+      return FIdxVec.front();
+    }
   } Parents;
 
   bool hasDynTarget(void) const {
