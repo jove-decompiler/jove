@@ -233,14 +233,15 @@ static inline long pokedata(pid_t child, taddr_t addr, unsigned long data) {
   return ret;
 }
 
-template <typename TraceeState>
+template <typename TraceeState, bool DoGet>
 struct scoped_tracee_state_t {
   const pid_t child;
   TraceeState &tracee_state;
 
   scoped_tracee_state_t(pid_t child, TraceeState &tracee_state)
       : child(child), tracee_state(tracee_state) {
-    tracee_state.get(child);
+    if constexpr (DoGet)
+      tracee_state.get(child);
   }
   ~scoped_tracee_state_t() {
     if (std::uncaught_exceptions() == 0)

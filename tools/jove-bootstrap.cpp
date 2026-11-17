@@ -323,7 +323,7 @@ int BootstrapTool::Run(void) {
           WithColor::warning()
               << llvm::formatv("skipping {0}\n", b.Name.c_str());
 
-        state.for_binary(b).Skip = true;
+        state.for_binary<BootstrapTool>(b).Skip = true;
         return;
       }
     }
@@ -658,23 +658,23 @@ void BootstrapTool::Reset(void) {
 #endif
 }
 
-taddr_t BootstrapTool::pc_of_offset(taddr_t off, const binary_index_t BIdx) {
-  const auto &x = state.for_binary_of_index(BIdx);
+taddr_t BootstrapTool::pc_of_offset(taddr_t off, const binary_t &b) {
+  const auto &x = state.for_binary<BootstrapTool>(b);
   aassert(x.HasLoadAddr());
 
   // TODO? we can use the cached proc maps to get this faster
-  return pc_of_va(B::cached::va_of_offset(x.cb, off), BIdx);
+  return pc_of_va(B::cached::va_of_offset(x.cb, off), b);
 }
 
-taddr_t BootstrapTool::pc_of_va(taddr_t addr, const binary_index_t BIdx) {
-  const auto &x = state.for_binary_of_index(BIdx);
+taddr_t BootstrapTool::pc_of_va(taddr_t addr, const binary_t &b) {
+  const auto &x = state.for_binary<BootstrapTool>(b);
   aassert(x.HasLoadAddr());
 
   return x.LoadAddr + (addr - x.bounds.first);
 }
 
-taddr_t BootstrapTool::va_of_pc(taddr_t pc, const binary_index_t BIdx) {
-  auto &x = state.for_binary_of_index(BIdx);
+taddr_t BootstrapTool::va_of_pc(taddr_t pc, const binary_t &b) {
+  auto &x = state.for_binary<BootstrapTool>(b);
   aassert(x.HasLoadAddr());
 
   return (pc - x.LoadAddr) + x.bounds.first;
@@ -687,6 +687,26 @@ int BootstrapTool::TracerLoop(pid_t child) {
       opts.Syscalls ? PTRACE_SYSCALL : PTRACE_CONT;
   const unsigned SavedGeneration = jv.generation.load(boost::memory_order_relaxed);
   const unsigned SavedNumBinaries = jv.NumBinaries();
+
+  std::conditional_t<std::is_void_v<ptrace::compat_tracee_state_t>,
+                     std::monostate,
+                     ptrace::compat_tracee_state_t>
+      compat_tracee_state;
+
+  ptrace::tracee_state_t
+      tracee_state;
+
+  auto target_tracee_state = [&]() -> ptrace::target_tracee_state_t & {
+    return [&]<typename Native, typename Compat>(Native &native, Compat &compat) -> ptrace::target_tracee_state_t & {
+          if constexpr (ptrace::is_target_compat &&
+                        !std::is_same_v<Compat, std::monostate>)
+            return compat;
+          else
+            return native;
+    }(tracee_state, compat_tracee_state);
+  };
+
+  ptrace::target_tracee_state_t &the_target_tracee_state = target_tracee_state();
 
 #ifndef JOVE_BOOTSTRAP_EAGER_INVALIDATION
   BOOST_SCOPE_DEFER [&] {
@@ -733,6 +753,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
                                  strerror(-ret)).str());
            }
 
+           sig = 0;
+
            0;
          })) {
 
@@ -759,7 +781,49 @@ int BootstrapTool::TracerLoop(pid_t child) {
         //
         // this is an opportunity to examine the state of the tracee
         //
-        sig = 0;
+        const bool target = is_child_target(child);
+
+        if (target) {
+          //
+          // optimistically assume we're at a software-breakpoint
+          //
+          the_target_tracee_state.get(child);
+
+#if defined(__mips64) || defined(__mips__)
+          //
+          // recognize the 'jr $zero' hack. This trickery is to avoid emulating
+          // the delay slot instruction of a return instruction.
+          //
+          if (the_target_tracee_state.cp0_epc == 0) {
+            //
+            // from here on out we are assuming a 'jr $ra' was replaced with
+            // 'jr $zero', so we simply set the program counter to the return
+            // address register.
+            //
+            taddr_t RetAddr = the_target_tracee_state.regs[31 /* ra */];
+
+            the_target_tracee_state.cp0_epc = RetAddr;
+            the_target_tracee_state.set(child);
+
+            sig = 0; /* suppress */
+
+            on_return(child, invalid_binary_index, 0 /* XXX */, RetAddr);
+            continue;
+          }
+#endif
+
+          if (likely(handle_breakpoint<true>(the_target_tracee_state)))
+            continue;
+        }
+
+        const bool compat = is_child_compat_of_target(target);
+
+        auto program_counter = [&](void) -> auto {
+          if (!target)
+            the_target_tracee_state.get(child);
+
+          return the_target_tracee_state.program_counter();
+        };
 
         rendezvous_with_dynamic_linker(child);
 
@@ -979,10 +1043,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
               break;
             }
           } else {
-            aassert(is_child_target(child));
-            if (unlikely(!handle_breakpoint())) {
-              if (opts.PrintPtraceEvents)
-                HumanOut() << "mysterious ptrace event\n";
+            if (target) {
+              if (unlikely(!handle_breakpoint(the_target_tracee_state))) {
+                if (opts.PrintPtraceEvents)
+                  HumanOut() << "mysterious ptrace event\n";
+              }
             }
           }
         } else if (stopsig == (SIGTRAP | 0x80)) {
@@ -992,15 +1057,21 @@ int BootstrapTool::TracerLoop(pid_t child) {
           // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
           // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
           //
-          if constexpr (std::is_void_v<ptrace::compat_tracee_state_t>) {
-            aassert(is_child_target(child));
-            on_syscall_enter_or_exit<false>(child);
-          } else {
-            if (is_child_compat(child))
-              on_syscall_enter_or_exit<true>(child);
-            else
-              on_syscall_enter_or_exit<false>(child);
-          }
+          [&]<typename Compat>(Compat &the_compat_tracee_state) {
+            if constexpr (std::is_same_v<Compat, std::monostate>) {
+              assert(target);
+              on_syscall_enter_or_exit<false>(tracee_state);
+            } else {
+              if (compat) {
+                the_compat_tracee_state.get(child);
+                on_syscall_enter_or_exit<true>(the_compat_tracee_state);
+              } else {
+                on_syscall_enter_or_exit<false>(tracee_state);
+              }
+            }
+          }(compat_tracee_state);
+
+          continue;
         } else if (_jove_sys_ptrace(PTRACE_GETSIGINFO, child, 0UL,
                                     reinterpret_cast<uintptr_t>(&si)) < 0) {
           //
@@ -1021,45 +1092,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
           // deliver it
           sig = stopsig;
 
-          if (stopsig == SIGILL) { /* maybe us */
-            if (handle_breakpoint())
-              sig = 0; /* was us */
-          } else if (stopsig == SIGSEGV) {
-            if (ptrace::is_target_compat)
-              aassert(is_child_compat(child));
-            else
-              aassert(!is_child_compat(child));
-
-            ptrace::tracee_state_t tracee_state;
-            tracee_state.get(child);
-#if defined(__mips64) || defined(__mips__)
-            //
-            // recognize the 'jr $zero' hack. This trickery is to avoid emulating
-            // the delay slot instruction of a return instruction.
-            //
-
-            if (tracee_state.cp0_epc == 0) {
-              //
-              // from here on out we are assuming a 'jr $ra' was replaced with
-              // 'jr $zero', so we simply set the program counter to the return
-              // address register.
-              //
-              taddr_t RetAddr = tracee_state.regs[31 /* ra */];
-
-              tracee_state.cp0_epc = RetAddr;
-              tracee_state.set(child);
-
-              sig = 0; /* suppress */
-
-              on_return(child, invalid_binary_index, 0 /* XXX */, RetAddr);
-            }
-#else
+          if (stopsig == SIGSEGV) {
             if (IsVerbose()) {
-              msg(llvm::formatv("sigsegv @ {0}",
-                                description_of_program_counter(
-                                    tracee_state.program_counter(), true)).str());
+              msg(llvm::formatv("sigsegv @ {0}", description_of_program_counter(program_counter(), true)).str());
             }
-#endif
           } else if (stopsig == SIGSTOP) {
             if (unlikely(forked.erase(child))) {
               sig = 0; /* suppress */
@@ -1213,7 +1249,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (!TermAddr)
           break;
 
-        if (E->fix_ambiguous_indirect_jump(b, state.for_binary(b).cb, TermAddr)) {
+        if (E->fix_ambiguous_indirect_jump(b, state.for_binary<BootstrapTool>(b).cb, TermAddr)) {
           eager_invalidate_block(ICFG[bb], b);
           ++NumChanged;
         }
@@ -1278,14 +1314,23 @@ bool BootstrapTool::is_child_target(pid_t child) {
 }
 
 bool BootstrapTool::is_child_compat(pid_t child) {
-  const bool is_target = is_child_target(child);
+  const bool target = is_child_target(child);
 
-  return (ptrace::is_target_compat && is_target) ||
-    (!ptrace::is_target_compat && !is_target);
+  return (ptrace::is_target_compat && target) ||
+         (!ptrace::is_target_compat && !target);
+}
+
+bool BootstrapTool::is_child_compat_of_target(bool target) {
+  return (ptrace::is_target_compat && target) ||
+         (!ptrace::is_target_compat && !target);
 }
 
 template <bool Compat>
-enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
+enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(
+      std::add_lvalue_reference_t<
+          std::conditional_t<Compat,
+              ptrace::compat_tracee_state_t,
+              ptrace::tracee_state_t>> tracee_state) {
   PTraceStop Res = PTraceStop::Unknown;
 
   using the_tracee_state_t =
@@ -1295,10 +1340,8 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
   static constexpr bool is64 = the_tracee_state_t::is64;
   using word_t = std::conditional_t<is64, uint64_t, uint32_t>;
 
+  const pid_t child = _child;
   child_syscall_state_t &syscall_state = children_syscall_state_map[child];
-
-  the_tracee_state_t tracee_state;
-  tracee_state.get(child);
 
   word_t pc = tracee_state.program_counter();
   word_t &syscall_pc = [&]() -> word_t & {
@@ -1564,13 +1607,15 @@ enum PTraceStop BootstrapTool::on_syscall_enter_or_exit(pid_t child) {
   return Res;
 }
 
-bool BootstrapTool::handle_breakpoint(void) {
-  ptrace::target_tracee_state_t tracee_state;
-  ptrace::scoped_tracee_state_t<ptrace::target_tracee_state_t>
-      scoped_tracee_state(_child, tracee_state);
-
-  if (!on_breakpoint(_child, tracee_state))
+template <bool GTFOEarly>
+bool BootstrapTool::handle_breakpoint(ptrace::target_tracee_state_t &tracee_state) {
+  if (unlikely(on_breakpoint(_child, tracee_state))) {
+    if constexpr (GTFOEarly)
+      return false;
+  } else {
+    tracee_state.set(_child);
     return true;
+  }
 
   //
   // if we get here, it means trapmap doesn't contain an entry for the current
@@ -1609,6 +1654,7 @@ bool BootstrapTool::handle_breakpoint(void) {
     return false; /* failure */
   }
 
+  tracee_state.set(_child);
   return true;
 }
 
@@ -1626,7 +1672,7 @@ void BootstrapTool::on_new_function(binary_t &b, function_t &f) {}
 void BootstrapTool::place_breakpoint_in_block(binary_t &b,
                                               bbprop_t &bbprop,
                                               basic_block_index_t BBIdx) {
-  auto &x = state.for_binary(b);
+  auto &x = state.for_binary<BootstrapTool>(b);
   auto &ICFG = b.Analysis.ICFG;
 
   assert(!x.Skip);
@@ -1639,7 +1685,7 @@ void BootstrapTool::place_breakpoint_in_block(binary_t &b,
   assert(ShouldTrapTerminator(TermType));
 
   const taddr_t TermAddr = bbprop.Term.Addr;
-  const taddr_t termpc = pc_of_va(TermAddr, BIdx);
+  const taddr_t termpc = pc_of_va(TermAddr, b);
 
 #if 0
   {
@@ -1736,7 +1782,9 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
   trapped_t::essential_t essential;
   {
+#if 0
     auto s_lck = safe_trapmap.shared_access();
+#endif
 
     auto it = safe_trapmap.m.find(SavedPC);
     if (unlikely(it == safe_trapmap.m.end()))
@@ -1802,13 +1850,13 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     const auto SrcRepresentativeAddress =
         state.for_basic_block(b, basic_block_of_index(BBIdx, ICFG))
             .RepresentativeAddress;
-    const auto SrcRepresentativePC = pc_of_va(SrcRepresentativeAddress, BIdx);
+    const auto SrcRepresentativePC = pc_of_va(SrcRepresentativeAddress, b);
 
     taddr_t TargetRepresentativePC = TargetPC;
     if (MaybeTargetPair) {
       std::pair<binary_t &, bb_t> &TargetPair = *MaybeTargetPair;
       TargetRepresentativePC =
-          pc_of_va(state.for_basic_block(TargetPair.first, TargetPair.second).RepresentativeAddress, Target.BIdx);
+          pc_of_va(state.for_basic_block(TargetPair.first, TargetPair.second).RepresentativeAddress, TargetPair.first);
     }
 
     const char *const termdesc =
@@ -1867,20 +1915,20 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   auto &TargetBinary = jv.Binaries.at(Target.BIdx);
   auto &TargetICFG = TargetBinary.Analysis.ICFG;
 
-  auto &x = state.for_binary(TargetBinary);
+  auto &x = state.for_binary<BootstrapTool>(TargetBinary);
   assert(x.Loaded()); /* XXX this is important */
 
   binary_t &binary = jv.Binaries.at(BIdx);
 
   try {
     if (TermType == TERMINATOR::RETURN) {
-      const taddr_t AddrOfRet = SavedPC;
-      const taddr_t RetAddr = TargetPC;
+      const taddr_t PCOfRet = SavedPC;
+      const taddr_t RetPC = TargetPC;
 
-      on_return(child, BIdx, AddrOfRet, RetAddr);
+      on_return(child, BIdx, PCOfRet, RetPC);
     } else if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx = E->explore_function(
-          TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
+          TargetBinary, x.cb, va_of_pc(TargetPC, TargetBinary));
 
       assert(is_function_index_valid(FIdx));
 
@@ -1916,7 +1964,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         // non-local goto (aka "long jump")
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
-            TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
+            TargetBinary, x.cb, va_of_pc(TargetPC, TargetBinary));
 
         assert(is_basic_block_index_valid(BBIdx));
 
@@ -1938,18 +1986,16 @@ bool BootstrapTool::on_breakpoint(pid_t child,
             HasDynTarget /* IsDefinitelyTailCall(TargetICFG, bb) */ ||
             BIdx != Target.BIdx ||
             (OutDeg == 0 &&
-             exists_function_at_address(TargetBinary, va_of_pc(TargetPC, Target.BIdx)));
+             exists_function_at_address(TargetBinary, va_of_pc(TargetPC, TargetBinary)));
 
         if (isTailCall) {
           function_index_t FIdx = E->explore_function(
-              TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
+              TargetBinary, x.cb, va_of_pc(TargetPC, TargetBinary));
 
           assert(is_function_index_valid(FIdx));
           function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
           basic_block_index_t TargetEntry = TargetFunction.Entry;
           bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
-
-          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
 
           /* FIXME is new? */
           eager_invalidate_block(TargetICFG[TargetEntryBB], TargetBinary);
@@ -1966,18 +2012,18 @@ bool BootstrapTool::on_breakpoint(pid_t child,
                 return res;
               });
 
+          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
+
           {
             auto s_lck = safe_trapmap.shared_access();
             safe_trapmap.m.at(SavedPC).essential.DT = 1;
           }
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
-              TargetBinary, x.cb, va_of_pc(TargetPC, Target.BIdx));
+              TargetBinary, x.cb, va_of_pc(TargetPC, TargetBinary));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, TargetICFG);
-
-          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetBB));
 
           Target.isNew = fallthru<bool>(
               binary, BBIdx,
@@ -1995,6 +2041,8 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
                 return res;
               });
+
+          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetBB));
 
           ControlFlow.IsGoto = true;
         }
@@ -2023,7 +2071,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         what, fs::path(TargetBinary.Name.c_str()).filename().string(),
-        va_of_pc(TargetPC, Target.BIdx), TargetPC,
+        va_of_pc(TargetPC, TargetBinary), TargetPC,
         x.LoadAddr);
 
     if (IsVerbose())
@@ -2104,7 +2152,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     auto e_lck = SafeAddressSpace.exclusive_access();
     SafeAddressSpace.m.clear();
   }
-  for_each_binary(jv, [&](binary_t &b) { state.for_binary(b).Reset(); });
+  for_each_binary(jv, [&](binary_t &b) { state.for_binary<BootstrapTool>(b).Reset(); });
 
   if (has_ProcMapQuery) {
     for (const proc_map_t &pm : cached_proc_maps) {
@@ -2139,7 +2187,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
         intvl_map_add(SafeAddressSpace.m, right_open_addr_intvl(pm.beg, pm.end), BIdx);
       }
 
-      auto &x = state.for_binary(b);
+      auto &x = state.for_binary<BootstrapTool>(b);
 
       x.LoadAddr = compute_load_address(b, x, vma_start, off);
       if (!x.Loaded()) {
@@ -2201,7 +2249,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
 void BootstrapTool::on_binary_loaded(pid_t child, binary_t &binary) {
   auto &ICFG = binary.Analysis.ICFG;
-  auto &x = state.for_binary(binary);
+  auto &x = state.for_binary<BootstrapTool>(binary);
   const binary_index_t BIdx = index_of_binary(binary, jv);
 
   assert(x.Loaded());
@@ -2282,7 +2330,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
   assert(is_binary_index_valid(BIdx));
 
   binary_t &b = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary(b);
+  auto &x = state.for_binary<BootstrapTool>(b);
 
   if (unlikely(x.Skip))
     return invalid_binary_index;
@@ -2311,7 +2359,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
   auto &svec = x.cb.second.svec;
   std::for_each(maybe_par_unseq, svec.begin(), svec.end(),
               [&](auto &section) {
-                const taddr_t vma_start = pc_of_va(section.addr(), BIdx);
+                const taddr_t vma_start = pc_of_va(section.addr(), b);
                 const taddr_t vma_end = vma_start + section.length();
 
                 if (section.extra.Loaded) {
@@ -2407,9 +2455,11 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
     // resides in the same section as the program counter of its terminator.
     //
     const taddr_t Addr0 = bbprop.Addr();
-    const taddr_t pc = pc_of_va(Addr0, BIdx);
+    const taddr_t pc = pc_of_va(Addr0, b);
     {
-      auto s_lck = JustLoadedSectionMap.shared_access(); /* unnecessary? (constconst) */
+#if 0
+      auto s_lck = JustLoadedSectionMap.shared_access();
+#endif
       auto it = intvl_map_find(JustLoadedSectionMap.m, pc);
       if (it == JustLoadedSectionMap.m.end())
         return;
@@ -2776,15 +2826,16 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
 
   binary_t &b = jv.Binaries.at(BIdx);
 
-  if (state.for_binary(b)._elf.OptionalDynSymRegion) {
-    auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+  if (state.for_binary<BootstrapTool>(b)._elf.OptionalDynSymRegion) {
+    auto DynSyms = state.for_binary<BootstrapTool>(b)
+                       ._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
     for (const Elf_Sym &Sym : DynSyms) {
       if (Sym.isUndefined())
         continue;
 
       llvm::Expected<llvm::StringRef> ExpectedSymName =
-          Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
+          Sym.getName(state.for_binary<BootstrapTool>(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -2792,7 +2843,7 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
       if (SymName == "_r_debug" ||
           SymName == "_dl_debug_addr") {
         const taddr_t va = Sym.st_value; /* FIXME? va vs. off */
-        const taddr_t pc = pc_of_va(va, BIdx);
+        const taddr_t pc = pc_of_va(va, b);
 
         _r_debug.Found = true;
         _r_debug.ptr = pc;
@@ -3051,7 +3102,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
           if (!is_binary_index_valid(BIdx))
             return invalid_binary_index;
 
-          if (state.for_binary(jv.Binaries.at(BIdx)).Loaded())
+          if (state.for_binary<BootstrapTool>(jv.Binaries.at(BIdx)).Loaded())
             return BIdx;
 
           return this->found_binary(the_start, the_end, the_off, BIdx);
@@ -3247,19 +3298,19 @@ BootstrapTool::function_at_program_counter(pid_t child, taddr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_function_index);
 
-  binary_t &binary = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary(binary);
+  binary_t &b = jv.Binaries.at(BIdx);
+  auto &x = state.for_binary<BootstrapTool>(b);
 
   basic_block_index_t BBIdx =
-      E->explore_basic_block(binary, x.cb, va_of_pc(pc, BIdx));
+      E->explore_basic_block(b, x.cb, va_of_pc(pc, b));
   if (!is_basic_block_index_valid(BBIdx))
     return std::make_pair(BIdx, invalid_function_index);
 
   function_index_t FIdx =
-      E->explore_function(binary, x.cb, va_of_pc(pc, BIdx));
+      E->explore_function(b, x.cb, va_of_pc(pc, b));
 
   /* FIXME is new? */
-  eager_invalidate_block(binary.Analysis.ICFG[basic_block_of_index(binary.Analysis.Functions.at(FIdx).Entry, binary)], binary);
+  eager_invalidate_block(b.Analysis.ICFG[basic_block_of_index(b.Analysis.Functions.at(FIdx).Entry, b)], b);
 
   return std::make_pair(BIdx, FIdx);
 }
@@ -3270,11 +3321,11 @@ BootstrapTool::block_at_program_counter(pid_t child, taddr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
-  binary_t &binary = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary(binary);
+  binary_t &b = jv.Binaries.at(BIdx);
+  auto &x = state.for_binary<BootstrapTool>(b);
 
   basic_block_index_t BBIdx =
-      E->explore_basic_block(binary, x.cb, va_of_pc(pc, BIdx));
+      E->explore_basic_block(b, x.cb, va_of_pc(pc, b));
 
   return std::make_pair(BIdx, BBIdx);
 }
@@ -3287,7 +3338,7 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, taddr_t pc) {
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
   binary_t &b = jv.Binaries.at(BIdx);
-  taddr_t rva = va_of_pc(pc, BIdx);
+  taddr_t rva = va_of_pc(pc, b);
 
   basic_block_index_t BBIdx = ({
     bbmap_t *const pbbmap = b.BBMap.map.get();
@@ -3371,7 +3422,7 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
 
       if (is_binary_index_valid(BIdx)) {
         binary_t &b = jv.Binaries.at(BIdx);
-        auto &x = state.for_binary(b);
+        auto &x = state.for_binary<BootstrapTool>(b);
 
         assert(x.Loaded());
         {

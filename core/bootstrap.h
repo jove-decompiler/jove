@@ -109,6 +109,7 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
     cl::list<std::string> SkipBins;
     cl::opt<bool> TrapDirectCalls;
     cl::alias TrapDirectCallsAlias;
+    cl::opt<bool> EffectiveDebugInfo;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -216,7 +217,12 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
 
           TrapDirectCallsAlias("dc", cl::desc("Alias for --direct-calls."),
                                cl::aliasopt(TrapDirectCalls),
-                               cl::cat(JoveCategory))
+                               cl::cat(JoveCategory)),
+
+          EffectiveDebugInfo("effective-debug-info",
+                             cl::init(true),
+                             cl::desc("Trap direct calls"),
+                             cl::cat(JoveCategory))
           {}
   } opts;
 
@@ -235,6 +241,8 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
 
   struct binary_state_t {
     bool Skip = false;
+
+    BootstrapTool &tool;
 
     taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
     std::atomic<unsigned> NumSectionsLoaded = 0;
@@ -278,7 +286,7 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
              this->NumSectionsLoaded.load(std::memory_order_relaxed) == this->sections().svec.size();
     }
 
-    binary_state_t(const binary_t &b) {
+    binary_state_t(const binary_t &b, BootstrapTool &tool) : tool(tool) {
       //
       // for the purposes of mapping addresses to file offsets, the segments
       // provide a quicker determination (but ignoring the sections can lead to
@@ -338,10 +346,15 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
         const auto TermType = bbprop.Term.Type;
         const auto TermAddr = bbprop.Term.Addr;
 
-        if (true /*FIXME*/ /* b.Analysis.IsFunctionEntrypoint(bb) */) {
-          this->RepresentativeAddress = Addr;
+        this->RepresentativeAddress = Addr;
+
+        if (!x.tool.opts.EffectiveDebugInfo)
           return;
-        }
+
+#if 0
+        if (b.Analysis.IsFunctionEntrypoint(bb))
+          return;
+#endif
 
         //
         // using heuristics, determine the program counter in this block which
@@ -629,8 +642,8 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
 public:
   BootstrapTool()
       : opts(JoveCategory),
-        state(jv),
-        IsCOFF(B::is_coff(state.for_binary(jv.Binaries.at(0)).Bin().get())),
+        state(jv, this),
+        IsCOFF(B::is_coff(state.for_binary<BootstrapTool>(jv.Binaries.at(0)).Bin().get())),
         has_ProcMapQuery(kernel::has_ProcMapQuery()) {}
 
   ~BootstrapTool();
@@ -640,11 +653,16 @@ public:
   int TracerLoop(pid_t child);
 
   template <bool Compat>
-  enum PTraceStop on_syscall_enter_or_exit(pid_t);
+  enum PTraceStop on_syscall_enter_or_exit(std::add_lvalue_reference_t<
+      std::conditional_t<Compat,
+          ptrace::compat_tracee_state_t,
+          ptrace::tracee_state_t>>);
 
-  bool handle_breakpoint(void);
+  template <bool GTFOEarly = false>
+  bool handle_breakpoint(ptrace::target_tracee_state_t &);
 
   bool is_child_target(pid_t);
+  bool is_child_compat_of_target(bool target);
   bool is_child_compat(pid_t);
 
   // breakpoints aren't placed until on_binary_loaded()
@@ -687,9 +705,9 @@ public:
                                const taddr_t vma_start,
                                const taddr_t off);
 
-  taddr_t pc_of_offset(taddr_t off, const binary_index_t BIdx);
-  taddr_t pc_of_va(taddr_t addr, const binary_index_t BIdx);
-  taddr_t va_of_pc(taddr_t pc, const binary_index_t BIdx);
+  taddr_t pc_of_offset(taddr_t off, const binary_t &b);
+  taddr_t pc_of_va(taddr_t addr, const binary_t &);
+  taddr_t va_of_pc(taddr_t pc, const binary_t &);
 
   binary_index_t binary_at_program_counter(pid_t, taddr_t valid_pc);
   block_t
