@@ -67,9 +67,9 @@ struct jv_state_t {
   const jv_base_t<MT, MinSize> &jv;
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
   using binary_t = binary_base_t<MT, MinSize>;
+  void *const pTool = nullptr;
 
 private:
-
   template <typename T, StateOpt Opts>
   using StateSlot = std::conditional_t<
       has_flag_v<Opts, StateOpt::LazyInitialization>,
@@ -159,7 +159,8 @@ private:
   }
 
 public:
-  explicit jv_state_t(const jv_base_t<MT, MinSize> &jv) : jv(jv) {
+  explicit jv_state_t(const jv_base_t<MT, MinSize> &jv, void *pTool = nullptr)
+      : jv(jv), pTool(pTool) {
     if constexpr (has_flag_v<BOpts, StateOpt::Eager>)
       eager();
   }
@@ -442,6 +443,9 @@ private:
   }
 
 public:
+  struct FakeTool {};
+
+  template <typename ToolTy = FakeTool>
   std::add_lvalue_reference_t<BinaryStateTy>
   for_binary(const binary_t &b)
     requires(!std::is_void_v<BinaryStateTy>)
@@ -450,7 +454,16 @@ public:
     StateSlot<BinaryStateTy, BOpts> *slotp = &p->b;
 
     if constexpr (has_flag_v<BOpts, StateOpt::LazyInitialization>) {
-      LAZY_MAKE_AND_RETURN(binary,BOpts,slotp,BinaryStateTy, b);
+      if constexpr (std::constructible_from<BinaryStateTy,
+                                            const binary_t &,
+                                            ToolTy &>) {
+        void *const TheToolPtr = this->pTool;
+        assert(TheToolPtr);
+        LAZY_MAKE_AND_RETURN(binary, BOpts, slotp, BinaryStateTy, b,
+                             *reinterpret_cast<ToolTy *>(TheToolPtr));
+      } else {
+        LAZY_MAKE_AND_RETURN(binary,BOpts,slotp,BinaryStateTy, b);
+      }
       __compiletime_unreachable();
     } else {
       return *slotp;
@@ -541,16 +554,18 @@ public:
         if constexpr (std::constructible_from<BasicBlockStateTy,
                                               const binary_t &, bb_t,
                                               const BinaryStateTy &>) {
-          LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb, *p->b);
-          __compiletime_unreachable();
+          auto &TheStateSlot = p->b;
+          auto *pBinaryState = TheStateSlot.get();
+          aassert(pBinaryState);
+          LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb, *pBinaryState);
         } else { /* FIXME (style) */
           LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb);
-          __compiletime_unreachable();
         }
+        __compiletime_unreachable();
       } else {
         LAZY_MAKE_AND_RETURN(basic_block, BBOpts, slotp, BasicBlockStateTy, b, bb);
-        __compiletime_unreachable();
       }
+      __compiletime_unreachable();
     } else {
       return *slotp;
     }
