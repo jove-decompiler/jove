@@ -146,7 +146,7 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
   }
 
   obj::SectionedAddress TheSectionedAddress;
-  if (ait == amap.end()) {
+  if (true /* ait == amap.end() */) {
     TheSectionedAddress = {Addr, llvm::object::SectionedAddress::UndefSection};
   } else {
     const unsigned idx = (*ait).second;
