@@ -2069,10 +2069,11 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       basic_block_index_t TargetEntry = TargetFunction.Entry;
       bb_t TargetEntryBB = basic_block_of_index(TargetEntry, binary.Analysis.ICFG);
 
-      print_thing(std::pair<binary_t &, bb_t>(binary, TargetEntryBB));
+      print_thing("callimm", std::pair<binary_t &, bb_t>(binary, TargetEntryBB));
 #else
       print_thing("callimm");
 #endif
+
     }
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
@@ -3551,7 +3552,7 @@ std::string BootstrapTool::enhanced_description_of_program_counter( /* FIXME (st
 
         const taddr_t Addr = B::cached::va_of_offset(x.cb, the_off);
 
-        assert(representative_pc >= pc);
+        representative_pc = std::max(representative_pc, pc);
         const taddr_t delta = representative_pc - pc;
         const taddr_t RepresentativeAddr = Addr + delta;
 
