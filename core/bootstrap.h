@@ -352,6 +352,20 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
         if (!x.tool.opts.EffectiveDebugInfo)
           return;
 
+        switch (TermType) {
+        case TERMINATOR::INDIRECT_JUMP:
+          if (IsDefinitelyTailCall(b.Analysis.ICFG, bb)) {
+            this->RepresentativeAddress = TermAddr;
+            return;
+          }
+          break;
+
+        case TERMINATOR::CALL:
+        case TERMINATOR::INDIRECT_CALL:
+          this->RepresentativeAddress = TermAddr;
+          return;
+        }
+
 #if 0
         if (b.Analysis.IsFunctionEntrypoint(bb))
           return;
@@ -482,10 +496,7 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
 
         switch (TermType) {
         case TERMINATOR::INDIRECT_JUMP:
-          if (IsDefinitelyTailCall(b.Analysis.ICFG, bb)) {
-            TheRepresentativeAddress(TermAddr);
-            break;
-          }
+          assert(!IsDefinitelyTailCall(b.Analysis.ICFG, bb));
           [[fallthrough]];
 
         case TERMINATOR::CONDITIONAL_JUMP:
@@ -497,11 +508,6 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
             TheRepresentativeAddress(*MaybePrologueEnd);
           else
             TheRepresentativeAddress(Addr);
-          break;
-
-        case TERMINATOR::CALL:
-        case TERMINATOR::INDIRECT_CALL:
-          TheRepresentativeAddress(TermAddr);
           break;
 
         case TERMINATOR::RETURN:
@@ -521,6 +527,9 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
           else
             TheRepresentativeAddress(Addr);
           break;
+
+        default:
+          abort();
         }
       });
     };
