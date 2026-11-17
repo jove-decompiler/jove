@@ -1854,7 +1854,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
     std::string &src_desc = src_bbstate.desc;
     if (src_desc.empty())
-      src_desc = description_of_program_counter(SrcRepresentativePC/*SavedPC*/);
+      src_desc = enhanced_description_of_program_counter(SavedPC, SrcRepresentativePC);
 
     taddr_t TargetRepresentativePC = TargetPC;
     std::string target_desc_;
@@ -1868,7 +1868,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
     std::string &target_desc = *ptarget_desc;
     if (target_desc.empty())
-      target_desc = description_of_program_counter(TargetRepresentativePC /*TargetPC*/);
+      target_desc = enhanced_description_of_program_counter(TargetPC, TargetRepresentativePC);
 
     HumanOut() << llvm::formatv("{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                 termdesc,
@@ -1992,7 +1992,8 @@ bool BootstrapTool::on_breakpoint(pid_t child,
             HasDynTarget /* IsDefinitelyTailCall(TargetICFG, bb) */ ||
             BIdx != Target.BIdx ||
             (OutDeg == 0 &&
-             exists_function_at_address(TargetBinary, va_of_pc(TargetPC, TargetBinary)));
+             exists_function_at_address(TargetBinary, va_of_pc(TargetPC, TargetBinary))) ||
+            (/* src and dst are in distinct functions */false);
 
         if (isTailCall) {
           function_index_t FIdx = E->explore_function(
@@ -3451,6 +3452,116 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
           symbolizer_t *const psymbolizer = symbolizer.get();
           if (psymbolizer) {
             std::string line = psymbolizer->addr2line(b, Addr);
+            if (!line.empty()) {
+              std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
+                                      ? (fmt(" (%s:%#lx)") % str % Addr).str()
+                                      : "";
+              return line + extra;
+            }
+          }
+        } catch (...) {
+          return (fmt("%s:%#lx") % str % Addr).str();
+        }
+      }
+    }
+
+    return (fmt("%s+%#lx") % nm % the_off).str();
+  }
+}
+
+std::string BootstrapTool::enhanced_description_of_program_counter( /* FIXME (style) */
+    taddr_t pc,
+    taddr_t representative_pc,
+    bool ForceVerbose,
+    bool DoNotSymbolize) {
+#if 0 /* defined(__mips64) || defined(__mips__) */
+  if (ExecutableRegionAddress &&
+      pc >= ExecutableRegionAddress &&
+      pc < ExecutableRegionAddress + 8) {
+    taddr_t off = pc - ExecutableRegionAddress;
+    return (fmt("[exeregion]+%#lx") % off).str();
+  }
+#endif
+
+  if (!pc)
+    return taddr2str(0x0, true);
+
+  auto do_simple = [&](void) -> std::string {
+    return (fmt("%#lx") % pc).str();
+  };
+
+  std::string maps;
+
+  auto pm_it = intvl_map_find(pmm, pc);
+  if (pm_it == pmm.end() && _child) {
+    UpdateVM(_child, &maps);
+    pm_it = intvl_map_find(pmm, pc);
+  }
+
+  if (unlikely(pm_it == pmm.end())) {
+    robust::write(STDOUT_FILENO, maps.c_str(), maps.size());
+    return do_simple();
+  } else {
+    const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+    const taddr_t pm_beg = pm.beg;
+
+    std::string nm = pm.nm;
+    taddr_t pm_off = pm.off;
+
+    if (nm.empty()) {
+      std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
+                              ? (" (" + do_simple() + ")")
+                              : "";
+
+      return (fmt("%#lx+%#lx%s") % pm_beg % (pc - pm_beg) % extra).str();
+    }
+
+    if (boost::algorithm::starts_with(nm, "[anon:")) {
+      nm.resize(2 * PATH_MAX);
+
+      ssize_t len = ({
+        int the_fd;
+        std::tie(the_fd, pm_off) = extract_fd_and_off(nm);
+
+        char buff[1024];
+        snprintf(buff, sizeof(buff), "/proc/%d/fd/%d", (int)_child, the_fd);
+        ::readlink(buff, &nm[0], nm.size());
+      });
+
+      aassert(len != nm.size() && len != -1);
+      nm.resize(len);
+    }
+
+    const taddr_t the_off = (pc - pm_beg) - pm_off;
+
+    if (likely(!DoNotSymbolize) && opts.Symbolize) {
+      const binary_index_t BIdx = ({
+        auto s_lck = SafeAddressSpace.shared_access();
+        auto it = intvl_map_find(SafeAddressSpace.m, pc);
+        it == SafeAddressSpace.m.end() ? invalid_binary_index : (*it).second;
+      });
+
+      if (is_binary_index_valid(BIdx)) {
+        binary_t &b = jv.Binaries.at(BIdx);
+        auto &x = state.for_binary<BootstrapTool>(b);
+
+        std::string str = fs::path(nm).filename().string();
+
+        assert(x.Loaded());
+
+        const taddr_t Addr = B::cached::va_of_offset(x.cb, the_off);
+
+        assert(representative_pc >= pc);
+        const taddr_t delta = representative_pc - pc;
+        const taddr_t RepresentativeAddr = Addr + delta;
+
+        //
+        // pc is in binary that's been "loaded"
+        //
+        try {
+          symbolizer_t *const psymbolizer = symbolizer.get();
+          if (psymbolizer) {
+            std::string line = psymbolizer->addr2line(b, RepresentativeAddr);
             if (!line.empty()) {
               std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
                                       ? (fmt(" (%s:%#lx)") % str % Addr).str()
