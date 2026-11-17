@@ -118,7 +118,7 @@ extern "C" void __assert_fail(const char *__assertion, const char *__file,
 
 #ifdef NDEBUG
 #define assert(cond) ({ (void)0; })
-#define assert_msg(cond) ({ (void)0; })
+#define assert_msg(cond, proc) ({ (void)0; })
 #else
 #define assert(cond) aassert(cond)
 #define assert_msg(cond, proc) aassert_msg(cond, proc)
