@@ -13,6 +13,7 @@ frame_pointer=
 assertions="OFF"
 asan=
 tsan=
+release=
 optlvl="2"
 
 function usage() {
@@ -22,12 +23,13 @@ function usage() {
   echo "    -T:              only build llvm-tblgen"
   echo "    -C:              this build is doing cross-compilation"
   echo "    -A:              build with assertions"
+  echo "    -R:              build in release mode"
   echo "    -F:              build with frame pointers"
   echo "    -S:              build with specified sanitizer (address or thread)"
   echo "    -h:              Show this help."
 }
 
-while getopts ":a:O:t:TFCS:Ah" opt; do
+while getopts ":a:O:t:TFRCS:Ah" opt; do
   case "$opt" in
     a)
       arch=$OPTARG
@@ -43,6 +45,9 @@ while getopts ":a:O:t:TFCS:Ah" opt; do
       ;;
     F)
       frame_pointer=1
+      ;;
+    R)
+      release=1
       ;;
     C)
       cross=1
@@ -101,9 +106,16 @@ lto="OFF"
 skip_rpath="FALSE"
 enable_ffi="OFF"
 have_memfd="ON"
-cmake_args=(
+cmake_build_type=""
+if [ -n "$release" ]; then
+  cmake_build_type="Release"
+else
+  cmake_build_type="RelWithDebInfo"
+fi
+
+cmake_args+=(
   -G Ninja
-  -D CMAKE_BUILD_TYPE=RelWithDebInfo
+  -D CMAKE_BUILD_TYPE=$cmake_build_type
   -D "CMAKE_C_COMPILER=$(command -v clang)"
   -D "CMAKE_CXX_COMPILER=$(command -v clang++)"
   -D LLVM_BUILD_TESTS=OFF
@@ -292,6 +304,8 @@ if [ -n "$frame_pointer" ]; then
     -fno-omit-frame-pointer
     -mno-omit-leaf-frame-pointer
   )
+else
+  ourcflags+=(-fomit-frame-pointer)
 fi
 
 case "$optlvl" in
@@ -312,9 +326,13 @@ ourcflags+=(-ggdb)
 # seems to help with stack traces under WINE
 ourcflags+=(-gdwarf-4)
 
+if [ -n "$release" ]; then
+  ourcflags+=(-DNDEBUG)
+fi
+
 cmake_args+=(
-  -D "CMAKE_C_FLAGS_RELWITHDEBINFO=${ourcflags[*]}"
-  -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=${ourcflags[*]}"
+  -D "CMAKE_C_FLAGS_${cmake_build_type^^}=${ourcflags[*]}"
+  -D "CMAKE_CXX_FLAGS_${cmake_build_type^^}=${ourcflags[*]}"
 )
 
 if [ ! -f build.ninja ]; then
