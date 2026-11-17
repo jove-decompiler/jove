@@ -146,12 +146,12 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
   }
 
   obj::SectionedAddress TheSectionedAddress;
-  if (true /* ait == amap.end() */) {
+  if (ait == amap.end()) {
     TheSectionedAddress = {Addr, llvm::object::SectionedAddress::UndefSection};
   } else {
     const unsigned idx = (*ait).second;
     auto &section = x.cb.second.svec[idx];
-    TheSectionedAddress = {Addr - section.addr(), idx};
+    TheSectionedAddress = {Addr, idx};
   }
 
   llvm::Expected<llvm::DILineInfo> LineInfoOrErr = ({
@@ -163,16 +163,7 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
   if (LineInfoOrErr) {
     llvm::DILineInfo LnInfo = *LineInfoOrErr;
 
-    if (LnInfo.FileName == llvm::DILineInfo::BadString) {
-      if (!this->Addr2Line) {
-        bool IsA2LOutputValid;
-        std::string A2LOutput;
-        std::tie(IsA2LOutputValid, A2LOutput) = do_addr2line();
-
-        if (IsA2LOutputValid)
-          return A2LOutput;
-      }
-    } else {
+    if (LnInfo.FileName != llvm::DILineInfo::BadString) {
       fs::path sourcePath = LnInfo.FileName;
 
 #if 0
