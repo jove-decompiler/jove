@@ -124,6 +124,10 @@ public:
     return ptr.load(order);
   }
 
+  T *get(std::memory_order order = std::memory_order_relaxed) noexcept {
+    return ptr.load(order);
+  }
+
   bool compare_exchange_strong(T *&expected,
                                T *desired,
                                std::memory_order success,
