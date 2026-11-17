@@ -408,23 +408,6 @@ private:
     }                                                                          \
   } while (0)
 
-  ForBinary &associated_with_binary_of_index(const binary_index_t &BIdx) {
-    ForBinary *p = ({
-      auto s_lck = shared_access();
-      likely(BIdx < vec.size()) ? &vec[BIdx] : nullptr;
-    });
-
-    if (unlikely(!p))
-      p = ({
-        const binary_t &b = jv.Binaries.at(BIdx);
-
-        auto e_lck = exclusive_access();
-        update(b);
-      });
-
-    return *p;
-  }
-
   ForBinary &associated_with_binary(const binary_t &b) {
     const binary_index_t BIdx = index_of_binary<MT>(b, jv);
 
@@ -464,22 +447,6 @@ public:
       } else {
         LAZY_MAKE_AND_RETURN(binary,BOpts,slotp,BinaryStateTy, b);
       }
-      __compiletime_unreachable();
-    } else {
-      return *slotp;
-    }
-  }
-
-  std::add_lvalue_reference_t<BinaryStateTy>
-  for_binary_of_index(const binary_index_t BIdx)
-    requires(!std::is_void_v<BinaryStateTy>)
-  {
-    ForBinary *const p = &associated_with_binary_of_index(BIdx);
-    StateSlot<BinaryStateTy, BOpts> *slotp = &p->b;
-
-    if constexpr (has_flag_v<BOpts, StateOpt::LazyInitialization>) {
-      const binary_t &b = jv.Binaries.at(BIdx);
-      LAZY_MAKE_AND_RETURN(binary,BOpts,slotp,BinaryStateTy, b);
       __compiletime_unreachable();
     } else {
       return *slotp;
