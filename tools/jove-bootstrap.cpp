@@ -1850,25 +1850,26 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     basic_block_state_t &src_bbstate = state.for_basic_block(b, basic_block_of_index(BBIdx, ICFG));
 
     const auto SrcRepresentativeAddress = src_bbstate.RepresentativeAddress;
-    const auto SrcRepresentativePC = pc_of_va(SrcRepresentativeAddress, b);
 
     std::string &src_desc = src_bbstate.desc;
     if (src_desc.empty())
-      src_desc = enhanced_description_of_program_counter(SavedPC, SrcRepresentativePC);
+      src_desc = enhanced_description_of_program_counter(SavedPC, SrcRepresentativeAddress);
 
-    taddr_t TargetRepresentativePC = TargetPC;
+    taddr_t TargetRepresentativeAddr = invalid_taddr;
     std::string target_desc_;
     std::string *ptarget_desc = &target_desc_;
     if (MaybeTargetPair) {
       std::pair<binary_t &, bb_t> &TargetPair = *MaybeTargetPair;
       basic_block_state_t &target_bbstate = state.for_basic_block(TargetPair.first, TargetPair.second);
-      TargetRepresentativePC = pc_of_va(target_bbstate.RepresentativeAddress, TargetPair.first);
+      TargetRepresentativeAddr = target_bbstate.RepresentativeAddress;
       ptarget_desc = &target_bbstate.desc;
     }
 
     std::string &target_desc = *ptarget_desc;
     if (target_desc.empty())
-      target_desc = enhanced_description_of_program_counter(TargetPC, TargetRepresentativePC);
+      target_desc = is_taddr_valid(TargetRepresentativeAddr)
+                        ? enhanced_description_of_program_counter(TargetPC, TargetRepresentativeAddr)
+                        : description_of_program_counter(TargetPC);
 
     HumanOut() << llvm::formatv("{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                 termdesc,
@@ -3472,7 +3473,7 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
 
 std::string BootstrapTool::enhanced_description_of_program_counter( /* FIXME (style) */
     taddr_t pc,
-    taddr_t representative_pc,
+    taddr_t representative_addr,
     bool ForceVerbose,
     bool DoNotSymbolize) {
 #if 0 /* defined(__mips64) || defined(__mips__) */
@@ -3552,17 +3553,13 @@ std::string BootstrapTool::enhanced_description_of_program_counter( /* FIXME (st
 
         const taddr_t Addr = B::cached::va_of_offset(x.cb, the_off);
 
-        representative_pc = std::max(representative_pc, pc);
-        const taddr_t delta = representative_pc - pc;
-        const taddr_t RepresentativeAddr = Addr + delta;
-
         //
         // pc is in binary that's been "loaded"
         //
         try {
           symbolizer_t *const psymbolizer = symbolizer.get();
           if (psymbolizer) {
-            std::string line = psymbolizer->addr2line(b, RepresentativeAddr);
+            std::string line = psymbolizer->addr2line(b, representative_addr);
             if (!line.empty()) {
               std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
                                       ? (fmt(" (%s:%#lx)") % str % Addr).str()
