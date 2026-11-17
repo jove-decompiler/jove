@@ -4,6 +4,9 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/PointerIntPair.h>
+
+#include <boost/scope/defer.hpp>
+
 #include <utility>
 
 namespace jove {
@@ -317,7 +320,10 @@ static inline bool segments(ELFO &O, B::section_vec_t<extra_t> &out) {
 
   out.reserve(ProgramHeaders.size());
 
+  unsigned orig_idx = 0;
   for (const Elf_Phdr &Phdr : ProgramHeaders) {
+    BOOST_SCOPE_DEFER [&] { ++orig_idx; };
+
     if (Phdr.p_type != llvm::ELF::PT_LOAD)
       continue;
 
@@ -334,7 +340,7 @@ static inline bool segments(ELFO &O, B::section_vec_t<extra_t> &out) {
       continue;
 
     const unsigned idx = out.size();
-    auto &section = out.emplace_back(off, size, Phdr.p_vaddr, length);
+    auto &section = out.emplace_back(orig_idx, off, size, Phdr.p_vaddr, length);
     __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
 
     const auto flags = Phdr.p_flags;
@@ -358,7 +364,10 @@ static inline bool sections(ELFO &O, B::section_vec_t<extra_t> &out) {
 
     const size_t M = O.getMemoryBufferRef().getBufferSize();
 
+    unsigned orig_idx = 0;
     for (const Elf_Shdr &Sec : Sections) {
+      BOOST_SCOPE_DEFER [&] { ++orig_idx; };
+
       const auto flags = Sec.sh_flags;
       if (!(flags & llvm::ELF::SHF_ALLOC))
         continue;
@@ -381,7 +390,7 @@ static inline bool sections(ELFO &O, B::section_vec_t<extra_t> &out) {
       auto MaybeName = Elf.getSectionName(Sec);
 
       const unsigned idx = out.size();
-      auto &section = out.emplace_back(off, size, Sec.sh_addr, length);
+      auto &section = out.emplace_back(orig_idx, off, size, Sec.sh_addr, length);
       __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
 //    __builtin_memset_inline(&section._coff, 0, sizeof(section._coff));
 

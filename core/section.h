@@ -25,15 +25,18 @@ void from_svec(sections_t<extra_t> &, const section_vec_t<extra_t> &);
 template <typename extra_t>
 struct section_t {
 private:
+  const unsigned orig_idx;
   const addr_intvl oi, ai;
 
   friend void cached::from_svec<extra_t>(sections_t<extra_t> &,
                                          const section_vec_t<extra_t> &);
 
 public:
-  section_t(const taddr_t off_, const taddr_t size_,
+  section_t(const unsigned orig_idx,
+            const taddr_t off_, const taddr_t size_,
             const taddr_t addr_, const taddr_t length_)
-    : oi(off_, size_),
+    : orig_idx(orig_idx),
+      oi(off_, size_),
       ai(addr_, length_)
   {}
 
@@ -42,6 +45,8 @@ public:
 
   taddr_t addr(void)   const { return ai.first; }
   taddr_t length(void) const { return ai.second; } /* number of bytes in memory */
+
+  unsigned original_index(void) const { return orig_idx; }
 
   struct {
     unsigned r : 1;

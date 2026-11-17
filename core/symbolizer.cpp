@@ -21,7 +21,7 @@ symbolizer_base_t<MT, MinSize>::symbolizer_base_t(const jv_t &jv, locator_t &loc
   Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::ShortName;
   Opts.UseSymbolTable = true;
   Opts.Demangle = false;
-  Opts.RelativeAddresses = true;
+  Opts.RelativeAddresses = false; /* FIXME? COFF */
 
   Symbolizer = std::make_unique<llvm::symbolize::LLVMSymbolizer>(Opts);
 }
@@ -112,6 +112,7 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
         const auto nl_it = std::next(A2LOutput.begin(), nl_pos);
         aassert(std::distance(nl_it, A2LOutput.end()) > 0);
 
+        // FIXME get the function name by seeing what function the block is in
         fnnm = A2LOutput.substr(0, nl_pos);
         A2LOutput = A2LOutput.substr(nl_pos+1);
 
@@ -151,7 +152,7 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
   } else {
     const unsigned idx = (*ait).second;
     auto &section = x.cb.second.svec[idx];
-    TheSectionedAddress = {Addr, idx};
+    TheSectionedAddress = {Addr, section.original_index()};
   }
 
   llvm::Expected<llvm::DILineInfo> LineInfoOrErr = ({
@@ -187,6 +188,7 @@ std::string symbolizer_base_t<MT, MinSize>::addr2line(
       boost::trim(col_desc);
 
       std::string res = sourcePath.string() + ":" + line_desc + ":" + col_desc;
+      // FIXME get the function name by seeing what function the block is in
       if (LnInfo.FunctionName != llvm::DILineInfo::BadString)
         res.append(" <" + LnInfo.FunctionName + '>');
       return res;

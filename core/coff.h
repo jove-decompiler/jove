@@ -81,7 +81,10 @@ static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
 
   out.reserve(std::distance(beg, end));
 
+  unsigned orig_idx = 0;
   for (auto it = beg; it != end; ++it) {
+    BOOST_SCOPE_DEFER [&] { ++orig_idx; };
+
     const llvm::object::SectionRef &SectionRef = *it;
     const llvm::object::coff_section &Sect = *O.getCOFFSection(SectionRef);
 
@@ -100,7 +103,7 @@ static inline bool sections(COFFO &O, B::section_vec_t<extra_t> &out) {
       continue;
 
     const unsigned idx = out.size();
-    auto &section = out.emplace_back(off, size, va_of_rva(O, Sect.VirtualAddress), length);
+    auto &section = out.emplace_back(orig_idx, off, size, va_of_rva(O, Sect.VirtualAddress), length);
     __builtin_memset_inline(&section._elf, 0, sizeof(section._elf));
 //  __builtin_memset_inline(&section._coff, 0, sizeof(section._coff));
 
