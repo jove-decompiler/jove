@@ -165,14 +165,14 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   bool empty(void) const { return num_vertices() == 0; }
 
   vertex_property_type &at(vertex_descriptor V) {
-    assert(index(V) < num_vertices());
+    aassert(index(V) < num_vertices());
 
     auto s_lck = this->shared_access();
     return container()[V];
   }
 
   const vertex_property_type &at(vertex_descriptor V) const {
-    assert(index(V) < num_vertices());
+    aassert(index(V) < num_vertices());
 
     auto s_lck = this->shared_access();
     return container()[V];

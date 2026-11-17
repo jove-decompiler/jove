@@ -59,12 +59,12 @@ struct table_t {
   }
 
   T &at(std::size_t i) {
-    assert(i < size());
+    aassert(i < size());
     return this->operator[](i);
   }
 
   const T &at(std::size_t i) const {
-    assert(i < size());
+    aassert(i < size());
     return this->operator[](i);
   }
 

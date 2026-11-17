@@ -66,12 +66,16 @@ struct ip_deque : public ip_base_rw_accessible<MT, Spin> {
 
   T &at(unsigned idx) {
     auto s_lck = this->shared_access();
-    return container().at(idx);
+    aassert(idx < container().size());
+
+    return container()[idx];
   }
 
   const T &at(unsigned idx) const {
     auto s_lck = this->shared_access();
-    return container().at(idx);
+    aassert(idx < container().size());
+
+    return container()[idx];
   }
 
   void clear(void) {
