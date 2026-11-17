@@ -1845,8 +1845,8 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   } ControlFlow;
 
   auto do_print_thing =
-      [&](std::optional<std::pair<binary_t &, bb_t>> MaybeTargetPair = std::nullopt,
-          const char *extra = "") -> void {
+      [&](const char *termdesc,
+          std::optional<std::pair<binary_t &, bb_t>> MaybeTargetPair = std::nullopt) -> void {
     basic_block_state_t &src_bbstate = state.for_basic_block(b, basic_block_of_index(BBIdx, ICFG));
 
     const auto SrcRepresentativeAddress = src_bbstate.RepresentativeAddress;
@@ -1870,17 +1870,12 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     if (target_desc.empty())
       target_desc = description_of_program_counter(TargetRepresentativePC /*TargetPC*/);
 
-    const char *const termdesc =
-        (ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto")
-                            : (IsDirectCall ? "callimm" : "call"));
-
-    HumanOut() << llvm::formatv("{5}{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+    HumanOut() << llvm::formatv("{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                 termdesc,
                                 src_desc,
                                 target_desc,
                                 ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
-                                child,
-                                extra).str();
+                                child).str();
   };
 
   auto print_thing = [&](auto &&...xs) -> void {
@@ -1917,7 +1912,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
         //
       } else {
         if (IsVeryVerbose())
-          do_print_thing(std::nullopt, "unknown branch target");
+          do_print_thing("unknown");
       }
       return false;
     }
@@ -1947,7 +1942,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       basic_block_index_t TargetEntry = TargetFunction.Entry;
       bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
 
-      print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
+      print_thing("call", std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
 
       /* FIXME is new? */
       eager_invalidate_block(
@@ -2023,12 +2018,12 @@ bool BootstrapTool::on_breakpoint(pid_t child,
                 return res;
               });
 
-          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
-
           {
             auto s_lck = safe_trapmap.shared_access();
             safe_trapmap.m.at(SavedPC).essential.DT = 1;
           }
+
+          print_thing("tailcall", std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
         } else {
           const basic_block_index_t TargetBBIdx = E->explore_basic_block(
               TargetBinary, x.cb, va_of_pc(TargetPC, TargetBinary));
@@ -2053,14 +2048,15 @@ bool BootstrapTool::on_breakpoint(pid_t child,
                 return res;
               });
 
-          print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetBB));
-
           ControlFlow.IsGoto = true;
+
+          print_thing("goto", std::pair<binary_t &, bb_t>(TargetBinary, TargetBB));
         }
       }
     } else {
       assert(TermType == TERMINATOR::CALL);
 
+#if 0
       const function_index_t FIdx = fallthru<function_index_t>(
           binary, BBIdx,
           [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) -> bool {
@@ -2068,11 +2064,14 @@ bool BootstrapTool::on_breakpoint(pid_t child,
             return bbprop.Term._call.Target;
           });
 
-      function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
+      function_t &TargetFunction = binary.Analysis.Functions.at(FIdx);
       basic_block_index_t TargetEntry = TargetFunction.Entry;
-      bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
+      bb_t TargetEntryBB = basic_block_of_index(TargetEntry, binary.Analysis.ICFG);
 
-      print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
+      print_thing(std::pair<binary_t &, bb_t>(binary, TargetEntryBB));
+#else
+      print_thing("callimm");
+#endif
     }
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
@@ -3392,28 +3391,30 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
     pm_it = intvl_map_find(pmm, pc);
   }
 
-  if (pm_it == pmm.end()) { /* wtf? */
+  if (unlikely(pm_it == pmm.end())) {
     robust::write(STDOUT_FILENO, maps.c_str(), maps.size());
     return do_simple();
   } else {
-    std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
-                            ? (" (" + do_simple() + ")")
-                            : "";
-
     const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
+    const taddr_t pm_beg = pm.beg;
 
     std::string nm = pm.nm;
-    taddr_t the_off = pm.off;
+    taddr_t pm_off = pm.off;
 
-    if (nm.empty())
-      return (fmt("%#lx+%#lx%s") % pm.beg % (pc - pm.beg) % extra).str();
+    if (nm.empty()) {
+      std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
+                              ? (" (" + do_simple() + ")")
+                              : "";
+
+      return (fmt("%#lx+%#lx%s") % pm_beg % (pc - pm_beg) % extra).str();
+    }
 
     if (boost::algorithm::starts_with(nm, "[anon:")) {
       nm.resize(2 * PATH_MAX);
 
       ssize_t len = ({
         int the_fd;
-        std::tie(the_fd, the_off) = extract_fd_and_off(nm);
+        std::tie(the_fd, pm_off) = extract_fd_and_off(nm);
 
         char buff[1024];
         snprintf(buff, sizeof(buff), "/proc/%d/fd/%d", (int)_child, the_fd);
@@ -3423,6 +3424,8 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
       aassert(len != nm.size() && len != -1);
       nm.resize(len);
     }
+
+    const taddr_t the_off = (pc - pm_beg) - pm_off;
 
     if (likely(!DoNotSymbolize) && opts.Symbolize) {
       const binary_index_t BIdx = ({
@@ -3435,33 +3438,33 @@ std::string BootstrapTool::description_of_program_counter(taddr_t pc,
         binary_t &b = jv.Binaries.at(BIdx);
         auto &x = state.for_binary<BootstrapTool>(b);
 
+        std::string str = fs::path(nm).filename().string();
+
         assert(x.Loaded());
-        {
-          //
-          // pc is in binary that's been "loaded"
-          //
-          ptrdiff_t off = pc - (pm.beg - the_off);
 
-          taddr_t Addr;
-          try {
-            Addr = B::cached::va_of_offset(x.cb, off);
+        taddr_t Addr = B::cached::va_of_offset(x.cb, the_off);
 
-            symbolizer_t *const psymbolizer = symbolizer.get();
-            if (psymbolizer) {
-              std::string line = psymbolizer->addr2line(b, Addr);
-              if (!line.empty())
-                return line + extra;
+        //
+        // pc is in binary that's been "loaded"
+        //
+        try {
+          symbolizer_t *const psymbolizer = symbolizer.get();
+          if (psymbolizer) {
+            std::string line = psymbolizer->addr2line(b, Addr);
+            if (!line.empty()) {
+              std::string extra = (unlikely(ForceVerbose) || IsVeryVerbose())
+                                      ? (fmt(" (%s:%#lx)") % str % Addr).str()
+                                      : "";
+              return line + extra;
             }
-
-            std::string str = fs::path(nm).filename().string();
-
-            return (fmt("%s:%#lx%s") % str % Addr % extra).str();
-          } catch (...) {}
+          }
+        } catch (...) {
+          return (fmt("%s:%#lx") % str % Addr).str();
         }
       }
     }
 
-    return (fmt("%s+%#lx%s") % nm % (pc - (pm.beg - the_off)) % extra).str();
+    return (fmt("%s+%#lx") % nm % the_off).str();
   }
 }
 
