@@ -731,6 +731,11 @@ public:
   std::string description_of_program_counter(taddr_t,
                                              bool ForceVerbose = false,
                                              bool DoNotSymbolize = false);
+
+  std::string enhanced_description_of_program_counter(taddr_t pc,
+                                                      taddr_t representative_pc,
+                                                      bool ForceVerbose = false,
+                                                      bool DoNotSymbolize = false);
   std::string StringOfMCInst(llvm::MCInst &);
 
   bool ShouldTrapTerminator(TERMINATOR TermType) {
