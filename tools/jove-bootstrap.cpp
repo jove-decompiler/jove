@@ -1847,17 +1847,28 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   auto do_print_thing =
       [&](std::optional<std::pair<binary_t &, bb_t>> MaybeTargetPair = std::nullopt,
           const char *extra = "") -> void {
-    const auto SrcRepresentativeAddress =
-        state.for_basic_block(b, basic_block_of_index(BBIdx, ICFG))
-            .RepresentativeAddress;
+    basic_block_state_t &src_bbstate = state.for_basic_block(b, basic_block_of_index(BBIdx, ICFG));
+
+    const auto SrcRepresentativeAddress = src_bbstate.RepresentativeAddress;
     const auto SrcRepresentativePC = pc_of_va(SrcRepresentativeAddress, b);
 
+    std::string &src_desc = src_bbstate.desc;
+    if (src_desc.empty())
+      src_desc = description_of_program_counter(SrcRepresentativePC/*SavedPC*/);
+
     taddr_t TargetRepresentativePC = TargetPC;
+    std::string target_desc_;
+    std::string *ptarget_desc = &target_desc_;
     if (MaybeTargetPair) {
       std::pair<binary_t &, bb_t> &TargetPair = *MaybeTargetPair;
-      TargetRepresentativePC =
-          pc_of_va(state.for_basic_block(TargetPair.first, TargetPair.second).RepresentativeAddress, TargetPair.first);
+      basic_block_state_t &target_bbstate = state.for_basic_block(TargetPair.first, TargetPair.second);
+      TargetRepresentativePC = pc_of_va(target_bbstate.RepresentativeAddress, TargetPair.first);
+      ptarget_desc = &target_bbstate.desc;
     }
+
+    std::string &target_desc = *ptarget_desc;
+    if (target_desc.empty())
+      target_desc = description_of_program_counter(TargetRepresentativePC /*TargetPC*/);
 
     const char *const termdesc =
         (ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto")
@@ -1865,8 +1876,8 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
     HumanOut() << llvm::formatv("{5}{3}[{4}] ({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                 termdesc,
-                                description_of_program_counter(SrcRepresentativePC/*SavedPC*/),
-                                description_of_program_counter(TargetRepresentativePC /*TargetPC*/),
+                                src_desc,
+                                target_desc,
                                 ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN,
                                 child,
                                 extra).str();
@@ -2061,7 +2072,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       basic_block_index_t TargetEntry = TargetFunction.Entry;
       bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
 
-      print_thing();
+      print_thing(std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
     }
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +

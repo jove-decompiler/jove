@@ -335,6 +335,7 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
 
   struct basic_block_state_t {
     taddr_t RepresentativeAddress = invalid_taddr;
+    std::string desc;
 
     basic_block_state_t(const binary_t &b, bb_t bb, const binary_state_t &x) {
       B::_elf(x.Bin().get(), [&](ELFO &Obj) {
