@@ -1775,8 +1775,10 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
           continue;
 
         llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
-        WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
-                                           __LINE__);
+
+        if (options.IsVerbose())
+          llvm::errs() << llvm::formatv(
+              "ProcessBinaryTLSSymbols: symbol: {0}\n", SymName);
 
         if (Sym.st_value >= tlsPhdr->p_memsz) {
           WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}",
@@ -1819,13 +1821,13 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
 
     llvm::StringRef SymName = unwrapOrError(Sym.getName(state.for_binary(b)._elf.DynamicStringTable));
 
-    WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
-                                       __LINE__);
+    if (options.IsVerbose())
+      llvm::errs() << llvm::formatv(
+          "ProcessBinaryTLSSymbols: dynamic symbol: {0}\n", SymName);
 
     if (Sym.st_value >= tlsPhdr->p_memsz) {
-      WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}",
-                                          Sym.st_value, SymName)
-                         << '\n';
+      WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}\n",
+                                          Sym.st_value, SymName);
       continue;
     }
 
