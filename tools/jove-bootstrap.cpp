@@ -1823,8 +1823,6 @@ bool BootstrapTool::on_breakpoint(pid_t child,
   const unsigned OutDeg           = essential.OD;
   const unsigned HasDynTarget     = essential.DT;
 
-  const bool IsDirectCall = TermType == TERMINATOR::CALL;
-
   binary_t &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -2058,23 +2056,21 @@ bool BootstrapTool::on_breakpoint(pid_t child,
     } else {
       assert(TermType == TERMINATOR::CALL);
 
-#if 0
+      assert(BIdx == Target.BIdx);
+
       const function_index_t FIdx = fallthru<function_index_t>(
           binary, BBIdx,
-          [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) -> bool {
+          [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) -> auto {
             assert(bbprop.Term.Type == TERMINATOR::CALL);
             return bbprop.Term._call.Target;
           });
 
-      function_t &TargetFunction = binary.Analysis.Functions.at(FIdx);
-      basic_block_index_t TargetEntry = TargetFunction.Entry;
+      const function_t &TargetFunction = binary.Analysis.Functions.at(FIdx);
+      const basic_block_index_t TargetEntry = TargetFunction.Entry;
+      assert(is_basic_block_index_valid(TargetEntry));
+
       bb_t TargetEntryBB = basic_block_of_index(TargetEntry, binary.Analysis.ICFG);
-
       print_thing("callimm", std::pair<binary_t &, bb_t>(binary, TargetEntryBB));
-#else
-      print_thing("callimm");
-#endif
-
     }
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
