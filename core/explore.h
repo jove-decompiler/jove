@@ -3,6 +3,7 @@
 #include "disas.h"
 #include "tcg.h"
 #include "sjlj.h"
+#include "fallthru.h"
 
 #include <boost/format.hpp>
 #include <boost/scope/defer.hpp>
@@ -475,6 +476,7 @@ public:
     bbprop_t::exclusive_lock_guard<MT> e_lck_bb(
         bbprop.mtx, boost::interprocess::accept_ownership);
 
+    jove::terminator_info_t T;
     {
     BOOST_SCOPE_DEFER [&] {
         bbprop.pub.is.test_and_set(MT ? boost::memory_order_release
@@ -529,7 +531,6 @@ public:
     //
     bool StartWasValid = false;
     unsigned Size = 0;
-    jove::terminator_info_t T;
 
     if (IsVeryVerbose() && unlikely(b.Analysis.objdump_thinks.is_addr_bad(Addr)))
       WithColor::note() << llvm::formatv("objdump says {0}:{1:x} is BAD\n",
@@ -705,6 +706,7 @@ public:
 
       get_newbb_proc()(b, bbprop, Idx);
     }
+    }
 
     auto control_flow_to = [&](taddr_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -765,12 +767,12 @@ public:
 
         bbprop.Term._call.Target = CalleeFIdx;
       } else {
-        auto s_lck_bbmap = b.BBMap.shared_access();
-
-        if (bbprop.Term.Type == TERMINATOR::CALL)
-          bbprop.Term._call.Target = CalleeFIdx;
-        else
-          ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
+        fallthru<void>(
+            b, Idx,
+            [&](bbprop_t &bbprop, basic_block_index_t) -> void {
+              assert(bbprop.Term.Type == TERMINATOR::CALL);
+              bbprop.Term._call.Target = CalleeFIdx;
+            });
       }
 
       if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
@@ -816,7 +818,6 @@ public:
       throw std::runtime_error(
           (fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
     }
-    } /* pub */
 
     return Idx;
   }
