@@ -698,7 +698,7 @@ run:
             Env("JOVEDIR=" + jove_dir());
           },
           std::string(), std::string(),
-          Tool::RunToolExtraArgs(sudo, opts.PreserveEnvironment));
+          Tool::RunToolExtraArgs(sudo, opts.PreserveEnvironment, sudo ? false : true));
 
       {
         const int ret = WaitForProcessToExit(pid);

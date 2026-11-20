@@ -127,9 +127,10 @@ public:
     struct {
       bool On;
       bool PreserveEnvironment;
+      bool CloseFileDescriptors;
     } sudo;
 
-    RunToolExtraArgs() : sudo({false, false}) {}
+    RunToolExtraArgs() : sudo({false, false, true}) {}
     RunToolExtraArgs(bool SudoOn, bool SudoPreserveEnvironment)
         : sudo({SudoOn, SudoPreserveEnvironment}) {}
   };
@@ -153,6 +154,9 @@ public:
 
             if (Extra.sudo.PreserveEnvironment)
               Arg("-E");
+
+            if (!Extra.sudo.CloseFileDescriptors)
+              Arg("-C 999");
 
             Arg(jove_path);
             Arg(tool_name);
@@ -201,6 +205,9 @@ public:
 
             if (Extra.sudo.PreserveEnvironment)
               Arg("-E");
+
+            if (!Extra.sudo.CloseFileDescriptors)
+              Arg("-C 999");
 
             Arg(jove_path);
             Arg(tool_name);
