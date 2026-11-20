@@ -210,6 +210,10 @@ int main(int argc, char **argv) {
   llvm::errs() << msg << '\n';
   llvm::errs().flush();
 
+  char *const crashp = getenv("JOVE_SLEEP_ON_CRASH");
+  if (crashp && crashp[0] == '1')
+    for (;;) sleep(1);
+
   for (;;)
     _exit(1);
 
