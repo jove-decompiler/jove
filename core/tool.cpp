@@ -481,6 +481,9 @@ void Tool::cleanup_temp_dir(void) {
 }
 
 int Tool::reexec(std::span<const char *> extra_tool_args) {
+  if (IsVeryVerbose())
+    HumanOut() << "re-exec'ing...\n";
+
   std::vector<char *> argv;
   argv.reserve(saved.argc);
 
