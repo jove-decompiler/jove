@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 
 #include <sys/mman.h>
 
@@ -12,6 +13,15 @@ class scoped_mmap {
   const size_t len = 0;
   void *const ptr = nullptr;
 
+  void *do_mmap(void *addr, size_t len, int prot, int flags, int fd, uint64_t off) {
+    void *res = MAP_FAILED;
+    do {
+      res = ::mmap(addr, len, prot, flags, fd, off);
+    } while (res == MAP_FAILED && errno == EINTR);
+    aassert_msg(res != MAP_FAILED, [&](void) -> std::string { return strerror(errno); });
+    return res;
+  }
+
 public:
   scoped_mmap() = delete;
   scoped_mmap(const scoped_mmap &) = delete;
@@ -20,8 +30,8 @@ public:
   scoped_mmap &operator=(scoped_mmap &&) = delete;
 
   explicit scoped_mmap(void *addr, size_t len, int prot, int flags, int fd,
-                       uint64_t off) noexcept
-      : len(len), ptr(::mmap(addr, len, prot, flags, fd, off)) {}
+                       uint64_t off)
+      : len(len), ptr(do_mmap(addr, len, prot, flags, fd, off)) {}
 
   ~scoped_mmap() noexcept(false) { /* throws if failed to unmap memory */
     if (*this)
