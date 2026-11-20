@@ -1410,6 +1410,7 @@ skip_run:
       } else {
         rc = recompiler.go();
       }
+      aassert(SetAutomaticReaping(false));
 #endif
 
       if (rc) {
