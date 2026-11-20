@@ -971,10 +971,10 @@ RelSymbol getSymbolForReloc(const ELFO &Obj,
 }
 
 void for_each_dynamic_relocation(const ELFF &E,
-                                 elf::DynRegionInfo &DynRelRegion,
-                                 elf::DynRegionInfo &DynRelaRegion,
-                                 elf::DynRegionInfo &DynRelrRegion,
-                                 elf::DynRegionInfo &DynPLTRelRegion,
+                                 const DynRegionInfo &DynRelRegion,
+                                 const DynRegionInfo &DynRelaRegion,
+                                 const DynRegionInfo &DynRelrRegion,
+                                 const DynRegionInfo &DynPLTRelRegion,
                                  std::function<void(const elf::Relocation &)> proc) {
   const bool IsMips64EL = E.isMips64EL();
 

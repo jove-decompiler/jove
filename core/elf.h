@@ -174,7 +174,7 @@ public:
 struct RelSymbol {
   RelSymbol(const typename ELFT::Sym *S, llvm::StringRef N)
       : Sym(S), Name(N.str()) {}
-  const Elf_Sym *Sym;
+  const Elf_Sym *Sym = nullptr;
   std::string Name;
   std::string Vers;
   bool IsVersionDefault;
@@ -186,18 +186,18 @@ RelSymbol getSymbolForReloc(const ELFO &,
                             const Relocation &Reloc);
 
 void for_each_dynamic_relocation(const ELFF &,
-                                 DynRegionInfo &DynRelRegion,
-                                 DynRegionInfo &DynRelaRegion,
-                                 DynRegionInfo &DynRelrRegion,
-                                 DynRegionInfo &DynPLTRelRegion,
+                                 const DynRegionInfo &DynRelRegion,
+                                 const DynRegionInfo &DynRelaRegion,
+                                 const DynRegionInfo &DynRelrRegion,
+                                 const DynRegionInfo &DynPLTRelRegion,
                                  std::function<void(const Relocation &)> proc);
 
 inline
 void for_each_dynamic_relocation_if(const ELFF &Elf,
-                                    DynRegionInfo &DynRelRegion,
-                                    DynRegionInfo &DynRelaRegion,
-                                    DynRegionInfo &DynRelrRegion,
-                                    DynRegionInfo &DynPLTRelRegion,
+                                    const DynRegionInfo &DynRelRegion,
+                                    const DynRegionInfo &DynRelaRegion,
+                                    const DynRegionInfo &DynRelrRegion,
+                                    const DynRegionInfo &DynPLTRelRegion,
                                     std::function<bool(const Relocation &)> pred,
                                     std::function<void(const Relocation &)> proc) {
   for_each_dynamic_relocation(Elf,
