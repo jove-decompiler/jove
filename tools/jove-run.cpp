@@ -463,6 +463,9 @@ int RunTool::DoRun(void) {
   if (mkfifo(fifo_path.c_str(), 0666) < 0)
     throw std::runtime_error("mkfifo failed: " + std::string(strerror(errno)));
 
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("created fifo at \"{0}\"\n", fifo_path);
+
   if (::chmod(fifo_path.c_str(), 0666) < 0)
     throw std::runtime_error(
         "failed to change permissions of temporary fifo: " +
