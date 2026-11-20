@@ -433,7 +433,7 @@ int LoopTool::Run(void) {
 
   std::vector<uint8_t> zeros(JOVE_PAGE_SIZE, 0u);
 
-  run.file = std::make_unique<temp_file>(&zeros[0], zeros.size(), "jove.loop");
+  run.file = std::make_unique<temp_file>(&zeros[0], zeros.size(), "jove.loop", false);
   run.file->store();
 
   run.mm_fd = std::make_unique<scoped_fd>(
