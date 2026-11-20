@@ -745,7 +745,9 @@ int RunTool::DoRun(void) {
   __BIND_MOUNT_DIR(dev, "/dev")
   __BIND_MOUNT_DIR(run, "/run")
   __BIND_MOUNT_DIR(var, "/var")
+#if 0
   __BIND_MOUNT_DIR(tmp, "/tmp")
+#endif
   __BIND_MOUNT_DIR(etc, "/etc")
   __BIND_MOUNT_DIR(libnvram, "/firmadyne/libnvram")
 
