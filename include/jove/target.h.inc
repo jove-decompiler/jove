@@ -26,6 +26,14 @@ constexpr unsigned IsX86Target =
 #endif
     ;
 
+constexpr unsigned IsAArch64Target =
+#if defined(TARGET_AARCH64)
+    1
+#else
+    0
+#endif
+    ;
+
 constexpr bool IsTarget32 = sizeof(taddr_t) == 4;
 constexpr bool IsTarget64 = sizeof(taddr_t) == 8;
 
