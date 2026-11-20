@@ -133,6 +133,8 @@ public:
     RunToolExtraArgs() : sudo({false, false, true}) {}
     RunToolExtraArgs(bool SudoOn, bool SudoPreserveEnvironment)
         : sudo({SudoOn, SudoPreserveEnvironment}) {}
+    RunToolExtraArgs(bool SudoOn, bool SudoPreserveEnvironment, bool CloseFileDescriptors)
+        : sudo({SudoOn, SudoPreserveEnvironment, CloseFileDescriptors}) {}
   };
 
   template <typename ComputeArgs>
