@@ -1273,11 +1273,9 @@ int RunTool::FifoChild(const char *const fifo_path) {
 
   {
   scoped_fd recover_fd(fd);
-  if (!recover_fd) {
-    int err = errno;
-    die("FifoChild: failed to open fifo at " + std::string(fifo_path) + ": " +
-        strerror(err));
-  }
+  if (!recover_fd)
+    die("FifoChild: failed to open fifo at \"" + std::string(fifo_path) +
+        "\" (" + strerror(err) + ')');
 
   if (IsVeryVerbose())
     HumanOut() << "FifoChild: fifo opened.\n";
