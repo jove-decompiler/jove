@@ -7,6 +7,7 @@
 #include "mt.h"
 #include "eintr.h"
 #include "autoreap.h"
+#include "except.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -688,7 +689,25 @@ int recompiler_t<MT, MinSize>::go(
   } if (Q.size() == 1) {
     worker(pInvalidated, 0);
   } else {
-    mt::for_n(std::bind(&recompiler_t::worker, this, pInvalidated, std::placeholders::_1), Q.size());
+#if 0
+    mt::serial_for_n(std::bind(&recompiler_t::worker, this, pInvalidated, std::placeholders::_1), Q.size());
+#else
+    auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
+    auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(Q.size());
+    std::for_each(maybe_par_unseq,
+                  BIdxBegin,
+                  BIdxEnd,
+                  [&](unsigned TheIdx) -> void {
+                    std::string msg;
+                    if (jove::handle_exceptions(
+                            [&] { this->worker(pInvalidated, TheIdx); }, msg)) {
+                      llvm::errs() << msg << '\n';
+                      llvm::errs().flush();
+
+                      worker_failed.store(true, std::memory_order_relaxed);
+                    }
+                  });
+#endif
   }
 
   auto t2 = std::chrono::high_resolution_clock::now();
@@ -1347,6 +1366,9 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
         ::close(completion_pipefd[0]); /* unused */
       });
 
+      if (options.IsVeryVerbose())
+        llvm::errs() << llvm::formatv("pid is {0}\n", x.Daemon.pid);
+
       ::close(request_pipefd[0]);    /* unused */
       ::close(completion_pipefd[1]); /* unused */
 
@@ -1378,16 +1400,15 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
     // wait for the daemon to complete its work
     //
     char done = 'n';
-    int ret = -1;
-    do {
-      ret = robust::read(completion_rfd, &done, sizeof(done));
-    } while (ret == -EINTR);
-
+    int ret = robust::read(completion_rfd, &done, sizeof(done));
     if (ret < 0) {
       if (options.IsVerbose())
         WithColor::error() << llvm::formatv("failed to get completion ({0})\n",
                                             strerror(-ret));
     } else if (ret == sizeof(done) && done == 'y') {
+      if (options.IsVeryVerbose())
+        llvm::errs() << "received completion.\n";
+
       rc = 0;
     }
   } else {
@@ -1577,8 +1598,6 @@ void recompiler_t<MT, MinSize>::worker(invalidated_t *const pInvalidated,
 
     WithColor::error() << llvm::formatv("llc failed for {0}\n",
                                         binary_filename);
-
-    return;
   }
 }
 

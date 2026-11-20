@@ -75,6 +75,7 @@ struct recompiler_options_t : public VerboseThing {
     res.name = this->name;                                                     \
   } while (false)
 
+    res.Daemonize = this->DaemonizeLLVM;
     PROPOGATE(VerbosityLevel);
     PROPOGATE(ForeignLibs);
     PROPOGATE(DFSan);
