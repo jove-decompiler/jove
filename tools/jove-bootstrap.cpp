@@ -25,6 +25,10 @@
 #include "fallthru.h"
 #include "wine.h"
 #include "brkpt.h"
+#include "mt.h"
+#include "align.h"
+
+#define NO_JOVE_ASSERT
 #include "jove/assert.h"
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -74,6 +78,9 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#undef NO_JOVE_ASSERT
+#include "jove/assert.h"
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -582,6 +589,8 @@ int BootstrapTool::Run(void) {
   //
   _child = child;
   Engaged = true;
+
+//llvm::errs() << ProcMapsForPid(_child);
 
   if (!has_ProcMapQuery)
     ScanAddressSpace(child);
@@ -2137,9 +2146,10 @@ taddr_t BootstrapTool::compute_load_address(binary_t &b,
   aassert(it != omap.end());
   auto &section = svec[(*it).second];
 
-  // assuming that there exists a bijection between sections and vma's...
-  const auto bounds = x.bounds;
-  const taddr_t LoadAddr = vma_start - (section.addr() - bounds.first);
+  const taddr_t LoadAddr =
+      vma_start -
+      (align_down_pow2_known<taddr_t, JOVE_PAGE_SIZE>(section.addr()) - x.bounds.first);
+
   return LoadAddr;
 }
 
@@ -2329,9 +2339,9 @@ void BootstrapTool::on_binary_loaded(pid_t child, binary_t &binary) {
   }
 }
 
-binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
-                                           const taddr_t vma_end,
-                                           const taddr_t off,
+binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
+                                           const taddr_t the_vma_end,
+                                           const taddr_t the_file_off,
                                            const binary_index_t BIdx) {
   assert(has_ProcMapQuery);
   assert(is_binary_index_valid(BIdx));
@@ -2350,7 +2360,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
   // for the purposes of bootstrap's essential functioning, we'll only examine
   // the loaded sections which are actually executed. TODO
   //
-  x.LoadAddr = compute_load_address(b, x, vma_start, off);
+  x.LoadAddr = compute_load_address(b, x, the_vma_start, the_file_off);
 
   //
   // it may be only half-loaded. nevertheless, we want to be eager about placing
@@ -2364,21 +2374,23 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
   NumSectionsLoaded.store(0, std::memory_order_relaxed);
 
   auto &svec = x.cb.second.svec;
-  std::for_each(maybe_par_unseq, svec.begin(), svec.end(),
-              [&](auto &section) {
-                const taddr_t vma_start = pc_of_va(section.addr(), b);
-                const taddr_t vma_end = vma_start + section.length();
+  aassert(maybe_par_unseq_for_each(svec.begin(), svec.end(),
+              [&](auto &section, std::ostream &out) {
+                const taddr_t pc = pc_of_va(section.addr(), b);
 
                 if (section.extra.Loaded) {
                   NumSectionsLoaded.fetch_add(1, std::memory_order_relaxed);
 
                   assert(({
                     auto s_lck = SafeAddressSpace.shared_access();
-                    intvl_map_find(SafeAddressSpace.m, vma_start) != SafeAddressSpace.m.end();
+                    intvl_map_find(SafeAddressSpace.m, pc) != SafeAddressSpace.m.end();
                   }));
 
                   return;
                 }
+
+                if (IsVeryVerbose())
+                  out << (fmt("testing for section at %#lx\n") % pc).str();
 
                 char name[PATH_MAX];
                 name[0] = '\0';
@@ -2386,7 +2398,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                 struct procmap_query q;
                 q.size = sizeof(q);
                 q.query_flags = PROCMAP_QUERY_VMA_READABLE;
-                q.query_addr = vma_start;
+                q.query_addr = pc;
                 (void)q.vma_start;
                 (void)q.vma_end;
                 (void)q.vma_flags;
@@ -2404,7 +2416,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                 int ret = ProcMapQuery::get(fd.get(), q);
                 if (likely(ret == 0)) {
                   if (IsVerbose())
-                    HumanOut() << (fmt(/*just*/ "found section %s mapping [%#lx, %#lx) for %s\n")
+                    out << (fmt(/*just*/ "found section %s mapping [%#lx, %#lx) for %s\n")
                                    % section.Name.str()
                                    % q.vma_start
                                    % q.vma_end
@@ -2425,25 +2437,26 @@ binary_index_t BootstrapTool::found_binary(const taddr_t vma_start,
                   const unsigned idx = &section - svec.data();
                   {
                     auto e_lck = JustLoadedSectionMap.exclusive_access();
-                    intvl_map_add<true>(
+                    intvl_map_add<false>(
                         JustLoadedSectionMap.m,
-                        right_open_addr_intvl(vma_start, vma_end), idx);
+                        right_open_addr_intvl(q.vma_start, q.vma_end), idx);
                     /* TODO subsume */
                   }
 
                   NumSectionsLoaded.fetch_add(1, std::memory_order_relaxed);
                   on_section_loaded(_child, b, section);
                 } else {
-                  vvmsg(std::string("ProcMapQuery::get() failed: ") + strerror(-ret));
+                  if (IsVeryVerbose())
+                    out << "ProcMapQuery::get() failed: " << strerror(-ret);
                 }
-              });
+              }));
 
 #ifndef NDEBUG
   {
     auto s_lck = SafeAddressSpace.shared_access();
 
-    assert(intvl_map_find(SafeAddressSpace.m, vma_start) != SafeAddressSpace.m.end());
-    assert(intvl_map_find(SafeAddressSpace.m, vma_end-1) != SafeAddressSpace.m.end());
+    assert(intvl_map_find(SafeAddressSpace.m, the_vma_start) != SafeAddressSpace.m.end());
+    assert(intvl_map_find(SafeAddressSpace.m, the_vma_end-1) != SafeAddressSpace.m.end());
   }
 #endif
 
