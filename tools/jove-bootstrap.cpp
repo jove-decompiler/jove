@@ -583,8 +583,6 @@ int BootstrapTool::Run(void) {
   _child = child;
   Engaged = true;
 
-  llvm::errs() << ProcMapsForPid(_child);
-
   if (!has_ProcMapQuery)
     ScanAddressSpace(child);
 
