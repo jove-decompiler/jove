@@ -256,10 +256,10 @@
   } while (false)
 
 /* "release" assert */
-#define _RASSERT(cond)                                                  \
+#define _RASSERT(cond)                                                         \
   do {                                                                         \
     if (!likely(cond))                                                         \
-      _UNREACHABLE("!(" BOOST_PP_STRINGIZE(cond) ")");                         \
+      _UNREACHABLE("ASSERTION FAILED: " BOOST_PP_STRINGIZE(cond));             \
   } while (false)
 
 #ifdef NDEBUG
