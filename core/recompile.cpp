@@ -689,25 +689,20 @@ int recompiler_t<MT, MinSize>::go(
   } if (Q.size() == 1) {
     worker(pInvalidated, 0);
   } else {
-#if 0
-    mt::serial_for_n(std::bind(&recompiler_t::worker, this, pInvalidated, std::placeholders::_1), Q.size());
-#else
     auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
     auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(Q.size());
     std::for_each(maybe_par_unseq,
-                  BIdxBegin,
-                  BIdxEnd,
-                  [&](unsigned TheIdx) -> void {
-                    std::string msg;
-                    if (jove::handle_exceptions(
-                            [&] { this->worker(pInvalidated, TheIdx); }, msg)) {
-                      llvm::errs() << msg << '\n';
-                      llvm::errs().flush();
+        BIdxBegin,
+        BIdxEnd,
+        [&](unsigned TheIdx) -> void {
+          std::string msg;
+          if (jove::handle_exceptions([&] { this->worker(pInvalidated, TheIdx); }, msg)) {
+            llvm::errs() << msg << '\n';
+            llvm::errs().flush();
 
-                      worker_failed.store(true, std::memory_order_relaxed);
-                    }
-                  });
-#endif
+            worker_failed.store(true, std::memory_order_relaxed);
+          }
+        });
   }
 
   auto t2 = std::chrono::high_resolution_clock::now();
