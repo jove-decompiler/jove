@@ -19,6 +19,7 @@ CC := clang
 # build flags
 #
 CFLAGS := -Wall \
+          -Wno-initializer-overrides \
           -fno-stack-protector \
           -O2 \
           -g \
