@@ -6,6 +6,10 @@ include gmsl
 JOVE_ROOT_DIR := $(ROOT_DIR)/..
 
 include $(JOVE_ROOT_DIR)/targets.mk
+include $(JOVE_ROOT_DIR)/config.mk
+
+get_targets_for_platform = $(ALL_$(call uc,$1)_TARGETS)
+get_the_targets_for_platform = $(filter $(THE_TARGETS),$(call get_targets_for_platform,$1))
 
 LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/llvm/bin
 
@@ -26,43 +30,43 @@ EXTRAFLAGS = $(shell awk -v search="/// FLAGS: " 'substr($$0, 1, length(search))
 .SUFFIXES:
 
 .PHONY: build
-build: $(foreach p,$(PLATFORMS),build-$(p))
+build: $(foreach p,$(THE_PLATFORMS),build-$(p))
 
 .PHONY: check
-check: $(foreach p,$(PLATFORMS),check-$(p))
+check: $(foreach p,$(THE_PLATFORMS),check-$(p))
 
 .PHONY: clean
-clean: $(foreach p,$(PLATFORMS),clean-$(p))
+clean: $(foreach p,$(THE_PLATFORMS),clean-$(p))
 
 define template_platform
 .PHONY: build-$(1)
-build-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),build-$(1)-$(t))
+build-$(1): $(foreach t,$(call get_the_targets_for_platform,$(1)),build-$(1)-$(t))
 
 .PHONY: check-$(1)
-check-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t)-remote) \
-            $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t)-local)
+check-$(1): $(foreach t,$(call get_the_targets_for_platform,$(1)),check-$(1)-$(t)-remote) \
+            $(foreach t,$(call get_the_targets_for_platform,$(1)),check-$(1)-$(t)-local)
 
 .PHONY: clean-$(1)
-clean-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),clean-$(1)-$(t))
+clean-$(1): $(foreach t,$(call get_the_targets_for_platform,$(1)),clean-$(1)-$(t))
 
 .PHONY: just-update-jove-$(1)
-just-update-jove-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),just-update-jove-$(1)-$(t))
+just-update-jove-$(1): $(foreach t,$(call get_the_targets_for_platform,$(1)),just-update-jove-$(1)-$(t))
 endef
-$(foreach p,$(PLATFORMS),$(eval $(call template_platform,$(p))))
+$(foreach p,$(THE_PLATFORMS),$(eval $(call template_platform,$(p))))
 
 define template_platform_clean
 .PHONY: clean-$(1)-$(2)
 clean-$(1)-$(2):
 	rm -rf $(ROOT_DIR)/$(1)/bin/$(2)
 endef
-$(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call template_platform_clean,$(p),$(t)))))
+$(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),$(eval $(call template_platform_clean,$(p),$(t)))))
 
 define template_platform_just_update
 .PHONY: just-update-jove-$(1)-$(2)
 just-update-jove-$(1)-$(2):
 	-$(ROOT_DIR)/run.py -a $(2) -p $(1) --just-update-jove --remote
 endef
-$(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call template_platform_just_update,$(p),$(t)))))
+$(foreach p,$(THE_PLATFORMS),$(foreach t,$(call get_the_targets_for_platform,$(p)),$(eval $(call template_platform_just_update,$(p),$(t)))))
 
 define template_linux
 
