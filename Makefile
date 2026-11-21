@@ -227,24 +227,24 @@ $(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
 #
 $(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD -MF $$@.d -MT $$@ $$<
-	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|g_assertion_message_expr)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD -MF $$@.d -MT $$@ $$<
-	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail)' --make-internalized-used
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|g_assertion_message_expr)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD -MF $$@.d -MT $$@ $$<
 	$(OUR_LLKNIFE) -v -o $$@.tmp -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.st.syms
-	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|_tls_index)' --make-internalized-used
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|g_assertion_message_expr|_tls_index)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD -MF $$@.d -MT $$@ $$<
 	$(OUR_LLKNIFE) -v -o $$@.tmp -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.mt.syms
-	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|_tls_index)' --make-internalized-used
+	$(OUR_LLKNIFE) -v -o $$@ -i $$@.tmp '--only-external=(_jove_begin|_jove_start|_jove__libc_early_init|_jove_assert_fail|g_assertion_message_expr|_tls_index)' --make-internalized-used
 	rm $$@.tmp
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc

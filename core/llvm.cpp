@@ -5323,27 +5323,35 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_laid_out_sections"),
       [&](auto &IRB) -> void {
-        auto &dynl_binary = get_dynl(jv);
-        assert(dynl_binary.IsDynamicLinker);
-        auto &ICFG = dynl_binary.Analysis.ICFG;
-
         llvm::ArrayType *ElemTy = llvm::ArrayType::get(WordType(), 2);
 
         std::vector<llvm::Constant *> constantTable;
-        constantTable.resize(this->LaidOut.Vec.size());
 
-        std::transform(
-            this->LaidOut.Vec.begin(),
-            this->LaidOut.Vec.end(), constantTable.begin(),
-            [&](const auto &tup) -> llvm::Constant * {
-              const auto &[Ty, GV, ExpectedSize, off] = tup;
+        if (this->LayingOut()) {
+          assert(!x.cb.second.svec.empty());
 
-              std::array<llvm::Constant *, 2> _constantTable = {
-                  {llvm::ConstantExpr::getPtrToInt(GV, WordType()),
-                   IRB.getIntN(WordBits(), ExpectedSize)}};
+          auto sorted_by_addr_rng = x.cb.second.sorted_by_addr();
+          constantTable.resize(sorted_by_addr_rng.size());
 
-              return llvm::ConstantArray::get(ElemTy, _constantTable);
-            });
+          const taddr_t SectsStartAddr = x.SectsStartAddr;
+          std::transform(
+              sorted_by_addr_rng.begin(),
+              sorted_by_addr_rng.end(), constantTable.begin(),
+              [&](const auto &section) -> llvm::Constant * {
+                auto *const GV = std::get<1>(this->LaidOut.Vec.at(section.extra.j));
+                assert(GV);
+
+                std::array<llvm::Constant *, 2> _constantTable = {
+                    {llvm::ConstantExpr::getPtrToInt(GV, WordType()),
+                     IRB.getIntN(WordBits(), section.addr() - SectsStartAddr)}};
+
+                return llvm::ConstantArray::get(ElemTy, _constantTable);
+              });
+        } else {
+          constantTable.push_back(llvm::Constant::getNullValue(ElemTy));
+        }
+
+        assert(!constantTable.empty());
 
         llvm::ArrayType *T = llvm::ArrayType::get(ElemTy, constantTable.size());
 
@@ -5358,8 +5366,10 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_laid_out_sections_count"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.getInt32(this->LaidOut.Vec.size()));
-      }, !options.ForCBE);
+        IRB.CreateRet(IRB.getInt32(
+            this->LayingOut() ? x.cb.second.sorted_by_addr().size() : 0));
+      },
+      !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_is_fixed_base_address"),

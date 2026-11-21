@@ -130,6 +130,11 @@ _EXPORT void _jove_rt_init(void) {
   if (_jove_sys_rt_sigaction(SIGILL, (void *)&sa, NULL, sizeof(sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGILL handler");
 
+#if 0
+  if (_jove_sys_rt_sigaction(SIGTRAP, (void *)&sa, NULL, sizeof(sigset_t)) < 0)
+    _UNREACHABLE("failed to install SIGTRAP handler");
+#endif
+
   _jove_init_cpu_state();
   _jove_callstack_init();
   _jove_trace_init();
@@ -201,6 +206,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"inits",   &__jove_opts.Debug.Inits},
   {"verbose", &__jove_opts.Debug.Verbose},
   {"insn",    &__jove_opts.Debug.Insn},
+  {"pause", &__jove_opts.Debug.Pause},
   {"interactive", &__jove_opts.Debug.Interactive},
   {"detailed", &__jove_opts.Debug.Detailed},
 };

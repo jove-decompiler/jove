@@ -10,6 +10,7 @@ struct jove_opts_t {
     bool Inits;
     bool Verbose;
     bool Insn;
+    bool Pause;
     bool Interactive;
     bool Detailed;
   } Debug;

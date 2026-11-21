@@ -129,6 +129,11 @@ _HIDDEN void _jove_initialize(void) {
     _UNREACHABLE("must set $JOVETRACE in trace mode");
   if (_jove_callstack_enabled() && !__jove_opts.CallS)
     _UNREACHABLE("must set $JOVECALLS in call-stack mode");
+
+  if (unlikely(__jove_opts.Debug.Pause)) {
+    char buff;
+    while (_jove_sys_read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n');
+  }
 }
 
 void _jove_install_function_table(void) {
@@ -154,7 +159,7 @@ static uintptr_t actual_addr_of_laid_out(unsigned i) {
   return res;
 }
 
-static uintptr_t expected_size_of_laid_out(unsigned i) {
+static uintptr_t expected_offset_of_laid_out(unsigned i) {
   _ASSERT(i < _jove_laid_out_sections_count());
 
   uintptr_t res = _jove_laid_out_sections()[2 * i + 1];
@@ -166,84 +171,46 @@ static uintptr_t expected_size_of_laid_out(unsigned i) {
 void _jove_check_sections_laid_out(void) {
   _VERBOSE_DUMP_FUNC();
 
-  uintptr_t cursor = actual_addr_of_laid_out(0); /* top */
+  uintptr_t top = actual_addr_of_laid_out(0);
   for (unsigned i = 1; i < _jove_laid_out_sections_count(); ++i) {
-    const uintptr_t expect_addr_before = cursor;
-    const uintptr_t expect_size_before =
-        expected_size_of_laid_out(i - 1);
-
-    cursor += expect_size_before;
-
-    const uintptr_t expect_addr = cursor;
     const uintptr_t actual_addr = actual_addr_of_laid_out(i);
+    const uintptr_t actual_off = actual_addr - top;
+    const uintptr_t expect_off = expected_offset_of_laid_out(i);
 
     /* does it match? */
-    if (unlikely(actual_addr != expect_addr)) {
-      const uintptr_t actual_addr_before =
-          actual_addr_of_laid_out(i - 1);
-
-      _ASSERT(actual_addr > actual_addr_before);
-
-      const uintptr_t actual_size_before =
-          actual_addr_of_laid_out(i) -
-          actual_addr_of_laid_out(i - 1);
-
-      _ASSERT(actual_addr_before + actual_size_before == actual_addr);
-      _ASSERT(expect_addr_before + expect_size_before == expect_addr);
-
+    if (unlikely(actual_off != expect_off)) {
       char *s;
       ___guarded_str___(s, JOVE_LARGE_BUFF_SIZE);
 
-      _strcat(s, "(FATAL) _jove_check_sections_laid_out: [");
+      _strcat(s, "(FATAL) _jove_check_sections_laid_out: bad offset for section #");
       {
         char buff[65];
-        _uint_to_string(i - 1, buff, 10);
+        _uint_to_string(i, buff, 10);
 
         _strcat(s, buff);
       }
-      _strcat(s, "] 0x");
-      {
-        char buff[65];
-        _uint_to_string(actual_addr_before, buff, 0x10);
-
-        _strcat(s, buff);
-      }
-      _strcat(s, " + ");
-      {
-        char buff[65];
-        _uint_to_string(actual_size_before, buff, 10);
-
-        _strcat(s, buff);
-      }
-      _strcat(s, " (0x");
+      _strcat(s, ": (");
       {
         char buff[65];
         _uint_to_string(actual_addr, buff, 0x10);
 
         _strcat(s, buff);
       }
-      _strcat(s, ") != 0x");
+      _strcat(s, " - ");
       {
         char buff[65];
-        _uint_to_string(expect_addr_before, buff, 0x10);
+        _uint_to_string(top, buff, 0x10);
 
         _strcat(s, buff);
       }
-      _strcat(s, " + ");
+      _strcat(s, ") != ");
       {
         char buff[65];
-        _uint_to_string(expect_size_before, buff, 10);
+        _uint_to_string(expect_off, buff, 10);
 
         _strcat(s, buff);
       }
-      _strcat(s, " (0x");
-      {
-        char buff[65];
-        _uint_to_string(expect_addr, buff, 0x10);
-
-        _strcat(s, buff);
-      }
-      _strcat(s, ")\n");
+      _strcat(s, "\n");
 
       _jove_dump_on_crash(s, strlen(s));
       __UNREACHABLE();
@@ -765,7 +732,8 @@ _HIDDEN void _jove_init(
 //
 // XXX hack for glibc 2.32+
 //
-_HIDDEN void _jove__libc_early_init(
+_EXPORT
+void _jove__libc_early_init(
                                     #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
                                     BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
@@ -2361,6 +2329,14 @@ __attribute__((__noreturn__)) void _jove_assert_fail(const char *file,
   _DUMP(s);
   _UNREACHABLE();
 }
+
+_EXPORT __attribute__((__noreturn__))
+void
+g_assertion_message_expr(const char *domain, const char *file, int line,
+                         const char *func, const char *expr) {
+  _jove_assert_fail(file, line, __builtin_return_address (0u));
+}
+
 
 #if 0 /* FIXME the problem is that this can be called into by recompiled code, \
          but it has no function table entry, so we think it's "new" code when  \
