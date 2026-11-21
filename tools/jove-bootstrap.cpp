@@ -2133,21 +2133,21 @@ std::pair<int, int> extract_fd_and_off(std::string_view s) {
   return {a, b};
 }
 
-taddr_t BootstrapTool::compute_load_address(binary_t &b,
-                                            binary_state_t &x,
-                                            const taddr_t vma_start,
-                                            const taddr_t off) {
+taddr_t BootstrapTool::compute_load_address(const binary_t &b,
+                                            const binary_state_t &x,
+                                            const taddr_t the_vma_start,
+                                            const taddr_t the_file_offset) {
   //
   // assuming that there exists a bijection between sections and vma's...
   //
   auto &svec = x.cb.second.svec;
   const auto &omap = x.cb.second.omap;
-  auto it = intvl_map_find(x.cb.second.omap, off);
+  auto it = intvl_map_find(x.cb.second.omap, the_file_offset);
   aassert(it != omap.end());
   auto &section = svec[(*it).second];
 
   const taddr_t LoadAddr =
-      vma_start -
+      the_vma_start -
       (align_down_pow2_known<taddr_t, JOVE_PAGE_SIZE>(section.addr()) - x.bounds.first);
 
   return LoadAddr;
@@ -2264,7 +2264,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
   }
 }
 
-void BootstrapTool::on_binary_loaded(pid_t child, binary_t &binary) {
+void BootstrapTool::on_binary_loaded(pid_t child, const binary_t &binary) {
   auto &ICFG = binary.Analysis.ICFG;
   auto &x = state.for_binary<BootstrapTool>(binary);
   const binary_index_t BIdx = index_of_binary(binary, jv);
@@ -2339,24 +2339,16 @@ void BootstrapTool::on_binary_loaded(pid_t child, binary_t &binary) {
   }
 }
 
-binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
-                                           const taddr_t the_vma_end,
-                                           const taddr_t the_file_off,
-                                           const binary_index_t BIdx) {
-  assert(has_ProcMapQuery);
-  assert(is_binary_index_valid(BIdx));
+binary_index_t BootstrapTool::found_binary(const binary_t &b,
+                                           binary_state_t &x,
+                                           const taddr_t the_vma_start,
+                                           const taddr_t the_file_offset) {
+  x.LoadAddr = compute_load_address(b, x, the_vma_start, the_file_offset);
 
-  binary_t &b = jv.Binaries.at(BIdx);
-  auto &x = state.for_binary<BootstrapTool>(b);
+  const binary_index_t BIdx = index_of_binary(b, jv);
 
   if (unlikely(x.Skip))
     return invalid_binary_index;
-
-  //
-  // NOTE: the dynamic linker may be in the middle of loading the binary into
-  // memory. thus we may not see every section immediately.
-  //
-  x.LoadAddr = compute_load_address(b, x, the_vma_start, the_file_off);
 
   //
   // it may be only half-loaded. nevertheless, we want to be eager about placing
@@ -2369,8 +2361,13 @@ binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
   std::atomic<unsigned> &NumSectionsLoaded = x.NumSectionsLoaded;
   NumSectionsLoaded.store(0, std::memory_order_relaxed);
 
+  assert(has_ProcMapQuery);
+
   auto &svec = x.cb.second.svec;
-  aassert(maybe_par_unseq_for_each(svec.begin(), svec.end(),
+  auto sorted_sr = x.cb.second.sorted_by_addr();
+  aassert(maybe_par_unseq_for_each(
+      sorted_sr.begin(),
+      sorted_sr.end(),
               [&](auto &section, std::ostream &out) {
                 const taddr_t pc = pc_of_va(section.addr(), b);
 
@@ -2452,7 +2449,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
     auto s_lck = SafeAddressSpace.shared_access();
 
     assert(intvl_map_find(SafeAddressSpace.m, the_vma_start) != SafeAddressSpace.m.end());
-    assert(intvl_map_find(SafeAddressSpace.m, the_vma_end-1) != SafeAddressSpace.m.end());
+//  assert(intvl_map_find(SafeAddressSpace.m, the_vma_end-1) != SafeAddressSpace.m.end());
   }
 #endif
 
@@ -2464,7 +2461,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
 
   auto &ICFG = b.Analysis.ICFG;
   for_each_basic_block_in_binary(maybe_par_unseq, b, [&](bb_t bb) -> void {
-    bbprop_t &bbprop = b.Analysis.ICFG[bb];
+    const bbprop_t &bbprop = b.Analysis.ICFG[bb];
 
     //
     // NOTE: we are assuming that the program counter of the start of the block
@@ -2492,7 +2489,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
     const std::optional<taddr_t> MaybeTermAddr =
         fallthru<std::optional<taddr_t>>(
             b, BBIdx,
-            [&](bbprop_t &bbprop,
+            [&](const bbprop_t &bbprop,
                 basic_block_index_t TheBBIdx) -> std::optional<taddr_t> {
               const auto TheTermType = bbprop.Term.Type;
               if (!ShouldTrapTerminator(TheTermType))
@@ -2552,7 +2549,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
 }
 
 void BootstrapTool::on_section_loaded(pid_t child,
-                                      binary_t &b,
+                                      const binary_t &b,
                                       auto &section) {
   section.extra.Loaded = true;
 }
@@ -3118,10 +3115,12 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
           if (!is_binary_index_valid(BIdx))
             return invalid_binary_index;
 
-          if (state.for_binary<BootstrapTool>(jv.Binaries.at(BIdx)).Loaded())
-            return BIdx;
+          const binary_t &b = jv.Binaries.at(BIdx);
+          binary_state_t &x = state.for_binary<BootstrapTool>(b);
+          if (x.Loaded())
+            return index_of_binary(b, jv);
 
-          return this->found_binary(the_start, the_end, the_off, BIdx);
+          return this->found_binary(b, x, the_start, the_off);
         };
 
         const char front_ch = name[0];

@@ -631,10 +631,10 @@ struct BootstrapTool : public JVTool<ToolKind::Standard> {
     boost::dynamic_bitset<unsigned long> x;
   } SafeDoNotShow;
 
-  binary_index_t found_binary(const taddr_t vma_start,
-                              const taddr_t vma_end,
-                              const taddr_t off,
-                              const binary_index_t);
+  binary_index_t found_binary(const binary_t &,
+                              binary_state_t &,
+                              const taddr_t the_vma_start,
+                              const taddr_t the_file_offset);
 
   void on_new_binary(binary_t &b) {
     const binary_index_t BIdx = index_of_binary(b, jv);
@@ -690,8 +690,8 @@ public:
 
   void place_breakpoint_at_return(pid_t child, taddr_t pc, return_t &Ret);
 
-  void on_section_loaded(pid_t, binary_t &, auto &section);
-  void on_binary_loaded(pid_t, binary_t &);
+  void on_section_loaded(pid_t, const binary_t &, auto &section);
+  void on_binary_loaded(pid_t, const binary_t &);
 
   void on_dynamic_linker_loaded(pid_t, const binary_index_t);
 
@@ -710,10 +710,10 @@ public:
   bool UpdateVM(pid_t, std::string *pmaps = nullptr);
   void ScanAddressSpace(pid_t child, bool VMUpdate = true);
 
-  taddr_t compute_load_address(binary_t &b,
-                               binary_state_t &x,
-                               const taddr_t vma_start,
-                               const taddr_t off);
+  taddr_t compute_load_address(const binary_t &,
+                               const binary_state_t &,
+                               const taddr_t the_vma_start,
+                               const taddr_t the_file_offset);
 
   taddr_t pc_of_offset(taddr_t off, const binary_t &b);
   taddr_t pc_of_va(taddr_t addr, const binary_t &);
