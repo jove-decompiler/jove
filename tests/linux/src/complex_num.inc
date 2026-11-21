@@ -38,6 +38,7 @@ int main(int argc, char **argv) {
   sscanf(argv[5], "%" COMPLEX_NUM_SCAN_FMT, &b.imag);
 
   struct complex_t c;
+#if 0
   switch (argv[3][0]) {
   case '+':
     c = cn_add(a, b);
@@ -54,6 +55,35 @@ int main(int argc, char **argv) {
   default:
     return 1;
   };
+#else
+#define NUM_CHARS (1u<<6)
+  static const void *const lbl_arr[NUM_CHARS] = {
+      [0 ... NUM_CHARS - 1] = &&case_default,
+
+      ['+'] = &&case_add,
+      ['-'] = &&case_sub,
+      ['*'] = &&case_mult,
+      ['/'] = &&case_div,
+  };
+  goto *lbl_arr[((unsigned char)argv[3][0]) & (NUM_CHARS-1)];
+
+case_add:
+    c = cn_add(a, b);
+    goto done;
+case_sub:
+    c = cn_sub(a, b);
+    goto done;
+case_mult:
+    c = cn_mul(a, b);
+    goto done;
+case_div:
+    c = cn_div(a, b);
+    goto done;
+case_default:
+    return 1;
+
+done:
+#endif
 
   print_complex(c);
   return 0;
