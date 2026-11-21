@@ -23,6 +23,7 @@ CFLAGS := -Wall \
           -fno-stack-protector \
           -O2 \
           -g \
+          -fuse-ld=lld \
           -fwrapv
 
 EXTRAFLAGS = $(shell awk -v search="/// FLAGS: " 'substr($$0, 1, length(search)) == search { print }' $< | cut -c 12-)
