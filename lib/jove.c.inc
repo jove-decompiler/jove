@@ -143,7 +143,7 @@ void _jove_install_function_table(void) {
 void _jove_install_sections_table(void) {
   static uintptr_t _Entry[3];
 
-  _Entry[0] = _jove_sections_begin();
+  _Entry[0] = _jove_addr_for_sections_start();
   _Entry[1] = _jove_sections_end();
   _Entry[2] = _jove_sections_start_addr();
 
@@ -219,7 +219,7 @@ void _jove_check_sections_laid_out(void) {
 }
 
 void _jove_check_sections_at_base_address(void) {
-  _ASSERT(_jove_sections_begin() == _jove_sections_start_addr());
+  _ASSERT(_jove_addr_for_sections_start() == _jove_sections_start_addr());
 }
 
 void _jove_make_sections_executable(void) {
@@ -229,8 +229,8 @@ void _jove_make_sections_executable(void) {
   _Done = true;
 
   const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
-                                   _jove_sections_begin(), JOVE_PAGE_SIZE);
-  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
+                                   _jove_addr_for_sections_start(), JOVE_PAGE_SIZE);
+  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_addr_for_sections_start(), JOVE_PAGE_SIZE);
 
   if (unlikely(__jove_opts.Debug.Verbose)) {
     char s[512];
@@ -262,8 +262,8 @@ void _jove_make_sections_not_executable(void) {
     return; // overriden by user
 
   const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
-                                   _jove_sections_begin(), JOVE_PAGE_SIZE);
-  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
+                                   _jove_addr_for_sections_start(), JOVE_PAGE_SIZE);
+  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_addr_for_sections_start(), JOVE_PAGE_SIZE);
 
   if (unlikely(__jove_opts.Debug.Verbose)) {
     char s[512];

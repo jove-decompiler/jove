@@ -156,12 +156,26 @@ struct llvm_t {
     llvm::Function *SectsF = nullptr;
     uint64_t SectsStartAddr = 0;
     uint64_t SectsEndAddr = 0;
+    taddr_t SectsPrefixLen = invalid_taddr;
 
     binary_state_t(const binary_t &b) {
       B::cached::create(cb, b.data());
 
       std::tie(SectsStartAddr, SectsEndAddr) =
           B::bounds_of_binary(cb.first.get());
+
+      //
+      // a page-aligned prefix preserves the original page offsets of all
+      // reconstructed sections.
+      //
+      // on aarch64, adrp, which is used to implement position-independent code,
+      // gets the current program counter, but aligned to a 4KiB boundary. when
+      // recompiling, we need to make sure that the correctness of such
+      // instructions are maintained.
+      //
+      const taddr_t PrefixLen = SectsStartAddr - (SectsStartAddr & ~4095ul);
+      if (PrefixLen)
+        this->SectsPrefixLen = PrefixLen;
 
       B::_elf(cb.first.get(), [&](ELFO &O) {
         elf::loadDynamicTable(O, _elf.DynamicTable);
@@ -271,8 +285,11 @@ struct llvm_t {
   std::vector<unordered_set<std::string_view>> bin_paths_vec;
   llvm::GlobalVariable *binNamesTable;
 
-  using ConstantRelocations_t = unordered_map<uint64_t, llvm::Constant *>;
-  ConstantRelocations_t ConstantRelocations;
+  using RelocationTypes_t = unordered_map<uint64_t, llvm::Type *>;
+  RelocationTypes_t RelocationTypes;
+
+  using RelocationConstants_t = unordered_map<uint64_t, llvm::Constant *>;
+  RelocationConstants_t RelocationConstants;
 
   uint64_t libcEarlyInitAddr = 0;
 
@@ -378,14 +395,34 @@ struct llvm_t {
   std::vector<std::vector<uint8_t>> SegContents;
 
   struct {
-    llvm::GlobalVariable *HeadGV = nullptr;
     std::vector<std::tuple<
       llvm::Type *,
       llvm::GlobalVariable *,
       unsigned, // expected size
-      uint64_t  // offset from SectsStartAddr
+      taddr_t  // virtual offset (from SectsStartAddr)
     >> Vec; /* sorted by offset */
+
+    llvm::GlobalVariable *Front(void) {
+      assert(!this->Vec.empty());
+      return std::get<1>(this->Vec.at(0));
+    }
+
+    llvm::GlobalVariable *Prefix = nullptr;
   } LaidOut;
+
+  bool HasSectsPrefix(void) const {
+    return is_taddr_valid(x.SectsPrefixLen);
+  };
+
+  taddr_t SectsPrefixLen(void) const {
+    if (!this->HasSectsPrefix())
+      return 0;
+
+    const auto TheSectsPrefixLen = x.SectsPrefixLen;
+
+    assert(TheSectsPrefixLen);
+    return TheSectsPrefixLen;
+  }
 
   bool LayingOut(void) const {
     return options.LayOutSections; /* FIXME CBE? */
@@ -575,41 +612,52 @@ private:
     return IRB.CreateCall(GetTraceFunc, std::nullopt, "trace");
   }
 
-  std::string SectionsTopName(void) {
-    if (LaidOut.HeadGV)
-      return LaidOut.HeadGV->getName().str();
+  std::string SectionsStartName(void) {
+    if (this->LayingOut()) {
+      return this->LaidOut.Front()->getName().str();
+    }
 
     return SectsGlobalName;
   }
 
-  llvm::GlobalVariable *SectionsTop(void) {
-    if (LaidOut.HeadGV)
-      return LaidOut.HeadGV;
+  llvm::GlobalVariable *SectionsTopGlobal(void) {
+    if (this->LayingOut()) {
+      if (HasSectsPrefix())
+        return this->LaidOut.Prefix;
+      return this->LaidOut.Front();
+    }
 
     assert(SectsGlobal);
     return SectsGlobal;
   }
 
-  llvm::Constant *SectionPointer(uint64_t Addr) {
-    auto &Binary = jv.Binaries.at(BinaryIndex);
-    auto &x = state.for_binary(Binary);
+  llvm::Constant *AddressForSectionsStart(void) {
+    if (this->LayingOut())
+      return llvm::ConstantExpr::getPtrToInt(this->LaidOut.Front(), WordType());
 
+    assert(SectsGlobal);
+    if (this->HasSectsPrefix())
+      return llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+          llvm::ConstantInt::get(WordType(), this->SectsPrefixLen()));
+
+    return llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType());
+  }
+
+  std::pair<llvm::GlobalVariable *, taddr_t> DecomposedSectionPointer(taddr_t Addr) {
     const auto SectsStartAddr = x.SectsStartAddr;
 
     assert(Addr >= SectsStartAddr);
 
-#if 0 /* we could do this... */
-    if (Binary.IsExecutable && !Binary.IsPIC)
-      return llvm::ConstantInt::get(WordType(), Addr);
-#endif
+    const taddr_t TheVirtualOffset = Addr - SectsStartAddr;
+    if (this->LayingOut()) {
+      assert(!LaidOut.Vec.empty());
 
-    const uint64_t off = Addr - x.SectsStartAddr;
-    if (LaidOut.HeadGV) {
       auto it = std::upper_bound(
           LaidOut.Vec.begin(),
-          LaidOut.Vec.end(), off,
-          [](uint64_t off, const auto &x) {
-            return off < std::get<3>(x);
+          LaidOut.Vec.end(), TheVirtualOffset,
+          [](taddr_t VirtualOffset, const auto &x) {
+            return VirtualOffset < std::get<3>(x);
           });
 
       if (it == LaidOut.Vec.begin())
@@ -619,19 +667,26 @@ private:
 
       auto &[_, GV, size, GVOff] = *it;
 
-      uint64_t intraOff = off - GVOff;
+      taddr_t intraOff = TheVirtualOffset - GVOff;
 
       if (intraOff >= size)
         die("address not covered by laid-out global");
 
-      return llvm::ConstantExpr::getAdd(
-          llvm::ConstantExpr::getPtrToInt(GV, WordType()),
-          llvm::ConstantInt::get(WordType(), intraOff));
+      return std::make_pair(GV, intraOff);
     }
 
+    return std::make_pair(SectionsTopGlobal(),
+                          this->SectsPrefixLen() + TheVirtualOffset);
+  }
+
+  llvm::Constant *SectionPointer(uint64_t Addr) {
+    llvm::GlobalVariable *GV;
+    taddr_t IntraOff;
+    std::tie(GV, IntraOff) = DecomposedSectionPointer(Addr);
+
     return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
-        llvm::ConstantInt::getSigned(WordType(), off));
+        llvm::ConstantExpr::getPtrToInt(GV, WordType()),
+        llvm::ConstantInt::get(WordType(), IntraOff));
   }
 
   bool DynTargetNeedsThunkPred(dynamic_target_t DynTarget) {

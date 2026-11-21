@@ -1,5 +1,5 @@
 #ifndef JOVE_NO_BACKEND
-//#define NO_JOVE_ASSERT
+#define NO_JOVE_ASSERT
 #include "jove/assert.h"
 #include "llvm.h"
 
@@ -263,13 +263,6 @@ llvm::Function &tcg_helper_t::CloneInto(llvm::Module &Module) const {
               if (const auto *F = llvm::dyn_cast<llvm::Function>(&GV)) {
                 if (F->isIntrinsic() || F->empty())
                   return true;
-
-#if 0
-  if (!options.ForCBE) {
-    //Func.setVisibility(llvm::GlobalValue::HiddenVisibility);
-    Func.setLinkage(llvm::GlobalValue::InternalLinkage);
-  }
-#endif
 
                 if (F->getName() == helper_fn_nm)
                   return true;
@@ -625,17 +618,18 @@ int llvm_t<MT, MinSize>::go(void) {
             });
       });
 
-  llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
-
   B::_elf(x.cb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
-  if (x._elf.OptionalDynSymRegion)
-    BinaryDynSyms = x._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+  if (!x._elf.OptionalDynSymRegion)
+    return;
+
+  llvm::ArrayRef<Elf_Sym> BinaryDynSyms =
+      x._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
   //
-  // process binary function symbols
+  // glibc's __libc_early_init
   //
   for_each_if(
       BinaryDynSyms.begin(),
@@ -693,11 +687,84 @@ int llvm_t<MT, MinSize>::go(void) {
           libcEarlyInitAddr = Addr; /* we are libc */
           return;
         }
+      });
+  });
+
+  if ((rc = ProcessCOPYRelocations()) ||
+      (rc = CreateFunctions()) ||
+      (rc = CreateFunctionTables()) ||
+      (rc = ProcessBinaryTLSSymbols()) ||
+      (rc = (options.DFSan ? LocateHooks() : 0)) ||
+      (rc = CreateTLSModGlobal()) ||
+      (rc = (LayingOut() ? CreateSectionGlobalVariables<true>() : CreateSectionGlobalVariables<false>())) ||
+      (rc = CreatePossibleTramps()))
+    return rc;
+
+  B::_elf(x.cb.first.get(), [&](ELFO &O) {
+
+  llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
+
+  const ELFF &Elf = O.getELFFile();
+
+  if (x._elf.OptionalDynSymRegion)
+    BinaryDynSyms = x._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+
+  //
+  // process binary function symbols
+  //
+  for_each_if(
+      BinaryDynSyms.begin(),
+      BinaryDynSyms.end(),
+      [&](const Elf_Sym &Sym) -> bool {
+        return !(Sym.isUndefined() ||
+                 Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+               Sym.getType() == llvm::ELF::STT_FUNC;
+      },
+      [&](const Elf_Sym &Sym) {
+        llvm::Expected<llvm::StringRef> ExpectedSymName =
+            Sym.getName(x._elf.DynamicStringTable);
+
+        if (!ExpectedSymName)
+          return;
+
+        llvm::StringRef SymName = *ExpectedSymName;
+        llvm::StringRef SymVers;
+        bool VisibilityIsDefault;
+
+        if (x._elf.SymbolVersionSection) {
+          unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
+                            reinterpret_cast<uintptr_t>(
+                                x._elf.OptionalDynSymRegion->Addr)) /
+                           sizeof(Elf_Sym);
+
+          const Elf_Versym *Versym =
+              unwrapOrError(Elf.template getEntry<Elf_Versym>(
+                  *x._elf.SymbolVersionSection, SymNo));
+
+          SymVers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                            x._elf.DynamicStringTable,
+                                            Versym->vs_index,
+                                            VisibilityIsDefault);
+        }
+
+        //
+        // avoid redefining symbols in libclang_rt.builtins-<arch>.a
+        //
+        if (is_builtin_sym(SymName.str()))
+          return;
+
+        if (unlikely(SymName == "__libc_early_init" &&
+                     SymVers == "GLIBC_PRIVATE"))
+          return;
+
+        const uint64_t Addr = Sym.st_value;
 
         // jove-add should have explored this
         assert(exists_function_at_address(Binary, Addr));
 
-        const unsigned SectsOff = Addr - x.SectsStartAddr;
+        llvm::GlobalVariable *GV;
+        taddr_t IntraOff;
+        std::tie(GV, IntraOff) = DecomposedSectionPointer(Addr);
 
         if (SymVers.empty()) {
           Module->appendModuleInlineAsm(
@@ -706,7 +773,7 @@ int llvm_t<MT, MinSize>::go(void) {
                    ".set   %s, %s + %u")
                % SymName.str()
                % SymName.str()
-               % SymName.str() % SectionsTopName() % SectsOff).str());
+               % SymName.str() % GV->getName().str() % IntraOff).str());
         } else {
            // make sure version node is defined
           VersionScript.Table[SymVers.str()];
@@ -721,7 +788,7 @@ int llvm_t<MT, MinSize>::go(void) {
                % dummy_name
 //             % dummy_name
                % dummy_name
-               % dummy_name % SectionsTopName() % SectsOff).str());
+               % dummy_name % GV->getName().str() % IntraOff).str());
 
           Module->appendModuleInlineAsm(
               (llvm::Twine(".symver ") + dummy_name + "," + SymName +
@@ -730,6 +797,7 @@ int llvm_t<MT, MinSize>::go(void) {
         }
       });
 
+#if 0
   //
   // process binary TLS symbols
   //
@@ -765,22 +833,8 @@ int llvm_t<MT, MinSize>::go(void) {
           }
         }
       });
+#endif
 
-  });
-
-  if ((rc = ProcessCOPYRelocations()) ||
-      (rc = CreateFunctions()) ||
-      (rc = CreateFunctionTables()) ||
-      (rc = ProcessBinaryTLSSymbols()) ||
-      (rc = (options.DFSan ? LocateHooks() : 0)) ||
-      (rc = CreateTLSModGlobal()) ||
-      (rc = (LayingOut() ? CreateSectionGlobalVariables<true>() : CreateSectionGlobalVariables<false>())) ||
-      (rc = CreatePossibleTramps()))
-    return rc;
-
-  B::_elf(x.cb.first.get(), [&](ELFO &O) {
-
-  const ELFF &Elf = O.getELFFile();
 
   //
   // process binary IFunc symbols
@@ -882,7 +936,9 @@ int llvm_t<MT, MinSize>::go(void) {
           const uint64_t Addr = Sym.st_value;
           const unsigned Size = Sym.st_size;
 
-          const unsigned SectsOff = Addr - x.SectsStartAddr;
+          llvm::GlobalVariable *GV;
+          taddr_t IntraOff;
+          std::tie(GV, IntraOff) = DecomposedSectionPointer(Addr);
 
           auto it = AddrToSymbolMap.find(Addr);
           if (it == AddrToSymbolMap.end()) {
@@ -895,7 +951,7 @@ int llvm_t<MT, MinSize>::go(void) {
                    % SymName.str()
                    % SymName.str()
                    % SymName.str() % Size
-                   % SymName.str() % SectionsTopName() % SectsOff).str());
+                   % SymName.str() % GV->getName().str() % IntraOff).str());
             } else {
               if (gdefs.find({Addr, Size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
@@ -908,7 +964,7 @@ int llvm_t<MT, MinSize>::go(void) {
                      % Addr % Size
                      % Addr % Size
                      % Addr % Size % Size
-                     % Addr % Size % SectionsTopName() % SectsOff).str());
+                     % Addr % Size % GV->getName().str() % IntraOff).str());
 
                 gdefs.insert({Addr, Size});
               }
@@ -961,7 +1017,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
-      || ((options.Optimize || options.ForCBE || options.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
+      || ((/* options.Optimize || */ options.ForCBE || options.LoadRelocSectionPointers) ? LoadRelocationSectionPointers() : 0)
       || (options.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!options.VersionScript.empty() ? WriteVersionScript() : 0)
@@ -1018,11 +1074,14 @@ void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
-  if (options.IsVeryVerbose())
+  if (options.IsVerbose())
     for_each_binary(jv, [&](auto &b) {
-      WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
-                                         b.Name.c_str(),
-                                         state.for_binary(b).SectsStartAddr);
+      llvm::errs() << llvm::formatv("{0}\n"
+                                    "\tSectsStartAddr={1:x}\n"
+                                    "\tSectsPrefixLen={2:x}\n",
+                                    b.Name.c_str(),
+                                    state.for_binary(b).SectsStartAddr,
+                                    state.for_binary(b).SectsPrefixLen).str();
     });
 
     B::_elf(x.cb.first.get(), [&](ELFO &O) {
@@ -1710,9 +1769,7 @@ int llvm_t<MT, MinSize>::LocateHooks(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
-  auto &b = jv.Binaries.at(BinaryIndex);
-
-  B::_elf(state.for_binary(b).cb.first.get(), [&](ELFO &O) {
+  B::_elf(x.cb.first.get(), [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
 
@@ -1749,6 +1806,73 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
                                      ThreadLocalStorage.End);
 
   //
+  // iterate dynamic symbols
+  //
+  auto OptionalDynSymRegion = x._elf.OptionalDynSymRegion;
+  if (!OptionalDynSymRegion)
+    return; /* no dynamic symbols */
+
+  const elf::DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+
+  auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
+    if (Sym.getType() != llvm::ELF::STT_TLS)
+      continue;
+
+    if (Sym.isUndefined())
+      continue;
+    if (Sym.st_shndx == llvm::ELF::SHN_UNDEF)
+      continue;
+    if (Sym.st_size == 0)
+      continue;
+
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(x._elf.DynamicStringTable));
+
+    if (options.IsVerbose())
+      llvm::errs() << llvm::formatv(
+          "ProcessBinaryTLSSymbols: dynamic symbol: {0} ({1})\n", SymName, Sym.st_value);
+
+    if (Sym.st_value >= tlsPhdr->p_memsz) {
+      WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}\n",
+                                          Sym.st_value, SymName);
+      continue;
+    }
+
+    uint64_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
+    TLSObjects.insert(Addr);
+
+    AddrToSymbolMap[Addr].insert(SymName.str());
+    TLSValueToSymbolMap[Sym.st_value].insert(SymName);
+
+    {
+      auto it = AddrToSizeMap.find(Addr);
+      if (it == AddrToSizeMap.end()) {
+        aassert(!TLSValueToSizeMap.contains(Sym.st_value));
+        AddrToSizeMap[Addr] = Sym.st_size;
+        TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
+      } else {
+        aassert(TLSValueToSizeMap.at(Sym.st_value) == (*it).second);
+
+        if ((*it).second != Sym.st_size) {
+          if (options.IsVerbose())
+            WithColor::warning() << llvm::formatv(
+                "multiple dynamic TLS symbols for {2} defined with different sizes ({0} != {1})\n", (*it).second, Sym.st_size, SymName);
+          continue;
+        }
+
+        taddr_t MaxSize = std::max<taddr_t>((*it).second, Sym.st_size);
+        AddrToSizeMap[Addr] = MaxSize;
+        TLSValueToSizeMap[Sym.st_value] = MaxSize;
+      }
+    }
+  }
+
+  return;
+
+  //
   // XXX explain this
   //
   {
@@ -1770,15 +1894,18 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
       for (const Elf_Sym &Sym : unwrapOrError(Elf.symbols(SymTab))) {
         if (Sym.getType() != llvm::ELF::STT_TLS)
           continue;
-
         if (Sym.isUndefined())
+          continue;
+        if (Sym.st_shndx == llvm::ELF::SHN_UNDEF)
+          continue;
+        if (Sym.st_size == 0)
           continue;
 
         llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
 
         if (options.IsVerbose())
           llvm::errs() << llvm::formatv(
-              "ProcessBinaryTLSSymbols: symbol: {0}\n", SymName);
+              "ProcessBinaryTLSSymbols: symbol: {0} {1}\n", SymName, Sym.st_value);
 
         if (Sym.st_value >= tlsPhdr->p_memsz) {
           WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}",
@@ -1788,57 +1915,43 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
         }
 
         uint64_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
-        AddrToSymbolMap[Addr].insert(SymName.str());
-        AddrToSizeMap[Addr] = Sym.st_size;
-
         TLSObjects.insert(Addr);
 
-        TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
-        TLSValueToSymbolMap[Sym.st_value].insert(SymName);
+        auto &Syms = AddrToSymbolMap[Addr];
+        Syms.insert(SymName.str());
+        if (AddrToSymbolMap[Addr].contains(SymName.str())) {
+          if (options.IsVeryVerbose())
+            WithColor::warning() << llvm::formatv(
+                "distinct TLS symbols for same offset ({0})\n", SymName);
+          continue;
+        }
+
+        AddrToSymbolMap[Addr].insert(SymName.str());
+        aassert(TLSValueToSymbolMap[Sym.st_value].insert(SymName).second);
+
+        {
+          auto it = AddrToSizeMap.find(Addr);
+          if (it == AddrToSizeMap.end()) {
+            aassert(!TLSValueToSizeMap.contains(Sym.st_value));
+            AddrToSizeMap[Addr] = Sym.st_size;
+            TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
+          } else {
+            aassert(TLSValueToSizeMap.at(Sym.st_value) == (*it).second);
+
+            if ((*it).second != Sym.st_size) {
+              if (options.IsVerbose())
+                WithColor::warning() << llvm::formatv(
+                    "multiple TLS symbols for {2} defined with different sizes ({0} != {1})\n", (*it).second, Sym.st_size, SymName);
+              continue;
+            }
+
+            taddr_t MaxSize = std::max<taddr_t>((*it).second, Sym.st_size);
+            (*it).second = MaxSize;
+            TLSValueToSizeMap[Sym.st_value] = MaxSize;
+          }
+        }
       }
     }
-  }
-
-  //
-  // iterate dynamic symbols
-  //
-  auto OptionalDynSymRegion = state.for_binary(b)._elf.OptionalDynSymRegion;
-  if (!OptionalDynSymRegion)
-    return; /* no dynamic symbols */
-
-  const elf::DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
-
-  auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
-
-  for (const Elf_Sym &Sym : dynamic_symbols()) {
-    if (Sym.getType() != llvm::ELF::STT_TLS)
-      continue;
-
-    if (Sym.isUndefined())
-      continue;
-
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(state.for_binary(b)._elf.DynamicStringTable));
-
-    if (options.IsVerbose())
-      llvm::errs() << llvm::formatv(
-          "ProcessBinaryTLSSymbols: dynamic symbol: {0}\n", SymName);
-
-    if (Sym.st_value >= tlsPhdr->p_memsz) {
-      WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}\n",
-                                          Sym.st_value, SymName);
-      continue;
-    }
-
-    uint64_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
-    AddrToSymbolMap[Addr].insert(SymName.str());
-    AddrToSizeMap[Addr] = Sym.st_size;
-
-    TLSObjects.insert(Addr);
-
-    TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
-    TLSValueToSymbolMap[Sym.st_value].insert(SymName);
   }
 
   // The names of the sections, as is in theory the case for all sections in ELF
@@ -2499,7 +2612,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
 
   if (llvm::Function *F = x.SectsF) {
     fillInFunctionBody(x.SectsF, [&](auto &IRB) {
-       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
+       IRB.CreateRet(AddressForSectionsStart());
     }, false /* don't internalize */);
 
     F->setVisibility(llvm::GlobalValue::DefaultVisibility);
@@ -3001,7 +3114,7 @@ void llvm_t<MT, MinSize>::elf_compute_tpoff_relocation(IRBuilderTy &IRB,
           break;
       }
 
-      assert(GV);
+      assert_msg(GV, [&](void) -> std::string { return std::to_string(Offset); });
       assert(GV->isThreadLocal());
       TLSAddr = llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
@@ -3231,6 +3344,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     Sect.extra.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
         Off, Off + DL.getTypeAllocSize(T)));
     Sect.extra.Stuff.Types[Off] = T;
+
+    RelocationTypes.emplace(Addr, T);
   };
 
   auto constant_at_address = [&](uint64_t Addr, llvm::Constant *C) -> void {
@@ -3249,7 +3364,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       WithColor::warning() << llvm::formatv("%s:%d\n", __FILE__, __LINE__);
 
     Sect.extra.Stuff.Constants[Off] = C;
-    ConstantRelocations.emplace(Addr, C);
+    RelocationConstants.emplace(Addr, C);
   };
 
   std::conditional_t<!LayOutSections, std::vector<llvm::Type *>,     std::monostate> WholeFieldTyVec;
@@ -3297,7 +3412,33 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       // check if there's space between the start of this section and the
       // previous
       //
-      if (it != beg) {
+      if (HasSectsPrefix() && it == beg) {
+        const unsigned BeforeLen = SectsStartAddr - (SectsStartAddr & ~4095ul);
+        assert(BeforeLen > 0);
+        assert(j == 0);
+
+        auto *const T = llvm::ArrayType::get(llvm::Type::getInt8Ty(Context), BeforeLen);
+        auto *const C = llvm::Constant::getNullValue(T); /* already know */
+
+        if constexpr (LayOutSections) {
+          if (!this->LaidOut.Prefix) {
+            auto *const GV = new llvm::GlobalVariable(
+                *Module, T, true, llvm::GlobalValue::InternalLinkage, C,
+                "__jove_prefix_" + std::to_string(BinaryIndex));
+            llvm::appendToCompilerUsed(*Module, {GV});
+
+            GV->setSection(CurrSectName);
+            GV->setAlignment(llvm::Align(4096));
+            this->LaidOut.Prefix = GV;
+          }
+        } else {
+          assert(WholeFieldTyVec.empty());
+          assert(WholeFieldCVec.empty());
+
+          WholeFieldTyVec.push_back(T);
+          WholeFieldCVec.push_back(C);
+        }
+      } else if (it != beg) {
         auto &PrevSect = *std::prev(it);
         const uint64_t PrevEnd = PrevSect.addr() + PrevSect.length();
         if (section.addr() < PrevEnd)
@@ -3331,6 +3472,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                     *Module, T, true, llvm::GlobalValue::InternalLinkage, C,
                     "__jove_space_" + std::to_string(j));
 
+                llvm::appendToCompilerUsed(*Module, {GV});
+
                 GV->setSection(CurrSectName);
                 GV->setAlignment(llvm::Align(1));
 
@@ -3345,8 +3488,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                 std::get<0>(this->LaidOut.Vec.at(j)) = T; /* GV is already there */
               }
             } else {
-              assert(WholeFieldTyVec.size() == j);
-              assert(WholeFieldCVec.size() == j);
+              assert(WholeFieldTyVec.size() == j+static_cast<unsigned>(this->HasSectsPrefix()));
+              assert(WholeFieldCVec.size()  == j+static_cast<unsigned>(this->HasSectsPrefix()));
 
               WholeFieldTyVec.push_back(T);
               WholeFieldCVec.push_back(C);
@@ -3429,7 +3572,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
           new llvm::GlobalVariable(
               *Module, NewT, false, llvm::GlobalValue::InternalLinkage,
-              nullptr, "__jove_section_" + suffix, /* InsertBefore */ OldGV);
+              nullptr, "__jove_section_" + std::to_string(BinaryIndex) + '_' + suffix, /* InsertBefore */ OldGV);
         });
         NewGV->setSection(CurrSectName);
         NewGV->setAlignment(llvm::Align(1));
@@ -3440,9 +3583,6 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         }
 
         if (EmptyGVVec) {
-          if (!this->LaidOut.HeadGV)
-            this->LaidOut.HeadGV = NewGV;
-
           assert(this->LaidOut.Vec.size() == j);
           this->LaidOut.Vec.emplace_back(NewT, NewGV, actualSize, SectsStartOff);
         } else {
@@ -3461,8 +3601,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         auto *&GV = std::get<1>(this->LaidOut.Vec.at(j));
         GV = NewGV;
       } else {
-        assert(WholeFieldTyVec.size() == j);
-        assert(WholeFieldCVec.size() == j);
+        assert(WholeFieldTyVec.size() == j+static_cast<unsigned>(this->HasSectsPrefix()));
+        assert(WholeFieldCVec.size()  == j+static_cast<unsigned>(this->HasSectsPrefix()));
 
         WholeFieldTyVec.push_back(NewT);
         WholeFieldCVec.push_back(nullptr);
@@ -3473,8 +3613,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
 
     if constexpr (LayOutSections) {
-      assert(this->LaidOut.Vec.size() >= NumSections &&
-             this->LaidOut.Vec.size() <= 2*NumSections);
+      assert(this->LaidOut.Vec.size() >= sortedsr.size() &&
+             this->LaidOut.Vec.size() <= 2*sortedsr.size());
     } else {
       //
       // create the whole sections
@@ -3500,14 +3640,14 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
       ConstGV->setAlignment(llvm::Align(1));
 
-      if (!jv.Binaries.at(BinaryIndex).IsPIC) {
+      if (!Binary.IsPIC) {
         aassert(jv.Binaries.at(BinaryIndex).IsExecutable);
 
         GV->setAlignment(llvm::Align(1));
         ConstGV->setAlignment(llvm::Align(1));
       } else {
-        GV->setAlignment(llvm::Align(2 * WordBytes()));      /* FIXME */
-        ConstGV->setAlignment(llvm::Align(2 * WordBytes())); /* FIXME */
+        GV->setAlignment(llvm::Align(4096));
+        ConstGV->setAlignment(llvm::Align(4096));
       }
 
       this->SectsGlobal      = GV;
@@ -3618,7 +3758,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       if constexpr (LayOutSections) {
         std::get<1>(this->LaidOut.Vec.at(j))->setInitializer(C);
       } else {
-        WholeFieldCVec.at(j) = C;
+        WholeFieldCVec.at(j + static_cast<unsigned>(this->HasSectsPrefix())) = C;
       }
     }
 
@@ -3871,7 +4011,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   };
 
   auto clear_section_stuff = [&](void) -> void {
-    ConstantRelocations.clear();
+    RelocationConstants.clear();
+    RelocationTypes.clear();
     for (auto &section : x.cb.second.sorted_by_addr()) {
       section.extra.Stuff.Constants.clear();
       section.extra.Stuff.Types.clear();
@@ -3931,7 +4072,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         }
 
         llvm::outs() <<
-          (fmt("%-18s @ %-8x") % Elf.getRelocationTypeName(R.Type).str()
+          (fmt("%-18s @ %#-8x") % Elf.getRelocationTypeName(R.Type).str()
                                % R.Offset).str();
 
         if (R.Addend)
@@ -3939,7 +4080,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
         if (const Elf_Sym *Sym = RelSym.Sym) {
           llvm::outs() <<
-            (fmt(" %-30s %-15s [%s] @ %x {%d}")
+            (fmt(" %-30s %-15s [%s] @ %#x {%d}")
              % RelSym.Name
              % RelSym.Vers
              % llvm::object::ElfSymbolTypes[Sym->getType()].AltName.str()
@@ -3973,7 +4114,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     for (const elf::MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
       const uint64_t Addr = Parser.getGotAddress(&Ent);
 
-      llvm::outs() << (fmt("%-18s @ %-8x\n") % "R_MIPS_32" % Addr).str();
+      llvm::outs() << (fmt("%-18s @ %#-8x\n") % "R_MIPS_32" % Addr).str();
     }
 
     for (const elf::MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
@@ -4038,7 +4179,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       assert(RelocationTypeName);
 
       llvm::outs() <<
-        (fmt("%-18s @ %-8x %-30s %-15s [%s] @ %x {%d}\n")
+        (fmt("%-18s @ %#-8x %-30s %-15s [%s] @ %#x {%d}\n")
          % RelocationTypeName
          % Offset
          % SymName.str()
@@ -4057,7 +4198,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
                                  llvm::StringRef SymName, uint16_t Ordinal,
                                  uint64_t Addr, llvm::StringRef DLL) -> void {
     llvm::outs() <<
-      (fmt("[%s] %-15s (%u) @ %x <%s>\n")
+      (fmt("[%s] %-15s (%u) @ %#x <%s>\n")
        % tableName
        % SymName.str()
        % Ordinal
@@ -4272,6 +4413,39 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           });
     });
 
+    //
+    // for .init_array/.fini_array, if the binary is an executable with a fixed
+    // base address, there may not be any relocations. if this is the case,
+    // we'll synthesize them.
+    //
+    B::_elf(Bin.get(), [&](ELFO &O) {
+
+    const ELFF &Elf = O.getELFFile();
+
+    for (auto &section : sortedsr) {
+      const bool InitArray = section._elf.init;
+      const bool FiniArray = section._elf.fini;
+      if (!InitArray && !FiniArray)
+        continue;
+
+      aassert(InitArray ^ FiniArray);
+
+      if (section.size() % sizeof(taddr_t) != 0)
+        WithColor::warning()
+            << "init/fini array has size not divisible by sizeof(taddr_t)!\n";
+
+      const unsigned N = section.size() / sizeof(taddr_t);
+      for (unsigned i = 0; i < N; ++i) {
+        const taddr_t A = section.addr() + i*sizeof(taddr_t);
+        if (RelocationTypes.contains(section.addr() + i*sizeof(taddr_t)))
+          continue;
+
+        type_at_address(A, WordType());
+      }
+    }
+
+    });
+
     declare_sections(); /* type_at_address()'s have been called */
 
     B::_elf(Bin.get(), [&](ELFO &O) {
@@ -4473,6 +4647,39 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
           });
     });
 
+    //
+    // for .init_array/.fini_array, if the binary is an executable with a fixed
+    // base address, there may not be any relocations. if this is the case,
+    // we'll synthesize them.
+    //
+    B::_elf(Bin.get(), [&](ELFO &O) {
+
+    const ELFF &Elf = O.getELFFile();
+
+    for (auto &section : sortedsr) {
+      const bool InitArray = section._elf.init;
+      const bool FiniArray = section._elf.fini;
+      if (!InitArray && !FiniArray)
+        continue;
+
+      aassert(InitArray ^ FiniArray);
+
+      if (section.size() % sizeof(taddr_t) != 0)
+        WithColor::warning()
+            << "init/fini array has size not divisible by sizeof(taddr_t)!\n";
+
+      const unsigned N = section.size() / sizeof(taddr_t);
+      for (unsigned i = 0; i < N; ++i) {
+        const taddr_t A = section.addr() + i*sizeof(taddr_t);
+        if (RelocationConstants.contains(section.addr() + i*sizeof(taddr_t)))
+          continue;
+
+        constant_at_address(A, SectionPointer(B::extractAddress(Bin.get(), B::toMappedAddr(Bin.get(), A))));
+      }
+    }
+
+    });
+
     define_sections(); /* constant_at_address()'s have been called */
 
     //
@@ -4484,7 +4691,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       assert(!Syms.empty());
       const std::string &SymName = *Syms.begin();
 
-      llvm::errs() << llvm::formatv("iterating AddrToSymbolMap ({0})\n", SymName);
+      if (options.IsVeryVerbose())
+        llvm::errs() << llvm::formatv("iterating AddrToSymbolMap ({0})\n", SymName);
 
       if (llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true)) {
         if (GV->hasInitializer())
@@ -4511,10 +4719,12 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       if (!GV) {
         done = false;
 
-        llvm::outs() << "!create_global_variable(...): " << SymName << '\n';
+        if (options.IsVeryVerbose())
+          llvm::outs() << "!create_global_variable(...): " << SymName << '\n';
         continue;
       } else {
-        WithColor::note() << llvm::formatv("new GV: {0}\n", *GV);
+        if (options.IsVeryVerbose())
+          WithColor::note() << llvm::formatv("new GV: {0}\n", *GV);
       }
 
       for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
@@ -4643,7 +4853,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   // Global Ctors/Dtors
   //
   // XXX this should go somewhere else
-  for (auto &section : x.cb.second.sorted_by_addr()) {
+  for (auto &section : sortedsr) {
     const bool InInitArray = section._elf.init;
     const bool InFiniArray = section._elf.fini;
     if (!InInitArray && !InFiniArray)
@@ -4672,20 +4882,16 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         }
 
         assert(matched_Addend);
-        const taddr_t off = matched_Addend->getValue().getZExtValue();
-
-        taddr_t Addr = off + SectsStartAddr;
-        if (GObj == SectionsTop()) {
-          ;
-        } else if (GVVecToIdxMap.contains(GObj)) {
+        taddr_t Addr = uninit_taddr;
+        if (this->LayingOut()) {
           auto it = GVVecToIdxMap.find(GObj);
-          assert(it != GVVecToIdxMap.end());
-          Addr += std::get<3>(this->LaidOut.Vec.at((*it).second));
+          aassert(it != GVVecToIdxMap.end());
+          const taddr_t Offset = matched_Addend->getValue().getZExtValue();
+          Addr = std::get<3>(this->LaidOut.Vec.at((*it).second)) + SectsStartAddr + Offset;
         } else {
-          WithColor::error()
-              << llvm::formatv("wtf? {0} found in {1} array\n", *matched_Value1,
-                               InInitArray ? "init" : "fini");
-          continue;
+          assert(GObj == SectionsTopGlobal());
+          const taddr_t VirtualOffset = matched_Addend->getValue().getZExtValue();
+          Addr = (VirtualOffset + SectsStartAddr) - this->SectsPrefixLen();
         }
 
         if (options.IsVeryVerbose())
@@ -4882,6 +5088,7 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
   B::_elf(x.cb.first.get(), [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
 
+#if 0
   auto OptionalDynSymRegion = x._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
@@ -4892,18 +5099,49 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
   auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
+#endif
 
-  for_each_dynamic_relocation_if(Elf,
+  for_each_dynamic_relocation(Elf,
       x._elf.DynRelRegion,
       x._elf.DynRelaRegion,
       x._elf.DynRelrRegion,
       x._elf.DynPLTRelRegion,
-      [&](const elf::Relocation &R) -> bool { return elf_is_manual_relocation(R); },
       [&](const elf::Relocation &R) {
         llvm::Type *R_T = elf_type_of_expression_for_relocation(R);
 
-        elf::RelSymbol RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
-                                                       x._elf.DynamicStringTable, R);
+        elf::RelSymbol RelSym(nullptr, "");
+        if (x._elf.OptionalDynSymRegion) {
+          const elf::DynRegionInfo &DynSymRegion = *x._elf.OptionalDynSymRegion;
+
+          RelSym = elf::getSymbolForReloc(O, DynSymRegion.getAsArrayRef<Elf_Sym>(),
+                                          x._elf.DynamicStringTable, R);
+
+          //
+          // determine symbol version (if present)
+          //
+          if (RelSym.Sym && x._elf.SymbolVersionSection) {
+            // Determine the position in the symbol table of this entry.
+            size_t EntryIndex =
+                (reinterpret_cast<uintptr_t>(RelSym.Sym) -
+                 reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
+                sizeof(Elf_Sym);
+
+            // Get the corresponding version index entry.
+            llvm::Expected<const Elf_Versym *> ExpectedVersym =
+                Elf.getEntry<Elf_Versym>(
+                    *x._elf.SymbolVersionSection,
+                    EntryIndex);
+
+            if (ExpectedVersym)
+              RelSym.Vers = getSymbolVersionByIndex(x._elf.VersionMap,
+                                                    x._elf.DynamicStringTable,
+                                                    (*ExpectedVersym)->vs_index,
+                                                    RelSym.IsVersionDefault);
+          }
+        }
+
+      if (!elf_is_manual_relocation(R))
+        return;
 
         llvm::Function *F = llvm::Function::Create(
             llvm::FunctionType::get(R_T, false),
@@ -4923,6 +5161,7 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
         }, true);
 
         ManualRelocs.emplace(R.Offset, F);
+        RelocationConstants.erase(R.Offset);
       });
   });
 
@@ -4934,9 +5173,9 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
             ManualRelocs.end(), [&](const auto &pair) {
               llvm::Value *Computation = IRB.CreateCall(pair.second);
 
-              uintptr_t off = pair.first - x.SectsStartAddr;
+              const taddr_t VirtualOffset = pair.first - x.SectsStartAddr;
 
-              llvm::Value *Ptr = nullptr;
+#if 0
               if (!options.LayOutSections) {
                 llvm::SmallVector<llvm::Value *, 4> Indices;
                 Ptr = llvm::getNaturalGEPWithOffset(
@@ -4944,13 +5183,12 @@ int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
                     std::make_pair(SectsGlobal, SectsGlobal->getValueType()),
                     llvm::APInt(64, off), Computation->getType(), Indices, "");
               }
+#endif
 
-              if (!Ptr)
-                Ptr = IRB.CreateIntToPtr(
-                    IRB.CreateAdd(
-                        IRB.CreatePtrToInt(SectionsTop(), WordType()),
-                        IRB.getIntN(WordBits(), off)),
-                    llvm::PointerType::get(Computation->getType(), 0));
+              llvm::Value *Ptr = IRB.CreateIntToPtr(
+                  IRB.CreateAdd(AddressForSectionsStart(),
+                                IRB.getIntN(WordBits(), VirtualOffset)),
+                  llvm::PointerType::get(Computation->getType(), 0));
 
               IRB.CreateStore(Computation, Ptr, true /* Volatile */);
             });
@@ -5091,26 +5329,25 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_sections_start_addr"),
       [&](auto &IRB) {
-        IRB.CreateRet(llvm::ConstantInt::get(
-            WordType(), x.SectsStartAddr));
+        IRB.CreateRet(llvm::ConstantInt::get(WordType(), x.SectsStartAddr));
       },
       !options.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_sections_begin"),
+      Module->getFunction("_jove_addr_for_sections_start"),
       [&](auto &IRB) {
-        IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
+        IRB.CreateRet(AddressForSectionsStart());
       }, !options.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_sections_end"),
       [&](auto &IRB) {
-        uint64_t SectsGlobalSize = x.SectsEndAddr -
+        const taddr_t SectsLen = x.SectsEndAddr -
                                    x.SectsStartAddr;
 
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
-            llvm::ConstantInt::get(WordType(), SectsGlobalSize)));
+            AddressForSectionsStart(),
+            llvm::ConstantInt::get(WordType(), SectsLen)));
       }, !options.ForCBE);
 
   fillInFunctionBody(
@@ -5890,7 +6127,7 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
     //
     int ret = 1;
 
-#if 0
+#if 1
     InlineSjStubs(); /* do it here, before we modify Module */
 #endif
 
@@ -6032,8 +6269,12 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
       }
 
       if (oldAdapterF) {
-        assert(newAdapterF);
-        oldAdapterF->replaceAllUsesWith(newAdapterF);
+        if (f.IsABI) {
+          oldAdapterF->replaceAllUsesWith(newF);
+        } else {
+          assert_msg(newAdapterF, [&](void) -> std::string { return newF->getName().str(); });
+          oldAdapterF->replaceAllUsesWith(newAdapterF);
+        }
 
         assert(oldAdapterF->use_empty());
         oldAdapterF->eraseFromParent();
@@ -6495,6 +6736,7 @@ int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
   //
   // hunt for loads and stores
   //
+  const auto SectsStartAddr = x.SectsStartAddr;
   hunt_and_erase ([&](llvm::Instruction &I) -> llvm::Instruction * {
     unsigned PointerOperandIdx = ~0u;
 
@@ -6532,36 +6774,25 @@ int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
       return nullptr;
 
     //llvm::errs() << llvm::formatv("found {0}\n", I);
-    const taddr_t Addr =
-        (matched_Addend1 ? matched_Addend1->getZExtValue() : 0ull) +
-        x.SectsStartAddr;
+    const taddr_t VirtualOffset =
+        matched_Addend1 ? matched_Addend1->getZExtValue() : 0ull;
+    const taddr_t Addr = (VirtualOffset + SectsStartAddr) - this->SectsPrefixLen();
 
     llvm::Value *const Ptr = I.getOperand(PointerOperandIdx);
-    llvm::Constant *const SectPtr = llvm::ConstantExpr::getIntToPtr(
-        SectionPointer(Addr), Ptr->getType());
 
     llvm::Constant *AddrReplacement = nullptr;
-    if (matched_Value1 == SectionsTop()) {
-      AddrReplacement = SectionPointer(Addr);
-    } else {
-      AddrReplacement =
-          matched_Addend1
-              ? llvm::ConstantExpr::getAdd(
-                    llvm::ConstantExpr::getPtrToInt(
-                        llvm::cast<llvm::GlobalObject>(matched_Value1),
-                        WordType()),
-                    matched_Addend1)
-              : llvm::ConstantExpr::getPtrToInt(
-                    llvm::cast<llvm::GlobalObject>(matched_Value1),
-                    WordType());
-    }
+    if (matched_Value1 != SectionsTopGlobal())
+      return nullptr;
+
+    AddrReplacement = SectionPointer(Addr);
+
     llvm::Value *PtrReplacement =
         llvm::ConstantExpr::getIntToPtr(AddrReplacement, Ptr->getType());
 
     llvm::Instruction *Erase = nullptr;
 
 
-    auto it = ConstantRelocations.end();
+    auto it = RelocationConstants.end();
     if (LI) {
       auto replaceValue = [&](void) -> void {
         assert(LI);
@@ -6570,8 +6801,8 @@ int llvm_t<MT, MinSize>::LoadRelocationSectionPointers(void) {
         Erase = LI;
       };
 
-      if (matched_Value1 == SectionsTop() &&
-          (it = ConstantRelocations.find(Addr)) != ConstantRelocations.end() &&
+      if (matched_Value1 == SectionsTopGlobal() &&
+          (it = RelocationConstants.find(Addr)) != RelocationConstants.end() &&
           LI->getType()->isIntegerTy(WordBits())) {
         replaceValue();
       } else {
@@ -7162,15 +7393,31 @@ int llvm_t<MT, MinSize>::Daemonize(std::vector<function_index_t> &invalidated) {
   uint32_t N = 0;
 
   for (;;) {
+    if (options.IsVeryVerbose())
+      llvm::errs() << "Daemonize(): reading request pipe...\n";
+
     ssize_t ret = robust::read(request_rfd, &N, sizeof(N));
-    if (ret != sizeof(N))
+    if (ret != sizeof(N)) {
+      if (options.IsVeryVerbose())
+        WithColor::error() << "Daemonize(): size of N is invalid\n";
       return 1;
+    }
+
+    if (options.IsVeryVerbose())
+      llvm::errs() << llvm::formatv("Daemonize(): N is {0}\n", N);
 
     if (N) {
       invalidated.resize(N);
+
+      if (options.IsVeryVerbose())
+        llvm::errs() << llvm::formatv(
+            "Daemonize(): reading {0} function indices...\n", N);
+
       aassert(robust::read(request_rfd, &invalidated[0], N*sizeof(function_index_t)) == N*sizeof(function_index_t));
     }
 
+    if (options.IsVeryVerbose())
+      llvm::errs() << "Daemonize(): forking...\n";
     pid_t child = jove::fork();
     if (!child) {
       ::close(request_rfd);
@@ -7178,7 +7425,12 @@ int llvm_t<MT, MinSize>::Daemonize(std::vector<function_index_t> &invalidated) {
       break;
     }
 
+    if (options.IsVeryVerbose())
+      llvm::errs() << "Daemonize(): waiting...\n";
     const char done = WaitForProcessToExit(child) == 0 ? 'y' : 'n';
+
+    if (options.IsVeryVerbose())
+      llvm::errs() << "Daemonize(): sending completion...\n";
     aassert(robust::write(completion_wfd, &done, sizeof(done)) == sizeof(done));
   }
 
@@ -7830,13 +8082,13 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       if (options.DebugSjlj) {
         std::string message =
-            (fmt("doing %s (call) to %s @ %s+0x%x")
+            (fmt("doing %s (call) to %s @ %s:0x%x")
              % (Lj ? "longjmp" : "setjmp")
              % DynTargetDesc
              % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(JoveLog1Func,
-                       {IRB.CreateGlobalStringPtr(message.c_str()), SjLjAddr});
+                       {IRB.CreateGlobalStringPtr(message.c_str()), SjLjAddr})->setIsNoInline();
       }
 
       llvm::CallInst *Ret = IRB.CreateCall(
@@ -8175,7 +8427,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
       llvm::Value *SectsGlobalOff = IRB.CreateSub(
-          PC, llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
+          PC, AddressForSectionsStart());
 
       auto it_pair = ICFG.adjacent_vertices(bb);
 
@@ -8331,7 +8583,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       if (options.DebugSjlj) {
         std::string message =
-            (fmt("doing %s (%s) to %s @ %s+0x%x")
+            (fmt("doing %s (%s) to %s @ %s:0x%x")
              % (Lj ? "longjmp" : "setjmp")
              % (IsCall ? "indcall" : "indjmp")
              % DynTargetDesc
@@ -8339,7 +8591,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(
             JoveLog1Func,
-            {IRB.CreateGlobalStringPtr(message.c_str()), SjLjAddr});
+            {IRB.CreateGlobalStringPtr(message.c_str()), SjLjAddr})->setIsNoInline();
       }
 
       llvm::CallInst *Ret = IRB.CreateCall(
@@ -9272,7 +9524,9 @@ std::string llvm_t<MT, MinSize>::dyn_target_desc(dynamic_target_t IdxPair) {
   uint64_t Addr =
       b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr();
 
-  return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
+  const auto offset = B::cached::offset_of_va(state.for_binary(b).cb, Addr);
+
+  return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % offset).str();
 }
 
 template <bool MT, bool MinSize>
@@ -9305,6 +9559,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
 
   const char *curr_op_nm = nullptr;
+  const auto SectsStartAddr = x.SectsStartAddr;
 
   auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
     if (!pcrel_flag)
@@ -9313,12 +9568,31 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     pcrel_flag = false; /* reset pcrel flag */
     assert(bits == WordBits());
 
-    //return SectionPointer(A);
-    return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
-        llvm::ConstantExpr::getSub(
-            llvm::ConstantInt::get(WordType(), A),
-            llvm::ConstantInt::get(WordType(), x.SectsStartAddr)));
+    if (this->HasSectsPrefix()) {
+      assert_msg((A + this->SectsPrefixLen()) >= SectsStartAddr,
+                 [&](void) -> std::string {
+                   return "A=" + taddr2str(A) +
+                          ", this->SectsPrefixLen()=" + taddr2str(this->SectsPrefixLen()) +
+                          ", SectsStartAddr=" + taddr2str(SectsStartAddr);
+                 });
+
+      const taddr_t VirtualOffset = (A + this->SectsPrefixLen()) - SectsStartAddr;
+
+      return llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(this->SectionsTopGlobal(), WordType()),
+          llvm::ConstantInt::get(WordType(), VirtualOffset));
+    } else {
+      assert_msg(A >= SectsStartAddr,
+                 [&](void) -> std::string {
+                   return "A=" + taddr2str(A) +
+                          ", SectsStartAddr=" + taddr2str(SectsStartAddr);
+                 });
+
+      const taddr_t VirtualOffset = A - SectsStartAddr;
+      return llvm::ConstantExpr::getAdd(
+          this->AddressForSectionsStart(),
+          llvm::ConstantInt::get(WordType(), VirtualOffset));
+    }
   };
 
   /* special-cased global temps */
@@ -10001,6 +10275,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     if (!pFunc) {
       llvm::Function &Func = Helper.CloneInto(*Module);
+
+      if (!options.ForCBE) {
+        //Func.setVisibility(llvm::GlobalValue::HiddenVisibility);
+        Func.setLinkage(llvm::GlobalValue::InternalLinkage);
+      }
 
       this->our_helper_table.at(Number) = &Func;
 

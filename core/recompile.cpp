@@ -937,7 +937,7 @@ int recompiler_t<MT, MinSize>::go(
           std::tie(Base, End) = B::bounds_of_binary(x.Bin.get());
 
           Arg("--section-start");
-          Arg((fmt(".jove=0x%lx") % Base).str());
+          Arg((fmt(".jove=0x%lx") % (Base & ~4095ul)).str());
         }
       } else {
         assert(b.IsPIC);

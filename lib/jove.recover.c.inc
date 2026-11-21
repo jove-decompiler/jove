@@ -822,7 +822,7 @@ void _jove_recover_basic_block(uint32_t IndBrBBIdx, uintptr_t BBAddr) {
   IndBr.BIdx = _jove_binary_index();
   IndBr.BBIdx = IndBrBBIdx;
 
-  SectionsGlobal.Beg = _jove_sections_begin();
+  SectionsGlobal.Beg = _jove_addr_for_sections_start();
   SectionsGlobal.End = _jove_sections_end();
   SectsStartAddr = _jove_sections_start_addr();
 

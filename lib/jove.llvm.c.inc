@@ -5,7 +5,7 @@
 //
 
 extern uintptr_t _jove_sections_start_addr(void);
-extern uintptr_t _jove_sections_begin(void);
+extern uintptr_t _jove_addr_for_sections_start(void);
 extern uintptr_t _jove_sections_end(void);
 extern uint32_t _jove_binary_index(void);
 extern bool _jove_trace_enabled(void);
