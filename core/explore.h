@@ -706,7 +706,6 @@ public:
 
       get_newbb_proc()(b, bbprop, Idx);
     }
-    }
 
     auto control_flow_to = [&](taddr_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -767,7 +766,7 @@ public:
 
         bbprop.Term._call.Target = CalleeFIdx;
       } else {
-        fallthru<void>(
+        fallthru_nopub<void>(
             b, Idx,
             [&](bbprop_t &bbprop, basic_block_index_t) -> void {
               assert(bbprop.Term.Type == TERMINATOR::CALL);
@@ -818,6 +817,8 @@ public:
       throw std::runtime_error(
           (fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
     }
+
+    } /* pub */
 
     return Idx;
   }
