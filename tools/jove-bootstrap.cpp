@@ -2345,8 +2345,6 @@ binary_index_t BootstrapTool::found_binary(const binary_t &b,
                                            const taddr_t the_file_offset) {
   x.LoadAddr = compute_load_address(b, x, the_vma_start, the_file_offset);
 
-  const binary_index_t BIdx = index_of_binary(b, jv);
-
   if (unlikely(x.Skip))
     return invalid_binary_index;
 
@@ -2362,6 +2360,8 @@ binary_index_t BootstrapTool::found_binary(const binary_t &b,
   NumSectionsLoaded.store(0, std::memory_order_relaxed);
 
   assert(has_ProcMapQuery);
+
+  const binary_index_t BIdx = index_of_binary(b, jv);
 
   auto &svec = x.cb.second.svec;
   auto sorted_sr = x.cb.second.sorted_by_addr();
