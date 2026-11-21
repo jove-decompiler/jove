@@ -2354,11 +2354,7 @@ binary_index_t BootstrapTool::found_binary(const taddr_t the_vma_start,
 
   //
   // NOTE: the dynamic linker may be in the middle of loading the binary into
-  // memory. thus we may not see every section immediately. this is more
-  // nontrivial than it actually looks- if we want to get _all the sections_.
-  //
-  // for the purposes of bootstrap's essential functioning, we'll only examine
-  // the loaded sections which are actually executed. TODO
+  // memory. thus we may not see every section immediately.
   //
   x.LoadAddr = compute_load_address(b, x, the_vma_start, the_file_off);
 
