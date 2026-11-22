@@ -925,7 +925,9 @@ found:
 
     //
     // inspect the instruction bytes that the return address points to, to
-    // determine whether the kernel has just delivered a signal XXX
+    // determine whether the kernel has just delivered a signal.
+    //
+    // TODO we can use SA_EXPOSE_TAGBITS?
     //
     bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
     if (SignalDelivery) {
