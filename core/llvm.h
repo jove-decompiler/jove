@@ -845,7 +845,7 @@ private:
     tcg_global_set_t args = DetermineFunctionArgs(f);
     tcg_global_set_t rets = DetermineFunctionRets(f);
 
-    if (f.IsABI) {
+    if (f.Analysis.ABI()) {
       args &= CallConvArgs;
       rets &= CallConvRets;
     }

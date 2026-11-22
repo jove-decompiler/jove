@@ -135,11 +135,17 @@ void analyzer_t<MT, MinSize>::examine_blocks(void) {
 
     const auto &exit_bbvec = x.exit_bbvec;
     if (!exit_bbvec.empty())
-      f.Returns = true;
+      f.Analysis.SetReturns();
 
-    f.Analysis.IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
-    f.Analysis.IsSj = IsFunctionSetjmp(f, b, bbvec);
-    f.Analysis.IsLj = IsFunctionLongjmp(f, b, bbvec);
+    uint8_t bits = f.Analysis.bits.load(boost::memory_order_relaxed);
+    const uint8_t saved_bits = bits;
+
+    bits |= (static_cast<uint8_t>(IsLeafFunction(f, b, bbvec, exit_bbvec)) << static_cast<uint8_t>(function_analysis_t::bits_t::Leaf));
+    bits |= (static_cast<uint8_t>(IsFunctionSetjmp(f, b, bbvec))           << static_cast<uint8_t>(function_analysis_t::bits_t::Sj));
+    bits |= (static_cast<uint8_t>(IsFunctionLongjmp(f, b, bbvec))          << static_cast<uint8_t>(function_analysis_t::bits_t::Lj));
+
+//  if (bits != saved_bits)
+    f.Analysis.bits.fetch_or(bits, boost::memory_order_relaxed);
 
     const function_index_t FIdx = index_of_function_in_binary(f, b);
 
@@ -169,7 +175,7 @@ void analyzer_t<MT, MinSize>::identify_ABIs(void) {
     if (DynTargets.AnyOf(
             [&](const dynamic_target_t &X) { return X.first != BIdx; }))
       DynTargets.ForEach(maybe_par_unseq, [&](const dynamic_target_t &X) {
-        racy::set(function_of_target(X, jv).IsABI);
+        function_of_target(X, jv).Analysis.SetABI();
       });
   });
 }
@@ -182,12 +188,12 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
   for_each_function_if(
       maybe_par_unseq, jv,
       [&](function_t &f) -> bool {
-        return f.Analysis.IsSj;
+        return f.Analysis.Sj();
       },
       [&](function_t &f, binary_t &b) {
         function_state_t &x = state.for_function(f);
 
-        assert(f.Analysis.IsSj);
+        assert(f.Analysis.Sj());
 
         f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
           block_t caller_block = block_for_caller_in_binary(caller, b, jv);
@@ -201,7 +207,7 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
           bbprop_t &caller_bbprop = caller_ICFG[caller_bb];
 
           if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP)
-            racy::set(caller_bbprop.Sj);
+            caller_bbprop.Analysis.SetSj();
         });
       });
 }
@@ -393,7 +399,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
-  const bool IsABI = f.IsABI;
+  const bool IsABI = f.Analysis.ABI();
 
   {
     flow_graph_t G;
@@ -451,7 +457,7 @@ int analyzer_t<MT, MinSize>::analyze_function(function_t &f,
 
     reachingComputeFixpoint(G, Vertices);
 
-    if (f.Returns)
+    if (f.Analysis.Returns())
       assert(!exitVertices.empty());
 
     if (exitVertices.empty()) {
@@ -660,7 +666,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
       auto &DynTargets = *MaybeDynTargets;
 
       bool IsABI = DynTargets.AnyOf([&](dynamic_target_t X) {
-        return function_of_target(X, jv).IsABI;
+        return function_of_target(X, jv).Analysis.ABI();
       });
 
       auto UseSummary =
@@ -724,7 +730,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 
               flow_edge_t E = boost::add_edge(exitV, succV, G).first;
 
-              if (callee.IsABI || IsABI)
+              if (callee.Analysis.ABI() || IsABI)
                 G[E].reach.mask = CallConvRets;
             }
           }
@@ -838,7 +844,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
           std::tie(exitV, IsABI) = calleeExitVertPair;
 
           flow_edge_t E = boost::add_edge(exitV, succV, G).first;
-          if (callee.IsABI || IsABI)
+          if (callee.Analysis.ABI() || IsABI)
             G[E].reach.mask = CallConvRets;
         }
       }
@@ -855,7 +861,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
           if (Returns) {
             flow_edge_t E = boost::add_edge(dummyV, succV, G).first;
 
-            if (callee.IsABI)
+            if (callee.Analysis.ABI())
               G[E].reach.mask = CallConvRets;
           }
           }
@@ -899,7 +905,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
       const unsigned savedNumExitVerts = exitVertices.size();
 
       bool IsABI = DynTargets.AnyOf([&](dynamic_target_t X) {
-        return function_of_target(X, jv).IsABI;
+        return function_of_target(X, jv).Analysis.ABI();
       });
 
       auto UseSummary =
@@ -956,7 +962,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
           bool IsABI;
           std::tie(exitV, IsABI) = calleeExitVertPair;
 
-          exitVertices.emplace_back(exitV, callee.IsABI);
+          exitVertices.emplace_back(exitV, callee.Analysis.ABI());
         }
       };
 
@@ -998,7 +1004,7 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   //
   // does f return even if we don't know how?
   //
-  if (f.Returns && exitVertices.empty()) {
+  if (f.Analysis.Returns() && exitVertices.empty()) {
     flow_vertex_t dummyV = boost::add_vertex(G);
 
     static const bb_analysis_t DummyAnalysis(

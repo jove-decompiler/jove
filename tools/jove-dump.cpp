@@ -229,8 +229,8 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             Writer.printBoolean("Returns", ICFG[bb].Term._return.Returns);
         }
 
-        if (ICFG[bb].Lj) Writer.printBoolean("IsLj", ICFG[bb].Lj);
-        if (ICFG[bb].Sj) Writer.printBoolean("Sj", true);
+        if (ICFG[bb].Analysis.Lj()) Writer.printBoolean("Lj", true);
+        if (ICFG[bb].Analysis.Sj()) Writer.printBoolean("Sj", true);
 
 #if 0
         if (!(ICFG[bb].Analysis.Stale &&
@@ -436,18 +436,18 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             }
           }
 
-          Writer.printBoolean("IsLeaf", f.Analysis.IsLeaf);
-          if (f.Analysis.IsSj)
-            Writer.printBoolean("IsSj", f.Analysis.IsSj);
-          if (f.Analysis.IsLj)
-            Writer.printBoolean("IsLj", f.Analysis.IsLj);
+          Writer.printBoolean("IsLeaf", f.Analysis.Leaf());
+          if (f.Analysis.Sj()) Writer.printBoolean("Sj", true);
+          if (f.Analysis.Lj()) Writer.printBoolean("Lj", true);
 
           Writer.printBoolean("Stale", f.Analysis.Stale.test(boost::memory_order_relaxed));
         }
 
-        Writer.printBoolean("IsABI", f.IsABI);
-        Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
-        Writer.printBoolean("Returns", f.Returns);
+        Writer.printBoolean("IsABI", f.Analysis.ABI());
+        Writer.printBoolean("Returns", f.Analysis.Returns());
+
+        if (f.Handler())
+          Writer.printBoolean("Handler", true);
 
         if (f.Analysis.hasCaller()) {
           std::vector<std::string> descv;

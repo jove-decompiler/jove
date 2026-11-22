@@ -511,7 +511,10 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     basic_block_index_t BBIdx = E.explore_basic_block(b, cb, A);
     assert(is_basic_block_index_valid(BBIdx));
 
-    ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
+    fallthru<void>(b, BBIdx,
+                   [&](bbprop_t &bbprop, basic_block_index_t TheBBIdx) {
+                     bbprop.Analysis.SetSj();
+                   });
   };
 
   auto found_longjmp = [&](uint64_t A) -> void {
@@ -537,7 +540,7 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
             ICFG.clear_out_edges(bb);
           }
 
-          bbprop.Lj = true;
+          bbprop.Analysis.SetLj();
           return BBIdx;
         });
   };

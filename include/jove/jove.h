@@ -233,6 +233,10 @@ size_t jvDefaultInitialSize(void);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic warning "-Wpadded"
 
+//
+// anything that can be solely derived from static analysis, pertaining to a
+// basic block, should exist in the following struct (it will *not* be serialized).
+//
 struct bb_analysis_t {
   struct {
     /* let def_B be the set of variables defined (i.e. definitely */
@@ -256,6 +260,19 @@ struct bb_analysis_t {
   } reach;
 
   ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
+
+  enum class bits_t : uint8_t {
+    Sj,
+    Lj,
+  };
+
+  ip_atomic<uint8_t> bits = 0;
+
+  bool Sj(void) const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Sj))); }
+  bool Lj(void) const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Lj))); }
+
+  void SetSj(void) { bits.fetch_or(1u<<static_cast<uint8_t>(bits_t::Sj), boost::memory_order_relaxed); }
+  void SetLj(void) { bits.fetch_or(1u<<static_cast<uint8_t>(bits_t::Lj), boost::memory_order_relaxed); }
 
   bb_analysis_t() noexcept {
     this->Invalidate();
@@ -440,8 +457,6 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
     return *the_psm;
   }
 
-  bool Lj = false;
-  bool Sj = false;
   bb_analysis_t Analysis;
 
   template <bool MT, bool MinSize>
@@ -695,18 +710,66 @@ using ip_call_graph_base_t =
 template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 
+//
+// anything that can be solely derived from static analysis (but including
+// DynTargets), pertaining to a function, should exist in the following struct
+// (it will not be serialized).
+//
 struct function_analysis_t {
   boost::interprocess::offset_ptr<segment_manager_t> psm = nullptr;
 
   tcg_global_set_t args{0}, rets{0};
 
+  //
+  // if set, this flag implies that the preceeding analysis results are not to
+  // be considered (at all, in any way).
+  //
   ip_atomic_flag Stale = BOOST_ATOMIC_FLAG_INIT;
 
   atomic_offset_ptr<void> pCallers = nullptr;
 
-  bool IsLeaf = false;
-  bool IsSj = false;
-  bool IsLj = false;
+  enum class bits_t : uint8_t {
+    //
+    // jove's definition of what "ABI" means for a given function f is:
+    //   (1) f is called by another, distinct, dynamic shared object.
+    //      or,
+    //   (2) f is set up to run by the kernel itself.
+    //      and,
+    //   f conforms to, some known calling convention.
+    //
+    ABI,
+
+    //
+    // this function can return (this does not mean it necessarily will return).
+    //
+    Returns,
+
+    //
+    // this function does not call any other function.
+    //
+    Leaf,
+
+    //
+    // this function is akin to setjmp(3). recompiled code will call it as it is.
+    //
+    Sj,
+
+    //
+    // this function is akin to longjmp(3). similarly, it will be called directly.
+    //
+    Lj,
+  };
+
+  ip_atomic<uint8_t> bits = 0;
+
+  bool ABI(void)     const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::ABI))); }
+  bool Returns(void) const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Returns))); }
+  bool Leaf(void)    const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Leaf))); }
+  bool Sj(void)      const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Sj))); }
+  bool Lj(void)      const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Lj))); }
+
+  void SetABI(void)     { bits.fetch_or(1u<<static_cast<uint8_t>(bits_t::ABI),     boost::memory_order_relaxed); }
+  void SetReturns(void) { bits.fetch_or(1u<<static_cast<uint8_t>(bits_t::Returns), boost::memory_order_relaxed); }
 
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
     ip_atomic<call_graph_index_t> Idx = invalid_call_graph_index;
@@ -810,25 +873,20 @@ struct function_analysis_t {
   ip_call_graph_base_t<MT>::vertex_descriptor
   ReverseCGVert(jv_base_t<MT, MinSize> &);
 
-  explicit function_analysis_t(segment_manager_t *psm) noexcept : psm(psm) {
-    this->Invalidate();
-  }
-  explicit function_analysis_t() = delete;
-  ~function_analysis_t() noexcept;
-
-  explicit function_analysis_t(const function_analysis_t &) noexcept = delete;
-  function_analysis_t &operator=(const function_analysis_t &) noexcept = delete;
-
-  explicit function_analysis_t(function_analysis_t &&other) noexcept
+  function_analysis_t() noexcept                                  { this->Invalidate(); }
+  function_analysis_t(segment_manager_t *psm) noexcept : psm(psm) { this->Invalidate(); }
+  function_analysis_t(function_analysis_t &&other) noexcept
       : psm(other.psm),
         args(other.args),
         rets(other.rets),
-        IsLeaf(other.IsLeaf),
-        IsSj(other.IsSj),
-        IsLj(other.IsLj),
         ReverseCGVertIdxHolder(std::move(other.ReverseCGVertIdxHolder)) {
     moveFrom(std::move(other));
   }
+
+  ~function_analysis_t() noexcept;
+
+  function_analysis_t(const function_analysis_t &) noexcept = delete;
+  function_analysis_t &operator=(const function_analysis_t &) noexcept = delete;
 
   function_analysis_t &operator=(function_analysis_t &&other) noexcept {
     if (this == &other)
@@ -837,10 +895,8 @@ struct function_analysis_t {
     this->psm = other.psm;
     this->args = other.args;
     this->rets = other.rets;
-    this->IsLeaf = other.IsLeaf;
-    this->IsSj = other.IsSj;
-    this->IsLj = other.IsLj;
     this->ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
+
     moveFrom(std::move(other));
 
     return *this;
@@ -850,6 +906,9 @@ struct function_analysis_t {
 
 private:
   void moveFrom(function_analysis_t &&other) noexcept {
+    this->bits.store(other.bits.exchange(0, boost::memory_order_relaxed),
+                     boost::memory_order_relaxed),
+
     this->pCallers.store(
         other.pCallers.exchange(nullptr, boost::memory_order_relaxed),
         boost::memory_order_relaxed);
@@ -862,15 +921,40 @@ private:
 };
 
 struct function_t {
-  bool Speculative = false;
-
   binary_index_t BIdx = invalid_binary_index;
   function_index_t Idx = invalid_function_index;
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  bool IsABI = false;
-  bool IsSignalHandler = false;
-  bool Returns = false;
+  enum class bits_t : uint8_t {
+    //
+    // to disassemble this function, it was necessary to go "off the map"
+    // because doing otherwise (staying on the map) would have resulted in
+    // disassembly beginning in the middle of an already-identified-instruction.
+    //
+    // because jove is exceptionally careful about only exploring from known
+    // starting points of basic blocks, in practice, this should never occur.
+    // code which fulfills the promise that dynamic linking provides is, by its
+    // nature, known to jove, and appropriately handled. all other code which
+    // self-modifies itself in unforseen ways is a target of future work.
+    //
+    // this bit was motivated by the use of Intel Processor Trace (which does
+    // in fact contain known errata) that ultimately resulted in innacurate
+    // disassembly (despite the fact that the information is dynamic in nature).
+    //
+    Speculative,
+
+    //
+    // the address of this function was passed to rt_sigaction(2) at runtime.
+    //
+    Handler
+  };
+
+  ip_atomic<uint8_t> bits = 0;
+
+  bool Speculative(void) const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Speculative))); }
+  bool Handler(void)     const { return !!(bits.load(boost::memory_order_relaxed) & (1u<<static_cast<uint8_t>(bits_t::Handler))); }
+
+  void SetIsSpeculative(bool IsSpeculative) { this->bits.fetch_or(static_cast<uint8_t>(IsSpeculative)<<static_cast<uint8_t>(bits_t::Speculative), boost::memory_order_relaxed); }
 
   function_analysis_t Analysis;
 
@@ -878,19 +962,26 @@ struct function_t {
     return Analysis.get_segment_manager();
   }
 
+  function_t() = delete;
+  function_t(segment_manager_t *psm) noexcept : Analysis(psm) {}
+  function_t(function_t &&other) noexcept
+    : BIdx(other.BIdx),
+      Idx(other.Idx),
+      Entry(other.Entry),
+      Analysis(std::move(other.Analysis)) {
+    bits.store(other.bits.exchange(0, boost::memory_order_relaxed), boost::memory_order_relaxed);
+  }
+
   template <bool MT, bool MinSize>
   function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noexcept
       : BIdx(b.Idx /* could be invalid */), Idx(Idx),
-        Analysis(&b.get_segment_manager()) {}
-  explicit function_t(segment_manager_t *psm) noexcept // XXX used by serialize
-      : Analysis(psm) {}
-  explicit function_t() = delete;
+        Analysis(&b.get_segment_manager())
+  {}
+
+  function_t &operator=(function_t &&) noexcept = default;
 
   explicit function_t(const function_t &) noexcept = delete;
   function_t &operator=(const function_t &) noexcept = delete;
-
-  explicit function_t(function_t &&) noexcept = default;
-  function_t &operator=(function_t &&) noexcept = default;
 };
 
 #include "jove/objdump.h.inc"

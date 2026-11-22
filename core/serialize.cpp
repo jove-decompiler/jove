@@ -463,7 +463,8 @@ static void serialize(Archive &ar, jove::binary_base_t<MT, MinSize> &b,
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
      &BOOST_SERIALIZATION_NVP(b.Analysis.EntryFunction)
      &BOOST_SERIALIZATION_NVP(b.Analysis.Functions)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.ICFG);
+     &BOOST_SERIALIZATION_NVP(b.Analysis.ICFG)
+  ;
 }
 
 //
@@ -471,14 +472,12 @@ static void serialize(Archive &ar, jove::binary_base_t<MT, MinSize> &b,
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(f.Speculative)
+  ar &BOOST_SERIALIZATION_NVP(f.bits)
      &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
 //   &BOOST_SERIALIZATION_NVP(f.Analysis)
-     &BOOST_SERIALIZATION_NVP(f.IsABI)
-     &BOOST_SERIALIZATION_NVP(f.IsSignalHandler)
-     &BOOST_SERIALIZATION_NVP(f.Returns);
+  ;
 }
 
 //
@@ -504,8 +503,7 @@ static void save(Archive &ar, const jove::bbprop_t &bbprop, const unsigned int) 
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
 //   &BOOST_SERIALIZATION_NVP(bbprop.Analysis)
-     &BOOST_SERIALIZATION_NVP(bbprop.Lj)
-     &BOOST_SERIALIZATION_NVP(bbprop.Sj);
+  ;
 
   assert(jove::pFile_hack);
   jove::jv_file_t &jv_file = *jove::pFile_hack;
@@ -554,8 +552,7 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
 //   &BOOST_SERIALIZATION_NVP(bbprop.Analysis)
-     &BOOST_SERIALIZATION_NVP(bbprop.Lj)
-     &BOOST_SERIALIZATION_NVP(bbprop.Sj);
+  ;
 
   assert(jove::pFile_hack);
   jove::jv_file_t &jv_file = *jove::pFile_hack;

@@ -269,10 +269,10 @@ std::string recoverer_base_t<MT, MinSize>::RecoverABI(binary_index_t BIdx,
 
   function_t &f = function_of_target(NewABI, jv);
 
-  if (f.IsABI)
+  if (f.Analysis.ABI())
     return std::string(); // given function already marked as an ABI
 
-  f.IsABI = true;
+  f.Analysis.SetABI();
 
   return (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR)
           % addr2str(jv.Binaries.at(NewABI.first), entry_address_of_function(f, jv.Binaries.at(NewABI.first))))
@@ -317,7 +317,7 @@ std::string recoverer_base_t<MT, MinSize>::Returns(binary_index_t CallBIdx,
     assert(TermAddr);
 
     if (isCall && is_function_index_valid(bbprop.Term._call.Target))
-      b.Analysis.Functions.at(bbprop.Term._call.Target).Returns = true;
+      b.Analysis.Functions.at(bbprop.Term._call.Target).Analysis.SetReturns();
 
     unsigned deg = ICFG.out_degree(bb);
     if (deg > 0)

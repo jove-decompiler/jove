@@ -244,7 +244,7 @@ struct analyzer_t {
     //
     if (options.Conservative >= 1)
       for_each_function_if(
-          maybe_par_unseq, jv, [](function_t &f) { return f.IsABI; },
+          maybe_par_unseq, jv, [](function_t &f) { return f.Analysis.ABI(); },
           [](function_t &f, binary_t &b) {
             auto &ICFG = b.Analysis.ICFG;
             assert(is_basic_block_index_valid(f.Entry));

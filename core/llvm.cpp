@@ -2352,7 +2352,7 @@ void llvm_t<MT, MinSize>::ExplodeFunctionArgs(const function_t &f,
                                               std::vector<unsigned> &glbv) {
   tcg_global_set_t args = DetermineFunctionArgs(f);
 
-  if (f.IsABI)
+  if (f.Analysis.ABI())
     args &= CallConvArgs;
 
   explode_tcg_global_set(glbv, args);
@@ -2364,7 +2364,7 @@ void llvm_t<MT, MinSize>::ExplodeFunctionRets(const function_t &f,
                                               std::vector<unsigned> &glbv) {
   tcg_global_set_t rets = DetermineFunctionRets(f);
 
-  if (f.IsABI)
+  if (f.Analysis.ABI())
     rets &= CallConvRets;
 
   explode_tcg_global_set(glbv, rets);
@@ -2464,17 +2464,17 @@ llvm_t<MT, MinSize>::CreateFunction(const function_t &f) {
 
     const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
 
-    std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
+    std::string jove_name = (fmt("%c%lx") % (f.Analysis.ABI() ? 'J' : 'j') % Addr).str();
 
-    llvm::Function *const F =
-        llvm::Function::Create(DetermineFunctionType(f),
-                               f.IsABI ? llvm::GlobalValue::ExternalLinkage
-                                       : llvm::GlobalValue::InternalLinkage,
-                               jove_name, Module.get());
+    llvm::Function *const F = llvm::Function::Create(
+        DetermineFunctionType(f),
+        f.Analysis.ABI() ? llvm::GlobalValue::ExternalLinkage
+                         : llvm::GlobalValue::InternalLinkage,
+        jove_name, Module.get());
 
     //F->addFnAttr(llvm::Attribute::NoInline);
 
-    if (f.IsABI) {
+    if (f.Analysis.ABI()) {
       F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
 #if defined(TARGET_I386)
@@ -2515,7 +2515,7 @@ llvm_t<MT, MinSize>::CreateFunction(const function_t &f) {
     }
 
     llvm::Function *adapterF = nullptr;
-    if (!f.IsABI) {
+    if (!f.Analysis.ABI()) {
       //
       // create "ABI adapter"
       //
@@ -2637,7 +2637,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
 
     auto &y = state.for_function(f);
 
-    if (!f.IsABI)
+    if (!f.Analysis.ABI())
       assert(y.adapterF);
 
     C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr());
@@ -3067,7 +3067,7 @@ void llvm_t<MT, MinSize>::elf_compute_irelative_relocation(IRBuilderTy &IRB,
   }
 
   const function_t &resolver_f = function_at_address(Binary, resolverAddr);
-  assert(resolver_f.IsABI && "resolver function should be ABI!");
+  assert(resolver_f.Analysis.ABI() && "resolver function should be ABI!");
 
   llvm::Function *resolverF = state.for_function(resolver_f).F;
 
@@ -3211,9 +3211,9 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
     bool ShouldPlant(const function_t &f) {
       return is_basic_block_index_valid(f.Entry) &&
-             f.IsABI &&
-             !f.Analysis.IsLj &&
-             !f.Analysis.IsSj;
+             f.Analysis.ABI() &&
+             !f.Analysis.Lj() &&
+             !f.Analysis.Sj();
     }
 
     PatchContents(llvm_t &tool, const binary_t &Binary)
@@ -4900,7 +4900,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
         const function_t &f = function_at_address(Binary, Addr);
 
-        if (!f.IsABI) {
+        if (!f.Analysis.ABI()) {
           WithColor::error() << llvm::formatv(
               "!IsABI for {0}; did you run jove-bootstrap -s?\n",
               state.for_function(f).F->getName());
@@ -5938,7 +5938,7 @@ llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
   }
 
   llvm::Function *adapterF = nullptr;
-  if (!f.IsABI) {
+  if (!f.Analysis.ABI()) {
     //
     // build "ABI adapter"
     //
@@ -6269,7 +6269,7 @@ int llvm_t<MT, MinSize>::TranslateFunctions(void) {
       }
 
       if (oldAdapterF) {
-        if (f.IsABI) {
+        if (f.Analysis.ABI()) {
           oldAdapterF->replaceAllUsesWith(newF);
         } else {
           assert_msg(newAdapterF, [&](void) -> std::string { return newF->getName().str(); });
@@ -8028,8 +8028,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     //
     // setjmp/longjmp
     //
-    const bool Lj = callee.Analysis.IsLj;
-    const bool Sj = callee.Analysis.IsSj;
+    const bool Lj = callee.Analysis.Lj();
+    const bool Sj = callee.Analysis.Sj();
     const bool SjLj = Lj || Sj;
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
@@ -8163,7 +8163,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       }
     }
 
-    if (callee.IsABI)
+    if (callee.Analysis.ABI())
       store_stack_pointer();
 
     std::vector<llvm::Value *> ArgVec;
@@ -8194,7 +8194,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       }
     }
 
-    if (callee.IsABI) {
+    if (callee.Analysis.ABI()) {
       auto args = DetermineFunctionArgs(callee);
 
       //
@@ -8241,7 +8241,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       Ret->setMetadata("jove.hook", Node);
     }
 
-    if (callee.IsABI) {
+    if (callee.Analysis.ABI()) {
       Ret->setIsNoInline();
 
 #if defined(TARGET_I386)
@@ -8469,7 +8469,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
-    if (!IsCall && ICFG[bb].Lj) {
+    if (!IsCall && ICFG[bb].Analysis.Lj()) {
       llvm::outs() << llvm::formatv("longjmp at {0:x}\n", ICFG[bb].Addr());
 
       std::string message =
@@ -8517,11 +8517,11 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     // setjmp/longjmp
     //
     const bool Lj = DynTargets.AnyOf([&](dynamic_target_t X) -> bool {
-      return function_of_target(X, jv).Analysis.IsLj;
+      return function_of_target(X, jv).Analysis.Lj();
     });
 
     const bool Sj = DynTargets.AnyOf([&](dynamic_target_t X) -> bool {
-      return function_of_target(X, jv).Analysis.IsSj;
+      return function_of_target(X, jv).Analysis.Sj();
     });
 
     const bool SjLj = Lj || Sj;
@@ -8650,7 +8650,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     assert(!SjLj);
 
     bool IsABICall = DynTargets.AllOf([&](const dynamic_target_t &X) -> bool {
-      return function_of_target(X, jv).IsABI;
+      return function_of_target(X, jv).Analysis.ABI();
     });
 
     if (options.ABICalls && IsABICall)
@@ -8851,8 +8851,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
           const function_t &callee = function_of_target(DynTargetsVec[i], jv);
 
-          const bool Lj = callee.Analysis.IsLj;
-          const bool Sj = callee.Analysis.IsSj;
+          const bool Lj = callee.Analysis.Lj();
+          const bool Sj = callee.Analysis.Sj();
           const bool SjLj = Lj || Sj;
 
           if (unlikely(SjLj)) {
@@ -9066,7 +9066,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
                              });
             }
 
-            if (callee.IsABI) {
+            if (callee.Analysis.ABI()) {
               //
               // store globals which are not passed as parameters to env
               //
@@ -9092,7 +9092,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
-            if (callee.IsABI) {
+            if (callee.Analysis.ABI()) {
 #if defined(TARGET_I386)
               //
               // XXX i386 quirk
@@ -9414,7 +9414,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
           IRB.CreateIntToPtr(IRB.CreateLoad(IRB.getPtrTy(), DFSanFiniClunk),
                              DFSanFiniFunc->getType()));
 
-    if (f.IsABI)
+    if (f.Analysis.ABI())
       store_stack_pointer();
 
     pop_off_callstack();

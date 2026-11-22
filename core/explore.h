@@ -162,7 +162,7 @@ public:
 
     function_t &f = b.Analysis.Functions.at(Idx);
 
-    f.Speculative = Speculative;
+    f.SetIsSpeculative(Speculative);
 
     get_newfn_proc()(b, f);
 
@@ -308,8 +308,10 @@ public:
 
     bbprop_2.addr.store(addr_intvl_lower(intvl_2), boost::memory_order_relaxed);
     bbprop_2.Size = intvl_2.second;
-    bbprop_2.Sj = bbprop_1.Sj;
     bbprop_2.Term = bbprop_1.Term;
+    bbprop_2.Analysis.bits.store(
+        bbprop_1.Analysis.bits.exchange(0, boost::memory_order_relaxed),
+        boost::memory_order_relaxed);
     assert(bbprop_2.Analysis.Stale.test(boost::memory_order_relaxed));
 
     assert(bbprop_2.Addr() + bbprop_2.Size == addr_intvl_upper(intvl));
@@ -324,8 +326,6 @@ public:
       bbprop_1.Size = off;
       bbprop_1.Term.Type = TERMINATOR::NONE;
       bbprop_1.Term.Addr = 0;
-      bbprop_1.Lj = false;
-      bbprop_1.Sj = false;
       bbprop_1.Analysis.Stale.test_and_set(boost::memory_order_relaxed);
 
       //
@@ -951,7 +951,7 @@ public:
       if (unlikely(!is_function_index_valid(FIdx)))
         return;
 
-      b.Analysis.Functions.at(FIdx).IsABI = true;
+      b.Analysis.Functions.at(FIdx).Analysis.SetABI();
     };
 
     B::_elf(Bin,

@@ -689,7 +689,7 @@ static inline bool IsFunctionSetjmp(
       bbvec.begin(),
       bbvec.end(),
       [&](typename ip_icfg_base_t<MT>::vertex_descriptor bb) -> bool {
-        return ICFG[bb].Sj;
+        return ICFG[bb].Analysis.Sj();
       });
 }
 
@@ -707,7 +707,7 @@ static inline bool IsFunctionLongjmp(
       [&](typename ip_icfg_base_t<MT>::vertex_descriptor bb) -> bool {
         auto &bbprop = ICFG[bb];
         auto &Term = bbprop.Term;
-        return Term.Type == TERMINATOR::INDIRECT_JUMP && bbprop.Lj;
+        return Term.Type == TERMINATOR::INDIRECT_JUMP && bbprop.Analysis.Lj();
       });
 }
 

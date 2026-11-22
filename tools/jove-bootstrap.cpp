@@ -1703,7 +1703,7 @@ void BootstrapTool::place_breakpoint_in_block(binary_t &b,
 #endif
 
   const bool IC = IsTerminatorCall(TermType);
-  const bool Lj = bbprop.Lj;
+  const bool Lj = bbprop.Analysis.Lj();
   const bool NonZeroOutDegree = ICFG.template out_degree<false>(basic_block_of_index(BBIdx, b)) != 0;
   const bool HasDynTarget = bbprop.hasDynTarget();
 
@@ -2498,7 +2498,7 @@ binary_index_t BootstrapTool::found_binary(const binary_t &b,
               BBIdx = TheBBIdx;
               TermType = TheTermType;
               IC = IsTerminatorCall(TheTermType);
-              Lj = bbprop.Lj;
+              Lj = bbprop.Analysis.Lj();
               NonZeroOutDegree = ICFG.template out_degree<false>(basic_block_of_index(TheBBIdx, b)) != 0;
               HasDynTarget = bbprop.hasDynTarget();
 
@@ -3029,7 +3029,7 @@ void BootstrapTool::on_return(pid_t child,
     assert(ICFG.out_degree(before_bb) <= 1);
 
     if (isCall && is_function_index_valid(before_Term._call.Target))
-      b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
+      b.Analysis.Functions.at(before_Term._call.Target).Analysis.SetReturns();
 
     // connect
     if (ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)).second)
