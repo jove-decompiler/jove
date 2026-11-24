@@ -110,7 +110,7 @@ private:
     BasicBlockStateContainer bbvec;
   };
 
-  std::deque<ForBinary> vec;
+  boost::container::segtor<ForBinary> vec;
 
   mutable MutexType<BOpts> mtx;
 
