@@ -121,4 +121,18 @@ constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
 #error
 #endif
 
+constexpr bool AreTargetInsnsVariableLength =
+#if defined(TARGET_X86_64)
+    true
+#elif defined(TARGET_I386)
+    true
+#elif defined(TARGET_AARCH64)
+    false
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    false
+#else
+#error
+#endif
+    ;
+
 constexpr unsigned MaxInstLen = THE_MAX_INST_LEN;
