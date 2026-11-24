@@ -350,7 +350,7 @@ int CFGTool::Run(void) {
     //
     // there is a function at the exact address provided.
     //
-    source_BBIdx = function_at_address(b, Addr).Entry;
+    source_BBIdx = function_at_address(b, Addr).EntryIdx;
   } else if (exists_basic_block_at_address(Addr, b)) {
     //
     // there is a block we know about at the address.
@@ -370,7 +370,7 @@ int CFGTool::Run(void) {
       }
 
       /* parent chosen arbitrarily XXX? */
-      source_BBIdx = b.Analysis.Functions.at(*Parents.begin()).Entry;
+      source_BBIdx = b.Analysis.Functions.at(*Parents.begin()).EntryIdx;
     } else {
       source_BBIdx = index_of_basic_block_at_address(Addr, b);
     }

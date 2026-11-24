@@ -141,7 +141,7 @@ StraightLineGo(BinaryTy &b,
       if (unlikely(!is_function_index_valid(CalleeIdx)))
         break;
 
-      basic_block_index_t EntryBBIdx = b.Analysis.Functions.at(CalleeIdx).Entry;
+      basic_block_index_t EntryBBIdx = b.Analysis.Functions.at(CalleeIdx).EntryIdx;
       if (!unlikely(is_basic_block_index_valid(EntryBBIdx))) {
 #if 0
         if constexpr (IsVerbose())

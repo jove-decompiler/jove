@@ -1945,7 +1945,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
       assert(is_function_index_valid(FIdx));
 
       function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
-      basic_block_index_t TargetEntry = TargetFunction.Entry;
+      basic_block_index_t TargetEntry = TargetFunction.EntryIdx;
       bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
 
       print_thing("call", std::pair<binary_t &, bb_t>(TargetBinary, TargetEntryBB));
@@ -2007,7 +2007,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
 
           assert(is_function_index_valid(FIdx));
           function_t &TargetFunction = TargetBinary.Analysis.Functions.at(FIdx);
-          basic_block_index_t TargetEntry = TargetFunction.Entry;
+          basic_block_index_t TargetEntry = TargetFunction.EntryIdx;
           bb_t TargetEntryBB = basic_block_of_index(TargetEntry, TargetICFG);
 
           /* FIXME is new? */
@@ -2073,7 +2073,7 @@ bool BootstrapTool::on_breakpoint(pid_t child,
           });
 
       const function_t &TargetFunction = binary.Analysis.Functions.at(FIdx);
-      const basic_block_index_t TargetEntry = TargetFunction.Entry;
+      const basic_block_index_t TargetEntry = TargetFunction.EntryIdx;
       assert(is_basic_block_index_valid(TargetEntry));
 
       bb_t TargetEntryBB = basic_block_of_index(TargetEntry, binary.Analysis.ICFG);

@@ -91,6 +91,8 @@ out:
 template <bool MT, bool MinSize>
 void bbprop_t::Parents_t::insert(function_index_t FIdx,
                                  binary_base_t<MT, MinSize> &b) {
+  assert(is_function_index_valid(FIdx));
+
   {
     const ip_func_index_vec &FIdxVec = get<MT>();
 

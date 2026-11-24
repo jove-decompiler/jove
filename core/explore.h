@@ -135,18 +135,22 @@ public:
 #endif
     assert(is_taddr_valid(Addr));
 
+    const basic_block_index_t EntryIdx =
+        _explore_basic_block<false>(b, cb, Addr, Speculative);
+    assert(is_basic_block_index_valid(EntryIdx));
+
     function_index_t Idx = invalid_function_index;
     {
       bool inserted;
       if constexpr (MT) {
         inserted = b.fnmap.try_emplace_or_cvisit(
-            Addr, b, std::ref(Idx), [&](const auto &x) {
+            Addr, b, std::ref(Idx), EntryIdx, [&](const auto &x) {
               Idx = static_cast<function_index_t>(x.second);
             });
       } else {
         auto it = b.fnmap.find(Addr);
         if (it == b.fnmap.end()) {
-          inserted = b.fnmap.try_emplace(Addr, b, std::ref(Idx)).second;
+          inserted = b.fnmap.try_emplace(Addr, b, std::ref(Idx), EntryIdx).second;
           assert(inserted);
         } else {
           inserted = false;
@@ -165,13 +169,6 @@ public:
     f.SetIsSpeculative(Speculative);
 
     get_newfn_proc()(b, f);
-
-    const basic_block_index_t EntryIdx =
-        _explore_basic_block<false>(b, cb, Addr, Speculative, Idx);
-
-    assert(is_basic_block_index_valid(EntryIdx));
-
-    f.Entry = EntryIdx;
 
     //
     // all blocks reachable from Entry now have f as a parent

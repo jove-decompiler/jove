@@ -13,7 +13,7 @@ bool binary_analysis_t<MT, MinSize>::IsFunctionEntrypoint(bb_t bb) const {
                      ParentVec.cend(),
                      [&](function_index_t FIdx) {
                        const function_t &f = this->Functions.at(FIdx);
-                       return f.Entry == BBIdx;
+                       return f.EntryIdx == BBIdx;
                      });
 }
 

@@ -75,7 +75,7 @@ std::string recoverer_base_t<MT, MinSize>::RecoverDynamicTarget(
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
-  assert(is_basic_block_index_valid(callee.Entry));
+  assert(is_basic_block_index_valid(callee.EntryIdx));
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
 

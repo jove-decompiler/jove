@@ -589,7 +589,7 @@ static inline void basic_blocks_of_function(
 
   const auto &ICFG = b.Analysis.ICFG;
 
-  basic_blocks_of_function_at_block(basic_block_of_index(f.Entry, ICFG), b, out);
+  basic_blocks_of_function_at_block(basic_block_of_index(f.EntryIdx, ICFG), b, out);
 }
 
 template <bool MT, bool MinSize>
@@ -644,7 +644,7 @@ static inline bool does_function_at_block_return(
 template <bool MT, bool MinSize>
 static inline bool does_function_return(const function_t &f,
                                         const binary_base_t<MT, MinSize> &b) {
-  return does_function_at_block_return(basic_block_of_index(f.Entry, b), b);
+  return does_function_at_block_return(basic_block_of_index(f.EntryIdx, b), b);
 }
 
 template <bool MT, bool MinSize>
@@ -862,7 +862,7 @@ static inline taddr_t
 entry_address_of_function(const function_t &f,
                           const binary_base_t<MT, MinSize> &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
-  return ICFG[basic_block_of_index(f.Entry, binary)].Addr();
+  return ICFG[basic_block_of_index(f.EntryIdx, binary)].Addr();
 }
 
 template <bool MT, bool MinSize>

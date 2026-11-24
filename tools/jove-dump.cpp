@@ -366,7 +366,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
                          _Parents.cend(),
                          avec.begin(),
                          [&](function_index_t FIdx) -> taddr_t {
-                           basic_block_index_t EntryIdx = B.Analysis.Functions.at(FIdx).Entry;
+                           basic_block_index_t EntryIdx = B.Analysis.Functions.at(FIdx).EntryIdx;
                            bb_t Entry = basic_block_of_index(EntryIdx, ICFG);
                            return ICFG[Entry].Addr();
                          });
@@ -380,13 +380,13 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
       llvm::ListScope ___(Writer, (fmt("Functions (%u)") % B.Analysis.Functions.size()).str());
 
       for (const function_t &f : B.Analysis.Functions) {
-        if (!is_binary_index_valid(f.BIdx) || !is_basic_block_index_valid(f.Entry)) {
+        if (!is_binary_index_valid(f.BIdx) || !is_basic_block_index_valid(f.EntryIdx)) {
           llvm::errs() << llvm::formatv(
               "invalid function with index {0}, skipping\n", f.Idx);
           continue;
         }
 
-        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()).str());
+        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr()).str());
 
         //Writer.printHex("Address", ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
 
@@ -505,7 +505,7 @@ int DumpTool::Run(void) {
              ++FIdx) {
           const function_t &function = binary.Analysis.Functions.at(FIdx);
           taddr_t Addr =
-              ICFG[basic_block_of_index(function.Entry, ICFG)].Addr();
+              ICFG[basic_block_of_index(function.EntryIdx, ICFG)].Addr();
 
           llvm::outs() << llvm::formatv("{0:x}\n", Addr);
         }

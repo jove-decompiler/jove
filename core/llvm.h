@@ -239,7 +239,7 @@ struct llvm_t {
     } old;
 
     function_state_t(const auto &f, const auto &b) {
-      if (!is_basic_block_index_valid(f.Entry))
+      if (!is_basic_block_index_valid(f.EntryIdx))
         return;
 
       basic_blocks_of_function(f, b, bbvec);
@@ -720,7 +720,7 @@ private:
         return llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
       } else {
         auto &ICFG = binary.Analysis.ICFG;
-        return SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr());
+        return SectionPointer(ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr());
       }
     }
 

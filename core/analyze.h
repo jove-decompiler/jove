@@ -247,8 +247,8 @@ struct analyzer_t {
           maybe_par_unseq, jv, [](function_t &f) { return f.Analysis.ABI(); },
           [](function_t &f, binary_t &b) {
             auto &ICFG = b.Analysis.ICFG;
-            assert(is_basic_block_index_valid(f.Entry));
-            ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
+            assert(is_basic_block_index_valid(f.EntryIdx));
+            ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Analysis.live.use |= CallConvArgs;
           });
 
     return 0;

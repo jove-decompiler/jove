@@ -1985,7 +1985,7 @@ llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
 
       auto &ICFG = Binary.Analysis.ICFG;
 
-      uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
+      uint64_t Addr = ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr();
 
       IRB.CreateRet(IRB.CreateIntToPtr(
           SectionPointer(Addr), F->getFunctionType()->getReturnType()));
@@ -2439,7 +2439,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
   const auto &ICFG = Binary.Analysis.ICFG;
 
   for_each_function_in_binary(Binary, [&](const function_t &f) {
-    if (unlikely(!is_basic_block_index_valid(f.Entry)))
+    if (unlikely(!is_basic_block_index_valid(f.EntryIdx)))
       return;
 
     const auto newPair = CreateFunction(f);
@@ -2457,12 +2457,12 @@ std::pair<llvm::Function *, llvm::Function *>
 llvm_t<MT, MinSize>::CreateFunction(const function_t &f) {
   const auto &ICFG = Binary.Analysis.ICFG;
 
-    if (unlikely(!is_basic_block_index_valid(f.Entry)))
+    if (unlikely(!is_basic_block_index_valid(f.EntryIdx)))
       return std::make_pair(nullptr, nullptr);
 
     assert(!state.for_function(f).F);
 
-    const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
+    const uint64_t Addr = ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr();
 
     std::string jove_name = (fmt("%c%lx") % (f.Analysis.ABI() ? 'J' : 'j') % Addr).str();
 
@@ -2628,7 +2628,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
     llvm::Constant *&C2 = constantTable[3 * i + 1];
     llvm::Constant *&C3 = constantTable[3 * i + 2];
 
-    if (unlikely(!is_basic_block_index_valid(f.Entry))) {
+    if (unlikely(!is_basic_block_index_valid(f.EntryIdx))) {
       C1 = llvm::Constant::getNullValue(WordType());
       C2 = llvm::Constant::getNullValue(WordType());
       C3 = llvm::Constant::getNullValue(WordType());
@@ -2640,7 +2640,7 @@ int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
     if (!f.Analysis.ABI())
       assert(y.adapterF);
 
-    C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr());
+    C1 = SectionPointer(ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr());
 #if 0
     C2 = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
 #else
@@ -3210,7 +3210,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     std::vector<std::array<uint8_t, TargetBrkptLen>> Saved;
 
     bool ShouldPlant(const function_t &f) {
-      return is_basic_block_index_valid(f.Entry) &&
+      return is_basic_block_index_valid(f.EntryIdx) &&
              f.Analysis.ABI() &&
              !f.Analysis.Lj() &&
              !f.Analysis.Sj();
@@ -5412,7 +5412,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
                   WordType(),
                   B::offset_of_va(
                       state.for_binary(dynl_binary).cb.first.get(),
-                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()));
+                      ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr()));
             });
 
         constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -5447,7 +5447,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
                   WordType(),
                   B::offset_of_va(
                       state.for_binary(vdso_binary).cb.first.get(),
-                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()));
+                      ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr()));
             });
 
         constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -5525,7 +5525,7 @@ int llvm_t<MT, MinSize>::FixupRuntimeStubs(void) {
                 const function_t &f = binary.Analysis.Functions.at(FIdx);
 
                 constantTable[FIdx] = llvm::ConstantInt::get(WordType(),
-                  B::offset_of_va(Bin.get(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr()));
+                  B::offset_of_va(Bin.get(), ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr()));
               }
 
               constantTable.back() = llvm::Constant::getNullValue(WordType());
@@ -7887,7 +7887,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   } while (size < Size);
 
   if (T.Type != ICFG[bb].Term.Type) {
-    uint64_t FuncAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr();
+    uint64_t FuncAddr = ICFG[basic_block_of_index(f.EntryIdx, ICFG)].Addr();
 
     WithColor::error() << llvm::formatv(
         "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
@@ -8039,7 +8039,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       if (options.IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
-                                    ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr(),
+                                    ICFG[basic_block_of_index(callee.EntryIdx, ICFG)].Addr(),
                                     ICFG[bb].Term.Addr, DynTargetDesc);
 
       if (Sj)
@@ -9522,7 +9522,7 @@ std::string llvm_t<MT, MinSize>::dyn_target_desc(dynamic_target_t IdxPair) {
   const function_t &f = b.Analysis.Functions.at(DynTarget.FIdx);
 
   uint64_t Addr =
-      b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr();
+      b.Analysis.ICFG[basic_block_of_index(f.EntryIdx, b.Analysis.ICFG)].Addr();
 
   const auto offset = B::cached::offset_of_va(state.for_binary(b).cb, Addr);
 

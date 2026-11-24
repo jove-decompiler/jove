@@ -475,7 +475,7 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
   ar &BOOST_SERIALIZATION_NVP(f.bits)
      &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Idx)
-     &BOOST_SERIALIZATION_NVP(f.Entry)
+     &BOOST_SERIALIZATION_NVP(f.EntryIdx)
 //   &BOOST_SERIALIZATION_NVP(f.Analysis)
   ;
 }

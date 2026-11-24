@@ -218,7 +218,8 @@ struct allocates_function_t {
   // allocates (creates) new function in binary, stores index
   template <bool MT, bool MinSize>
   explicit allocates_function_t(binary_base_t<MT, MinSize> &b,
-                                function_index_t &store) noexcept;
+                                function_index_t &store,
+                                basic_block_index_t EntryIdx) noexcept;
 
   explicit operator function_index_t() const { return FIdx; }
 };
@@ -923,7 +924,7 @@ private:
 struct function_t {
   binary_index_t BIdx = invalid_binary_index;
   function_index_t Idx = invalid_function_index;
-  basic_block_index_t Entry = invalid_basic_block_index;
+  basic_block_index_t EntryIdx = invalid_basic_block_index;
 
   enum class bits_t : uint8_t {
     //
@@ -967,16 +968,20 @@ struct function_t {
   function_t(function_t &&other) noexcept
     : BIdx(other.BIdx),
       Idx(other.Idx),
-      Entry(other.Entry),
+      EntryIdx(other.EntryIdx),
       Analysis(std::move(other.Analysis)) {
     bits.store(other.bits.exchange(0, boost::memory_order_relaxed), boost::memory_order_relaxed);
   }
 
   template <bool MT, bool MinSize>
-  function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noexcept
-      : BIdx(b.Idx /* could be invalid */), Idx(Idx),
-        Analysis(&b.get_segment_manager())
-  {}
+  function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx,
+             basic_block_index_t EntryIdx) noexcept
+      : BIdx(b.Idx /* could be invalid */),
+        Idx(Idx),
+        EntryIdx(EntryIdx),
+        Analysis(&b.get_segment_manager()) {
+    assert(is_basic_block_index_valid(EntryIdx));
+  }
 
   function_t &operator=(function_t &&) noexcept = default;
 
@@ -1245,19 +1250,22 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT, MinSize> &b,
 
 template <bool MT, bool MinSize>
 allocates_function_t::allocates_function_t(binary_base_t<MT, MinSize> &b,
-                                           function_index_t &store) noexcept {
+                                           function_index_t &store,
+                                           basic_block_index_t EntryIdx) noexcept {
   auto &Functions = b.Analysis.Functions;
 
+  function_index_t TheFIdx = invalid_function_index;
   {
     auto e_lck = Functions.exclusive_access();
 
     auto &x = Functions.container();
 
-    FIdx = x.size();
-    x.emplace_back(b, FIdx).Analysis.Invalidate();
+    TheFIdx = x.size();
+    x.emplace_back(b, TheFIdx, EntryIdx).Analysis.Invalidate();
   }
 
-  store = FIdx;
+  this->FIdx = TheFIdx;
+  store = TheFIdx;
 }
 
 typedef std::function<std::string_view(void)> get_data_t;
