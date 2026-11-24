@@ -231,6 +231,7 @@ public:
     // occur, we need to gtfo
     //
     {
+      if constexpr (AreTargetInsnsVariableLength) {
       uint64_t InstLen = 0;
       for (uint64_t A = beg; A < beg + len; A += InstLen) {
         llvm::MCInst Inst;
@@ -258,6 +259,10 @@ public:
       }
 
       return false; /* not on instruction! */
+      } else {
+      if ((Addr - beg) % MaxInstLen)
+        return false; /* not on instruction! */
+      }
     }
 
   on_insn:
