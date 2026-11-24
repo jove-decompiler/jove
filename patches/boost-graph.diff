@@ -135,10 +135,10 @@ index c9abfb32..1f6b5b7f 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index 113143a7..bc538f33 100644
+index 113143a7..4fdb581f 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
-@@ -18,153 +18,289 @@
+@@ -18,153 +18,309 @@
  #include <set>
  
  #include <boost/unordered_set.hpp>
@@ -166,6 +166,7 @@ index 113143a7..bc538f33 100644
 +#include <boost/interprocess/containers/deque.hpp>
 +#include <boost/interprocess/containers/list.hpp>
 +#include <boost/interprocess/containers/set.hpp>
++#include <boost/container/segtor.hpp>
 +
  namespace boost
  {
@@ -183,6 +184,9 @@ index 113143a7..bc538f33 100644
 +{
 +};
 +struct dequeS_ip
++{
++};
++struct segtorS_ip
 +{
 +};
  struct listS
@@ -251,6 +255,12 @@ index 113143a7..bc538f33 100644
 +    typedef interprocess::deque< ValueType, _Allocator > type;
 +};
 +
++template < class ValueType > struct container_gen< segtorS_ip, ValueType >
++{
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef container::segtor< ValueType, _Allocator > type;
++};
++
  template < class ValueType > struct container_gen< mapS, ValueType >
  {
      typedef std::set< ValueType > type;
@@ -313,6 +323,11 @@ index 113143a7..bc538f33 100644
 +};
 +
 +template <> struct interprocess_storage_traits< dequeS_ip >
++{
++    typedef disallow_pointers_tag type;
++};
++
++template <> struct interprocess_storage_traits< segtorS_ip >
 +{
 +    typedef disallow_pointers_tag type;
 +};
@@ -388,6 +403,11 @@ index 113143a7..bc538f33 100644
 +    typedef allow_parallel_edge_tag type;
 +};
 +
++template <> struct parallel_edge_traits< segtorS_ip >
++{
++    typedef allow_parallel_edge_tag type;
++};
++
  template <> struct parallel_edge_traits< listS >
  {
      typedef allow_parallel_edge_tag type;
@@ -428,7 +448,7 @@ index 113143a7..bc538f33 100644
  {
      typedef disallow_parallel_edge_tag type;
  };
-@@ -180,87 +316,109 @@ template <> struct parallel_edge_traits< hash_multimapS >
+@@ -180,87 +336,117 @@ template <> struct parallel_edge_traits< hash_multimapS >
  };
  
  namespace detail
@@ -458,6 +478,14 @@ index 113143a7..bc538f33 100644
 +        typedef mpl::true_ type;
 +    };
 +    template <> struct is_random_access< dequeS_ip >
++    {
++        enum
++        {
++            value = true
++        };
++        typedef mpl::true_ type;
++    };
++    template <> struct is_random_access< segtorS_ip >
 +    {
 +        enum
 +        {
@@ -542,7 +570,7 @@ index 113143a7..bc538f33 100644
  template < class OutEdgeListS = vecS, // a Sequence or an AssociativeContainer
      class VertexListS = vecS, // a Sequence or a RandomAccessContainer
      class DirectedS = directedS, class VertexProperty = no_property,
-@@ -282,75 +440,87 @@ class adjacency_list
+@@ -282,75 +468,87 @@ class adjacency_list
            EdgeProperty, GraphProperty, EdgeListS >,
        VertexListS, OutEdgeListS, DirectedS, VertexProperty, EdgeProperty,
        GraphProperty, EdgeListS >::type
@@ -1929,7 +1957,7 @@ index 86bcdc40..bbf6d14d 100644
          }
      };
 diff --git a/include/boost/pending/container_traits.hpp b/include/boost/pending/container_traits.hpp
-index 8bf113a3..45bc7ef3 100644
+index 8bf113a3..7c7e48bb 100644
 --- a/include/boost/pending/container_traits.hpp
 +++ b/include/boost/pending/container_traits.hpp
 @@ -5,40 +5,44 @@
@@ -1977,7 +2005,7 @@ index 8bf113a3..45bc7ef3 100644
  // The content of this file is in 'graph_detail' because otherwise
  // there will be name clashes with
  // sandbox/boost/sequence_algo/container_traits.hpp
-@@ -139,120 +143,203 @@ namespace graph_detail
+@@ -139,120 +143,228 @@ namespace graph_detail
  
      template < class T, class Alloc >
      vector_tag container_category(const std::vector< T, Alloc >&)
@@ -2160,6 +2188,31 @@ index 8bf113a3..45bc7ef3 100644
 +    struct container_traits< boost::interprocess::deque< T, Alloc > >
 +    {
 +        typedef deque_tag category;
++        typedef unstable_tag iterator_stability;
++    };
++
++    // boost::container::segtor
++    struct segtor_tag : virtual public random_access_container_tag,
++                        virtual public back_insertion_sequence_tag
++    {
++    };
++
++    template < class T, class Alloc >
++    segtor_tag container_category(const boost::container::segtor< T, Alloc >&)
++    {
++        return segtor_tag();
++    }
++
++    template < class T, class Alloc >
++    unstable_tag iterator_stability(const boost::container::segtor< T, Alloc >&)
++    {
++        return unstable_tag();
++    }
++
++    template < class T, class Alloc >
++    struct container_traits< boost::container::segtor< T, Alloc > >
++    {
++        typedef segtor_tag category;
 +        typedef unstable_tag iterator_stability;
 +    };
  

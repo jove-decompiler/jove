@@ -36,7 +36,6 @@
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/containers/vector.hpp>
-#include <boost/interprocess/containers/deque.hpp>
 #include <boost/interprocess/managed_mapped_file.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
@@ -56,7 +55,7 @@
 #include <boost/dynamic_bitset.hpp>
 #include <boost/container/static_vector.hpp>
 #include <boost/container/vector.hpp>
-#include <boost/container/deque.hpp>
+#include <boost/container/segtor.hpp>
 #include <boost/container/allocator.hpp>
 #include <boost/container/adaptive_pool.hpp>
 #include <boost/container/node_allocator.hpp>
@@ -72,7 +71,6 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <execution>
 #include <functional>
 #include <iomanip>

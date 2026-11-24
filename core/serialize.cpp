@@ -217,6 +217,43 @@ serialize(Archive &ar,
 }
 
 //
+// segtor
+//
+
+template <class Archive, class T, class Allocator, class Options>
+static inline void
+save(Archive &ar,
+     const boost::container::segtor<T, Allocator, Options> &x,
+     const unsigned int file_version) {
+  stl::save_collection<Archive, boost::container::segtor<T, Allocator, Options>>(ar, x);
+}
+
+template <class Archive, class T, class Allocator, class Options>
+static inline void load(Archive &ar,
+                        boost::container::segtor<T, Allocator, Options> &x,
+                        const unsigned int file_version) {
+  const boost::serialization::library_version_type library_version(
+      ar.get_library_version());
+  // retrieve number of elements
+  item_version_type item_version(0);
+  collection_size_type count;
+  ar >> BOOST_SERIALIZATION_NVP(count);
+  if (boost::serialization::library_version_type(3) < library_version) {
+    ar >> BOOST_SERIALIZATION_NVP(item_version);
+  }
+  stl::collection_load_impl(ar, x, count, item_version);
+}
+
+template <class Archive, class T, class Allocator, class Options>
+static inline void
+serialize(Archive &ar,
+          boost::container::segtor<T, Allocator, Options> &x,
+          const unsigned int file_version) {
+  boost::serialization::split_free(ar, x, file_version);
+}
+
+
+//
 // ip_deque
 //
 template <class Archive, class T, class Allocator, bool MT, bool Spin, bool PointUnique>

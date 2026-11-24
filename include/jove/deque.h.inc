@@ -9,10 +9,10 @@ template <typename T, typename Alloc,
           bool Spin = true,
           bool PointUnique = false>
 struct ip_deque : public ip_base_rw_accessible<MT, Spin> {
-  typedef boost::container::deque_options<
+  typedef boost::container::segtor_options<
       boost::container::stored_size<uint32_t>>::type DequeOptions;
 
-  using type = boost::interprocess::deque<T, Alloc, DequeOptions>;
+  using type = boost::container::segtor<T, Alloc, DequeOptions>;
 
   std::conditional_t<PointUnique, ip_unique_ptr<type>, type> _deque;
 
