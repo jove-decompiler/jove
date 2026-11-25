@@ -11,7 +11,7 @@ template <bool MT, bool Spin, bool PointUnique,
           class GraphProperty,
           class EdgeListS>
 struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
-  static_assert(!(MT && !std::is_same_v<VertexListS, boost::dequeS_ip>));
+  static_assert(!(MT && !std::is_same_v<VertexListS, boost::segtorS_ip>));
 
   using type = boost::adjacency_list<OutEdgeListS, VertexListS, DirectedS,
                                      VertexProperty, EdgeProperty,

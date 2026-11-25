@@ -603,7 +603,7 @@ ip_adjacency_list<MT,
                   true /* Spin */,
                   true /* PointUnique */,
                   boost::setS_ip,     /* OutEdgeList */
-                  boost::dequeS_ip,   /* VertexList */
+                  boost::segtorS_ip,  /* VertexList */
                   ___the_icfg_directedS, /* Directed */
                   bbprop_t,           /* VertexProperties */
                   boost::no_property, /* EdgeProperties */
@@ -699,7 +699,7 @@ using ip_call_graph_base_t =
                       true /* Spin */,
                       true /* PointUnique */,
                       boost::setS_ip, /* no parallel edges! */ /* OutEdgeList */
-                      boost::dequeS_ip,                        /* VertexList */
+                      boost::segtorS_ip,                       /* VertexList */
                       ___the_icg_directedS,                    /* Directed */
                       ip_call_graph_node_properties_t,         /* VertexProperties */
                       boost::no_property,                      /* EdgeProperties */
